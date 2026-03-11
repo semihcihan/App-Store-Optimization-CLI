@@ -1,0 +1,12 @@
+node_modules
+dist
+*.tsbuildinfo
+.jest-cache
+*.log
+.env
+.env.*
+*.p8
+.next
+build
+coverage
+*.map

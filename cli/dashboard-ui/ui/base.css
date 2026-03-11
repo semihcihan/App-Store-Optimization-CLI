@@ -1,0 +1,83 @@
+.ui-card {
+  background: linear-gradient(165deg, rgba(255, 255, 255, 0.02), rgba(255, 255, 255, 0)),
+    color-mix(in oklab, var(--card) 84%, transparent);
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) + 4px);
+  backdrop-filter: blur(8px);
+  box-shadow: 0 12px 42px rgba(0, 0, 0, 0.28);
+}
+
+.ui-btn {
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  background: var(--primary);
+  color: var(--primary-foreground);
+  padding: 0.56rem 0.82rem;
+  font-family: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  transition: transform 120ms ease, filter 120ms ease, background-color 120ms ease, border-color 120ms ease;
+}
+
+.ui-btn:hover {
+  filter: brightness(1.03);
+  transform: translateY(-1px);
+}
+
+.ui-btn:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
+.ui-btn--outline {
+  background: color-mix(in oklab, var(--background) 76%, transparent);
+  color: var(--foreground);
+  border-color: var(--border);
+}
+
+.ui-btn--ghost {
+  background: transparent;
+  color: var(--foreground);
+  border-color: transparent;
+}
+
+.ui-btn--sm {
+  padding: 0.38rem 0.58rem;
+  font-size: 0.78rem;
+}
+
+.ui-input {
+  border: 1px solid var(--input);
+  border-radius: var(--radius);
+  padding: 0.56rem 0.62rem;
+  background: color-mix(in oklab, var(--background) 90%, transparent);
+  color: var(--foreground);
+  font: inherit;
+  transition: border-color 120ms ease, box-shadow 120ms ease, background-color 120ms ease;
+}
+
+.ui-input::placeholder {
+  color: color-mix(in oklab, var(--muted-foreground) 85%, transparent);
+}
+
+.ui-input:focus {
+  outline: none;
+  border-color: color-mix(in oklab, var(--primary) 62%, white);
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--primary) 20%, transparent);
+  background: color-mix(in oklab, var(--background) 95%, transparent);
+}
+
+.ui-input--sm {
+  width: 110px;
+}
+
+.ui-badge {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  border: 1px solid color-mix(in oklab, var(--primary) 45%, transparent);
+  padding: 0.26rem 0.64rem;
+  font-size: 0.78rem;
+  color: color-mix(in oklab, var(--foreground) 95%, var(--primary));
+  background: color-mix(in oklab, var(--primary) 12%, transparent);
+}

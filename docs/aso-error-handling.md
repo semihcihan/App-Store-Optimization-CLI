@@ -1,0 +1,46 @@
+# ASO Error Handling Model
+
+## Goal
+Define failure boundaries, retry rules, and recovery behavior across CLI, dashboard server, and backend ASO services.
+
+## Failure Boundaries
+- CLI popularity stage (`cli/services/keywords/aso-popularity-service.ts`) handles Search Ads auth/session and popularity failures.
+- Dashboard server (`cli/dashboard-server/server.ts`) maps internal errors to stable API error codes.
+- Backend enrichment (`cli/services/cache-api/services/aso-enrichment-service.ts`, `cli/services/cache-api/services/aso-apple-client.ts`) handles App Store fetch failures and fallback behavior.
+
+## Dashboard Error Codes
+- `INVALID_REQUEST`
+- `AUTH_REQUIRED`
+- `AUTH_IN_PROGRESS`
+- `TTY_REQUIRED`
+- `AUTHORIZATION_FAILED`
+- `RATE_LIMITED`
+- `REQUEST_TIMEOUT`
+- `NETWORK_ERROR`
+- `NOT_FOUND`
+- `INTERNAL_ERROR`
+
+## Retry Policy
+- Shared resilience config lives in `cli/services/keywords/aso-resilience.ts`.
+- Popularity fetch retries transient responses (`429`, `5xx`, `KWS_NO_ORG_CONTENT_PROVIDERS`) and transient network errors.
+- Backend Apple web fetches retry `429`, `5xx`, and transient network errors with jittered exponential backoff.
+- Startup refresh manager retries each unit once and records failures without crashing dashboard runtime.
+
+## Recovery Behavior
+- Dashboard add-keyword:
+- If auth is invalid in stage 1, return `AUTH_REQUIRED` (no interactive prompt in request path).
+- If stage-2 enrichment fails, stage-1 writes remain; users can retry later.
+- Top-app and app-doc hydration:
+- Missing/expired docs trigger backend fetch.
+- On hydration failure, return available cached data when possible.
+- CLI keyword fetch:
+- Unrecoverable popularity/enrichment failures fail the command.
+- `aso reset-credentials` clears local auth state explicitly.
+
+## Observability
+- Apple HTTP calls carry trace context.
+- Dashboard server reports failures with structured metadata (path, phase, counts).
+- Startup refresh state (`status`, counters, timestamps, lastError) is exposed via API.
+
+## Design Choice
+Prefer partial progress when safe (preserve useful local data), but fail explicitly for auth/contract errors so UI automation can recover deterministically.

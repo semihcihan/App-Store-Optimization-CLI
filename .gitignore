@@ -1,0 +1,44 @@
+# Dependencies
+node_modules/
+
+# Build outputs
+dist/
+cli/dist/
+api/dist/
+shared/dist/
+*.tsbuildinfo
+
+# Generated artifacts
+cli/mcp/generated/
+
+# Environment variables
+.env
+.env.*
+!.env.example
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Coverage / test cache
+coverage/
+.jest-cache/
+
+# Logs
+logs/
+*.log
+
+# Secrets / local keys
+*.p8
+.netrc
+
+# Misc legacy local artifacts
+compare-price*.csv
+apply.json
+fetch.json

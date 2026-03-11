@@ -1,0 +1,28 @@
+{
+  "include": [
+    "cli/**/*"
+  ],
+  "exclude": [
+    "node_modules",
+    "cli/dist",
+    "cli/dashboard-ui/**/*"
+  ],
+  "compilerOptions": {
+    "baseUrl": ".",
+    "target": "ES2020",
+    "module": "commonjs",
+    "lib": ["ES2020"],
+    "jsx": "react-jsx",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "moduleResolution": "node",
+    "allowSyntheticDefaultImports": true,
+    "allowJs": true,
+    "noEmit": true,
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true
+  }
+}

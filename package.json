@@ -1,0 +1,108 @@
+{
+  "name": "app-store-optimization-cli",
+  "version": "0.1.0",
+  "description": "Standalone ASO CLI with local backend runtime",
+  "main": "cli/dist/cli.js",
+  "bin": {
+    "aso": "cli/dist/cli.js",
+    "aso-mcp": "cli/dist/mcp.js"
+  },
+  "scripts": {
+    "prebuild": "npm run generate-mcp-content",
+    "predev": "npm run generate-mcp-content",
+    "generate-mcp-content": "node cli/mcp/generate-mcp-content.js",
+    "build": "node esbuild.config.js",
+    "build:watch": "node esbuild.config.js --watch",
+    "dashboard:build": "vite build --config cli/dashboard-ui/vite.config.ts",
+    "dashboard:watch": "vite build --watch --config cli/dashboard-ui/vite.config.ts",
+    "dev": "npm run build:watch",
+    "clean": "rm -rf cli/dist",
+    "nuke": "rm -rf node_modules cli/dist package-lock.json",
+    "start": "node cli/dist/cli.js",
+    "aso": "NODE_ENV=development node cli/dist/cli.js",
+    "mcp": "node cli/dist/mcp.js",
+    "mcp:test": "npx @modelcontextprotocol/inspector node cli/dist/mcp.js",
+    "test": "jest --config jest.config.js",
+    "test:unit": "jest --config jest.config.js",
+    "test:coverage": "jest --config jest.config.js --coverage",
+    "upload-sourcemap": "npx bugsnag-source-maps upload-node --api-key 9214ba2acdaeee4012c236461232c4f3 --overwrite --detect-app-version --bundle cli/dist/cli.js --source-map cli/dist/cli.js.map",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "aso",
+    "cli",
+    "app-store",
+    "keyword-research",
+    "app-store-optimization",
+    "mcp"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/semihcihan/App-Store-Optimization-CLI.git"
+  },
+  "contributors": [
+    {
+      "name": "Semih Cihan",
+      "url": "https://github.com/semihcihan"
+    },
+    {
+      "name": "Selçuk Cihan",
+      "url": "https://github.com/selcukcihan"
+    }
+  ],
+  "license": "MIT",
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=8.0.0"
+  },
+  "homepage": "https://github.com/semihcihan/App-Store-Optimization-CLI",
+  "files": [
+    "cli/dist/",
+    "README.md",
+    "THIRD_PARTY_LICENSES.md"
+  ],
+  "dependencies": {
+    "@bugsnag/js": "^8.6.0",
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "axios": "^1.10.0",
+    "axios-retry": "^4.5.0",
+    "better-sqlite3": "^11.10.0",
+    "cheerio": "^1.2.0",
+    "dotenv": "^16.6.1",
+    "inquirer": "^8.2.5",
+    "ora": "^8.2.0",
+    "winston": "^3.17.0",
+    "yargs": "^17.7.2",
+    "zod": "4.1.9",
+    "zod-validation-error": "^4.0.2"
+  },
+  "devDependencies": {
+    "@bugsnag/cli": "^3.4.1",
+    "@bugsnag/source-maps": "^2.3.3",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
+    "@types/better-sqlite3": "^7.6.12",
+    "@types/inquirer": "^9.0.9",
+    "@types/jest": "^30.0.0",
+    "@types/node": "^24.0.10",
+    "@types/react": "^19.1.12",
+    "@types/react-dom": "^19.1.9",
+    "@types/yargs": "^17.0.33",
+    "@vitejs/plugin-react": "^5.1.0",
+    "axios-mock-adapter": "^2.1.0",
+    "concurrently": "^8.2.2",
+    "esbuild": "^0.27.3",
+    "jest": "^30.0.4",
+    "jest-environment-jsdom": "^30.2.0",
+    "prettier": "^3.0.0",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1",
+    "serverless-esbuild": "^1.55.1",
+    "ts-jest": "^29.4.0",
+    "ts-node": "^10.9.2",
+    "tsconfig-paths": "^4.2.0",
+    "typescript": "^5.8.3",
+    "vite": "^7.1.4",
+    "yaml": "^2.8.2"
+  }
+}
