@@ -1,13 +1,15 @@
-# App Store Optimization CLI
+<h1 align="center">App Store Optimization CLI</h1>
 
-[![npm version](https://img.shields.io/npm/v/aso-cli)](https://www.npmjs.com/package/aso-cli)
-[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](./LICENSE)
-[![Node.js](https://img.shields.io/node/v/aso-cli)](https://www.npmjs.com/package/aso-cli)
-[![CI](https://img.shields.io/github/actions/workflow/status/semihcihan/App-Store-Optimization-CLI/ci.yml?branch=main&label=ci)](https://github.com/semihcihan/App-Store-Optimization-CLI/actions/workflows/ci.yml)
+<p align="center">
+  <a href="https://www.npmjs.com/package/aso-cli"><img src="https://img.shields.io/npm/v/aso-cli" alt="npm version" /></a>
+  <a href="./LICENSE"><img src="https://img.shields.io/badge/license-MIT-green.svg" alt="License: MIT" /></a>
+  <a href="https://www.npmjs.com/package/aso-cli"><img src="https://img.shields.io/node/v/aso-cli" alt="Node.js" /></a>
+  <a href="https://github.com/semihcihan/App-Store-Optimization-CLI/actions/workflows/ci.yml"><img src="https://github.com/semihcihan/App-Store-Optimization-CLI/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI" /></a>
+</p>
 
 Research ASO keywords, inspect competition, and manage results from one local-first CLI.
 
-## Why use it
+## What Is It?
 
 - Fast, free keyword research and visibility tracking
 - Keyword scoring with popularity + difficulty in one command
