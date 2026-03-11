@@ -1,5 +1,10 @@
 # App Store Optimization CLI
 
+[![npm version](https://img.shields.io/npm/v/aso-cli)](https://www.npmjs.com/package/aso-cli)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](./LICENSE)
+[![Node.js](https://img.shields.io/node/v/aso-cli)](https://www.npmjs.com/package/aso-cli)
+[![CI](https://img.shields.io/github/actions/workflow/status/semihcihan/App-Store-Optimization-CLI/ci.yml?branch=main&label=ci)](https://github.com/semihcihan/App-Store-Optimization-CLI/actions/workflows/ci.yml)
+
 Research ASO keywords, inspect competition, and manage results from one local-first CLI.
 
 ## Why use it
