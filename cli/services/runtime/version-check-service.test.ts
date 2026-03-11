@@ -11,7 +11,7 @@ jest.mock("path");
 jest.mock("os");
 jest.mock("../../../package.json", () => ({
   version: "0.0.19",
-  name: "app-store-optimization-cli",
+  name: "aso-cli",
 }));
 
 const mockAxios = jest.mocked(axios);
@@ -140,7 +140,7 @@ describe("version-check-service", () => {
       await new Promise((resolve) => setTimeout(resolve, 100));
 
       expect(mockAxios.get).toHaveBeenCalledWith(
-        "https://registry.npmjs.org/app-store-optimization-cli/latest",
+        "https://registry.npmjs.org/aso-cli/latest",
         { timeout: 3000 }
       );
     });

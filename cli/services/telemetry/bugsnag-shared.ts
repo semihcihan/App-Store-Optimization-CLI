@@ -1,6 +1,6 @@
 import Bugsnag from "@bugsnag/js";
 
-const BUGSNAG_API_KEY = "9214ba2acdaeee4012c236461232c4f3";
+const BUGSNAG_API_KEY = "ed1a4165d4f8fd836bf16f3ca1915a67";
 let started = false;
 let isDevelopmentMode = false;
 type StartOptions = NonNullable<Parameters<typeof Bugsnag.start>[0]>;

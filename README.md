@@ -1,48 +1,95 @@
 # App Store Optimization CLI
 
-Standalone CLI for App Store Optimization workflows.
+Research ASO keywords, inspect competition, and manage results from one local-first CLI.
+
+## Why use it
+
+- Fast, free keyword research and visibility tracking
+- Keyword scoring with popularity + difficulty in one command
+- Local dashboard for reviewing keyword/app data
+- MCP tool (`aso_suggest`) for agent workflows and automated keyword research
+- Local persistence and reusable auth session
 
 ## Install
 
 ```bash
-npm install -g app-store-optimization-cli
+npm install -g aso-cli
 ```
 
-Or run locally in this repository:
+## Apple Search Ads Setup
 
-```bash
-npm install
-npm run build
-npm run start -- --help
+ASO commands require Apple Search Ads setup.
+
+### Prerequisites
+
+- Apple Search Ads account
+- Linked App Store Connect account
+- App ID of a published app you can access
+- No campaign creation or billing required
+
+### Setup
+
+1. Create/sign in: https://searchads.apple.com
+2. Open Advanced: https://searchads.apple.com/advanced
+3. Link your App Store Connect account in campaign group settings
+4. Copy an App ID from your App Store URL (number after `id`)
+5. Run `aso auth` and complete Apple ID + password + 2FA in terminal
+
+Example App Store URL:
+
+```text
+https://apps.apple.com/us/app/example-app/id123456789
 ```
 
-## Commands
+App ID is `123456789` in this example.
+
+## Quick Start
 
 ```bash
-# Open ASO dashboard (default)
-aso
-
-# Fetch keyword metrics and persist accepted keywords
-aso keywords "meditation,sleep sounds,white noise"
-
-# Machine-safe output for agents/automation
-aso keywords "meditation,sleep sounds,white noise" --stdout
-
-# Reauthenticate Apple Search Ads session
+# Authenticate once
 aso auth
 
-# Reset saved ASO credentials/cookies
-aso reset-credentials
+# Fetch keyword metrics
+aso keywords "meditation,sleep sounds,white noise"
 
-# Set or update primary app ID used for popularity requests
-aso --primary-app-id 1234567890
+# Open dashboard
+aso
 ```
 
-## MCP Server
+## Command Reference
 
-The package includes `aso-mcp` with one tool: `aso_suggest`.
+| Command | What it does |
+| --- | --- |
+| `aso` | Starts the local dashboard (default command) |
+| `aso keywords "k1,k2,k3"` | Fetches keyword popularity/difficulty and prints JSON |
+| `aso keywords "k1,k2" --stdout` | Machine-safe non-interactive mode for automation/agents |
+| `aso auth` | Reauthenticates Apple Search Ads session |
+| `aso reset-credentials` | Clears saved credentials/cookies |
+| `aso --primary-app-id <id>` | Sets primary App ID used for popularity requests |
 
-Example MCP command config:
+### Supported flags
+
+- `--country <code>`: currently `US` only
+- `--primary-app-id <id>`: saved locally for future runs
+
+## Output Example (`aso keywords`)
+
+```json
+[
+  {
+    "keyword": "meditation",
+    "popularity": 45,
+    "difficultyScore": 62,
+    "minDifficultyScore": 38
+  }
+]
+```
+
+## MCP
+
+This package also installs `aso-mcp` with tool: `aso_suggest`.
+
+Example MCP config:
 
 ```json
 {
@@ -54,33 +101,17 @@ Example MCP command config:
 }
 ```
 
-## Storage
-
-Runtime files are local under `~/.aso`:
-
-- `aso-db.sqlite`
-- `aso-cache.json`
-- `aso-cookies.json`
-- `version-cache.json`
-
-Use `ASO_DB_PATH` to override database location.
-
-## Development
+## Help
 
 ```bash
-npm run dev
+aso --help
 ```
 
-`dev` runs watch mode for:
-- Dashboard UI (`vite --watch`)
-- CLI bundle (`esbuild --watch`)
-- MCP bundle (`esbuild --watch`)
+## Current Scope
 
-Project folders (single package):
+- Storefront support: `US`
+- Multi-storefront support is planned
 
-- `cli`: CLI entrypoint, dashboard server/UI, MCP server, local services, shared utilities
+## Project Docs
 
-## Notes
-
-- Storefront is currently `US` only.
-- If non-interactive keyword runs fail with auth-required errors, run `aso auth` once in an interactive terminal and retry.
+- Contribution guide: [CONTRIBUTING.md](CONTRIBUTING.md)

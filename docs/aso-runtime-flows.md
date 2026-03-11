@@ -1,23 +1,23 @@
 # ASO Runtime Flows
 
 ## Scope
-Runtime flow contracts across CLI commands, dashboard server endpoints, and backend ASO services.
+Runtime flow contracts across CLI commands, local dashboard API, and ASO services.
 
 ## Operational Prerequisite
 - Apple Search Ads setup is required only for ASO command flows (`aso ...`).
-- Required ASO setup items:
+- Required setup items:
   - Apple Search Ads account
   - Linked App Store Connect account in Apple Search Ads
   - App ID for primary ASO popularity context
 
 ## Trigger Map
-- `aso`: resolve Primary App ID, start dashboard server (`3456` by default, auto-fallback to a free local port when `3456` is occupied), start startup refresh manager.
+- `aso`: resolve Primary App ID, start dashboard server (`3456` by default, auto-fallback to a free local port when occupied), start startup refresh manager.
 - `aso keywords "..."`: run full keyword pipeline and print merged result.
-- `aso keywords "..." --stdout`: machine-safe keyword mode; attempts silent reauth and fails when interactive user input is required.
+- `aso keywords "..." --stdout`: machine-safe mode; attempts silent reauth and fails when interactive user input is required.
 - `aso auth`: run only Apple Search Ads reauthentication.
 - `aso reset-credentials`: clear saved ASO keychain credentials and local cookies.
-- MCP `aso_suggest`: accept explicit keywords, enforce max 100, run `aso keywords "<comma-separated-keywords>" --stdout`, return scored suggestions.
-- Dashboard mutations: app add, keyword add/delete, auth start.
+- MCP `aso_suggest`: accept explicit keywords (max 100), run `aso keywords "<comma-separated-keywords>" --stdout`, return scored suggestions.
+- Dashboard API mutations: app add, keyword add/delete, auth start.
 
 ## Flow A: CLI Keyword Fetch
 1. Normalize and validate keywords.
@@ -42,15 +42,15 @@ Runtime flow contracts across CLI commands, dashboard server endpoints, and back
 2. Remove already-associated keywords for selected app.
 3. Run stage-1 popularity pipeline with interactive auth recovery disabled.
 4. Create new app-keyword associations.
-5. Return `201` immediately with `{cachedCount, pendingCount}`.
+5. Return `201` immediately with `{ cachedCount, pendingCount }`.
 6. Run enrichment in background for pending items.
 
 ## Flow C: Dashboard Reauthentication
 1. Add-keyword flow returns `AUTH_REQUIRED` or `AUTH_IN_PROGRESS` when auth state blocks stage 1.
-2. UI calls `POST /api/aso/auth/start`.
+2. Client calls `POST /api/aso/auth/start`.
 3. Server runs single-flight `asoAuthService.reAuthenticate()`.
-4. UI polls `GET /api/aso/auth/status` until terminal state.
-5. On success, UI retries pending add-keyword action.
+4. Client polls `GET /api/aso/auth/status` until terminal state.
+5. On success, client retries pending add-keyword action.
 
 ## Flow D: Startup Background Refresh
 1. Start once at dashboard boot.
@@ -65,8 +65,7 @@ Runtime flow contracts across CLI commands, dashboard server endpoints, and back
 ## Rank Delta Contract
 - `app_keywords.previous_position` stores prior rank per `(app, keyword, country)`.
 - Before keyword overwrite, previous positions are updated from existing `ordered_app_ids`.
-- UI computes current rank from latest `orderedAppIds` and renders delta against `previous_position`.
-- For research apps (no real app ID rank context), UI hides rank-derived columns (`Rank`, `Change`, `Updated`).
+- Consumers compute current rank from latest `orderedAppIds` and compare against `previous_position`.
 
 ## Guardrails
 - Country must be `US`.
@@ -77,7 +76,7 @@ Runtime flow contracts across CLI commands, dashboard server endpoints, and back
 
 ## Flow F: MCP ASO Suggest (`aso_suggest`)
 1. Read required `keywords` input.
-2. Treat each keyword input as a search term candidate (single-word or long-tail phrase), then split comma-separated entries, normalize (`trim + lowercase`), and dedupe valid keyword candidates.
+2. Treat each input as a search term candidate (single-word or long-tail phrase), then split comma-separated entries, normalize (`trim + lowercase`), and dedupe valid candidates.
 3. Return an MCP error when provided keyword count is greater than `100`.
 4. Execute `aso keywords "<comma-separated-keywords>" --stdout`.
 5. Parse CLI output, keep only rows that pass threshold checks, and return a compact JSON array of accepted rows.
