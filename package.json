@@ -1,6 +1,6 @@
 {
   "name": "aso-cli",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Local App Store Optimization CLI",
   "main": "cli/dist/cli.js",
   "bin": {
