@@ -1,7 +1,7 @@
 {
   "name": "aso-cli",
   "version": "0.1.0",
-  "description": "Standalone ASO CLI with local backend runtime",
+  "description": "Local App Store Optimization CLI",
   "main": "cli/dist/cli.js",
   "bin": {
     "aso": "cli/dist/cli.js",
@@ -10,6 +10,7 @@
   "scripts": {
     "prebuild": "npm run generate-mcp-content",
     "predev": "npm run generate-mcp-content",
+    "pretypecheck": "npm run generate-mcp-content",
     "generate-mcp-content": "node cli/mcp/generate-mcp-content.js",
     "build": "node esbuild.config.js",
     "build:watch": "node esbuild.config.js --watch",
