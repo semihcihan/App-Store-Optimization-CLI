@@ -1,87 +1,77 @@
-import fs from "fs";
-import os from "os";
-import path from "path";
 import {
   computeExpiryIso,
   computeAppExpiryIsoForApp,
   normalizeKeyword,
   sanitizeKeywords,
 } from "./aso-keyword-utils";
+import {
+  getKeyword,
+  upsertKeywords,
+  getCompetitorAppDocs,
+  upsertCompetitorAppDocs,
+} from "../../../db";
 import type {
   AsoCacheRepository,
   AsoKeywordRecord,
   AsoAppDoc,
 } from "./aso-types";
 
-type KeywordCacheMap = Record<string, AsoKeywordRecord>;
-
-function buildAppDocKey(country: string, appId: string): string {
-  return `aso#app#${appId}#country#${country}`;
+function isFiniteFutureIso(iso: string | undefined, nowMs: number): boolean {
+  if (!iso) return false;
+  const parsed = Date.parse(iso);
+  return Number.isFinite(parsed) && parsed > nowMs;
 }
 
-interface LocalCacheFile {
-  keywords: KeywordCacheMap;
-  appDocs: Record<string, AsoAppDoc>;
+function isCompleteKeywordRecord(
+  item: Awaited<ReturnType<typeof getKeyword>>
+): item is AsoKeywordRecord {
+  if (!item) return false;
+  return (
+    item.difficultyScore != null &&
+    item.minDifficultyScore != null &&
+    item.appCount != null &&
+    item.keywordIncluded != null
+  );
 }
 
-function readCacheFile(filePath: string): LocalCacheFile {
-  try {
-    if (!fs.existsSync(filePath)) {
-      return { keywords: {}, appDocs: {} };
-    }
-    const parsed = JSON.parse(
-      fs.readFileSync(filePath, "utf8")
-    ) as LocalCacheFile;
-    return {
-      keywords: parsed?.keywords || {},
-      appDocs: parsed?.appDocs || {},
-    };
-  } catch {
-    return { keywords: {}, appDocs: {} };
-  }
-}
-
-function writeCacheFile(filePath: string, data: LocalCacheFile): void {
-  const dir = path.dirname(filePath);
-  if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true });
-  }
-  fs.writeFileSync(filePath, JSON.stringify(data, null, 2), "utf8");
-}
-
-function buildKey(country: string, keyword: string): string {
-  return `aso#keyword#${normalizeKeyword(keyword)}#country#${country}`;
+function toAsoAppDoc(row: ReturnType<typeof getCompetitorAppDocs>[number]): AsoAppDoc {
+  return {
+    appId: row.appId,
+    country: row.country,
+    name: row.name,
+    subtitle: row.subtitle,
+    averageUserRating: row.averageUserRating,
+    userRatingCount: row.userRatingCount,
+    releaseDate: row.releaseDate,
+    currentVersionReleaseDate: row.currentVersionReleaseDate,
+    icon: row.icon,
+    iconArtwork: row.iconArtwork,
+    expiresAt: row.expiresAt,
+  };
 }
 
 export class LocalAsoCacheRepository implements AsoCacheRepository {
-  private readonly filePath = path.join(
-    os.homedir(),
-    ".aso",
-    "aso-cache.json"
-  );
-
   async getByKeywords(params: {
     country: string;
     keywords: string[];
   }): Promise<{ hits: AsoKeywordRecord[]; misses: string[] }> {
     const country = params.country.toUpperCase();
     const keywords = sanitizeKeywords(params.keywords);
-    const data = readCacheFile(this.filePath);
+    const nowMs = Date.now();
     const hits: AsoKeywordRecord[] = [];
     const misses: string[] = [];
 
     for (const keyword of keywords) {
-      const key = buildKey(country, keyword);
-      const item = data.keywords[key];
-      if (!item) {
+      const item = getKeyword(country, keyword);
+      if (
+        !isCompleteKeywordRecord(item) ||
+        !isFiniteFutureIso(item.expiresAt, nowMs)
+      ) {
         misses.push(keyword);
         continue;
       }
-
       hits.push(item);
     }
-
-    writeCacheFile(this.filePath, data);
     return { hits, misses };
   }
 
@@ -99,46 +89,66 @@ export class LocalAsoCacheRepository implements AsoCacheRepository {
     appDocs?: AsoAppDoc[];
   }): Promise<AsoKeywordRecord[]> {
     const country = params.country.toUpperCase();
-    const nowIso = new Date().toISOString();
     const expiresAt = computeExpiryIso();
-    const data = readCacheFile(this.filePath);
-    const records: AsoKeywordRecord[] = [];
+    const records: AsoKeywordRecord[] = params.items.map((item) => ({
+      keyword: item.keyword,
+      normalizedKeyword: normalizeKeyword(item.keyword),
+      country,
+      popularity: item.popularity,
+      difficultyScore: item.difficultyScore,
+      minDifficultyScore: item.minDifficultyScore,
+      appCount: item.appCount,
+      keywordIncluded: item.keywordIncluded,
+      orderedAppIds: item.orderedAppIds,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      expiresAt,
+    }));
 
-    for (const item of params.items) {
-      const normalizedKeyword = normalizeKeyword(item.keyword);
-      const key = buildKey(country, item.keyword);
-      const previous = data.keywords[key];
-      const record: AsoKeywordRecord = {
-        keyword: item.keyword,
-        normalizedKeyword,
+    if (params.items.length > 0) {
+      upsertKeywords(
         country,
-        popularity: item.popularity,
-        difficultyScore: item.difficultyScore,
-        minDifficultyScore: item.minDifficultyScore,
-        appCount: item.appCount,
-        keywordIncluded: item.keywordIncluded,
-        orderedAppIds: item.orderedAppIds,
-        createdAt: previous?.createdAt || nowIso,
-        updatedAt: nowIso,
-        expiresAt,
-      };
-      data.keywords[key] = record;
-      records.push(record);
+        params.items.map((item) => ({
+          keyword: item.keyword,
+          normalizedKeyword: normalizeKeyword(item.keyword),
+          popularity: item.popularity,
+          difficultyScore: item.difficultyScore,
+          minDifficultyScore: item.minDifficultyScore,
+          appCount: item.appCount,
+          keywordIncluded: item.keywordIncluded,
+          orderedAppIds: item.orderedAppIds,
+          expiresAt,
+        }))
+      );
     }
 
     if (params.appDocs && params.appDocs.length > 0) {
-      for (const app of params.appDocs) {
-        const appKey = buildAppDocKey(country, app.appId);
-        data.appDocs[appKey] = {
-          ...app,
-          country,
+      upsertCompetitorAppDocs(
+        country,
+        params.appDocs.map((app) => ({
+          appId: app.appId,
+          name: app.name,
+          subtitle: app.subtitle,
+          averageUserRating: app.averageUserRating,
+          userRatingCount: app.userRatingCount,
+          releaseDate: app.releaseDate,
+          currentVersionReleaseDate: app.currentVersionReleaseDate,
+          icon: app.icon as Record<string, unknown> | undefined,
+          iconArtwork: app.iconArtwork as
+            | { url?: string; [key: string]: unknown }
+            | undefined,
           expiresAt: app.expiresAt ?? computeAppExpiryIsoForApp(),
-        };
-      }
+        }))
+      );
     }
 
-    writeCacheFile(this.filePath, data);
-    return records;
+    return records.map((fallback) => {
+      const stored = getKeyword(country, fallback.keyword);
+      if (isCompleteKeywordRecord(stored)) {
+        return stored;
+      }
+      return fallback;
+    });
   }
 
   async getAppDocs(params: {
@@ -146,21 +156,17 @@ export class LocalAsoCacheRepository implements AsoCacheRepository {
     appIds: string[];
   }): Promise<AsoAppDoc[]> {
     const country = params.country.toUpperCase();
-    const data = readCacheFile(this.filePath);
-    const now = Date.now();
-    const result: AsoAppDoc[] = [];
-    for (const appId of params.appIds) {
-      const key = buildAppDocKey(country, appId);
-      const doc = data.appDocs[key];
-      if (
-        doc &&
-        doc.country === country &&
-        Date.parse(doc.expiresAt ?? "0") > now
-      ) {
-        result.push(doc);
-      }
-    }
-    return result;
+    const appIds = Array.from(
+      new Set(params.appIds.map((appId) => appId.trim()).filter(Boolean))
+    );
+    if (appIds.length === 0) return [];
+    const nowMs = Date.now();
+    return getCompetitorAppDocs(country, appIds)
+      .filter(
+        (doc) =>
+          doc.country === country && isFiniteFutureIso(doc.expiresAt, nowMs)
+      )
+      .map(toAsoAppDoc);
   }
 }
 

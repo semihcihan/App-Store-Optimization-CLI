@@ -88,11 +88,13 @@ Keyword-level difficulty:
 - Local DB stores `difficultyScore` and `minDifficultyScore` as rounded integers on write.
 - Interactive `aso keywords` runs (without `--stdout`) save returned keywords into `app_keywords` for the default research app (`research`) so they appear in dashboard research workspace.
 - MCP `aso_suggest` saves only accepted keywords into the same default research app association.
-- Backend cache repository: keyword records and app docs with TTL (`computeExpiryIso`, `computeAppExpiryIsoForApp`).
+- Cache API repository is SQLite-backed and reuses local DB tables for keyword/app-doc cache lookups.
+- No separate JSON cache file is used for ASO keyword/app-doc cache state.
 - Rank delta baseline lives in `app_keywords.previous_position`.
 
 ## Expiration and Refresh
 - Keyword and app-doc TTL are env-configurable.
+- Cache lookup returns only fresh, fully enriched keyword rows; expired/incomplete rows are treated as misses.
 - Startup refresh re-enriches associated owned-app keywords in background batches.
 - Missing/expired app docs trigger hydration.
 

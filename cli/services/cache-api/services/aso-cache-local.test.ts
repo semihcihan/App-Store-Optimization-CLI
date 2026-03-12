@@ -1,24 +1,50 @@
-import fs from "fs";
-import os from "os";
-import path from "path";
 import { LocalAsoCacheRepository } from "./aso-cache-local";
+import {
+  closeDbForTests,
+  getKeyword,
+  upsertKeywords,
+  upsertCompetitorAppDocs,
+} from "../../../db";
+import * as fs from "fs";
+import * as os from "os";
+import * as path from "path";
 
 describe("aso-cache-local", () => {
   const originalEnv = process.env;
-  let tempHome: string;
+  const testDbPath = path.join(
+    os.tmpdir(),
+    `aso-cache-repo-${process.pid}-${Date.now()}.sqlite`
+  );
+
+  function cleanDbFiles(): void {
+    for (const suffix of ["", "-wal", "-shm"]) {
+      try {
+        fs.unlinkSync(`${testDbPath}${suffix}`);
+      } catch {}
+    }
+  }
+
+  beforeAll(() => {
+    process.env.ASO_DB_PATH = testDbPath;
+  });
 
   beforeEach(() => {
     process.env = { ...originalEnv };
-    tempHome = fs.mkdtempSync(path.join(os.tmpdir(), "aso-cache-local-"));
-    jest.spyOn(os, "homedir").mockReturnValue(tempHome);
+    process.env.ASO_DB_PATH = testDbPath;
+    closeDbForTests();
+    cleanDbFiles();
   });
 
   afterEach(() => {
     jest.restoreAllMocks();
-    fs.rmSync(tempHome, { recursive: true, force: true });
+    closeDbForTests();
+    cleanDbFiles();
   });
 
   afterAll(() => {
+    closeDbForTests();
+    cleanDbFiles();
+    delete process.env.ASO_DB_PATH;
     process.env = originalEnv;
   });
 
@@ -96,75 +122,72 @@ describe("aso-cache-local", () => {
     );
   });
 
-  it("returns keyword hits even when cached expiresAt is in the past", async () => {
-    const cachePath = path.join(tempHome, ".aso", "aso-cache.json");
-    fs.mkdirSync(path.dirname(cachePath), { recursive: true });
-    fs.writeFileSync(
-      cachePath,
-      JSON.stringify({
-        keywords: {
-          "aso#keyword#stale#country#US": {
-            keyword: "stale",
-            normalizedKeyword: "stale",
-            country: "US",
-            popularity: 33,
-            difficultyScore: 12,
-            minDifficultyScore: 4,
-            appCount: 10,
-            keywordIncluded: 2,
-            orderedAppIds: ["1"],
-            createdAt: "2026-01-01T00:00:00.000Z",
-            updatedAt: "2026-01-02T00:00:00.000Z",
-            expiresAt: "2000-01-01T00:00:00.000Z",
-          },
-        },
-        appDocs: {},
-      }),
-      "utf8"
-    );
-
+  it("treats expired keyword rows as cache misses", async () => {
+    upsertKeywords("US", [
+      {
+        keyword: "stale",
+        popularity: 33,
+        difficultyScore: 12,
+        minDifficultyScore: 4,
+        appCount: 10,
+        keywordIncluded: 2,
+        orderedAppIds: ["1"],
+        expiresAt: "2000-01-01T00:00:00.000Z",
+      },
+    ]);
     const repository = new LocalAsoCacheRepository();
     const result = await repository.getByKeywords({
       country: "US",
       keywords: ["stale"],
     });
 
-    expect(result.hits).toHaveLength(1);
-    expect(result.hits[0]).toEqual(
-      expect.objectContaining({
-        keyword: "stale",
-        popularity: 33,
-      })
-    );
-    expect(result.misses).toEqual([]);
+    expect(result.hits).toEqual([]);
+    expect(result.misses).toEqual(["stale"]);
+  });
+
+  it("treats popularity-only keyword rows as cache misses", async () => {
+    upsertKeywords("US", [
+      {
+        keyword: "pending",
+        popularity: 40,
+        difficultyScore: null,
+        minDifficultyScore: null,
+        appCount: null,
+        keywordIncluded: null,
+        orderedAppIds: [],
+        expiresAt: "2099-01-01T00:00:00.000Z",
+      },
+    ]);
+
+    const repository = new LocalAsoCacheRepository();
+    const result = await repository.getByKeywords({
+      country: "US",
+      keywords: ["pending"],
+    });
+
+    expect(result.hits).toEqual([]);
+    expect(result.misses).toEqual(["pending"]);
   });
 
   it("returns only non-expired app docs", async () => {
+    upsertCompetitorAppDocs("US", [
+      {
+        appId: "fresh",
+        name: "Fresh App",
+        averageUserRating: 4,
+        userRatingCount: 100,
+        expiresAt: "2099-01-01T00:00:00.000Z",
+      },
+      {
+        appId: "old",
+        name: "Old App",
+        averageUserRating: 3,
+        userRatingCount: 10,
+        expiresAt: "2000-01-01T00:00:00.000Z",
+      },
+    ]);
+
     const repository = new LocalAsoCacheRepository();
-
-    await repository.upsertMany({
-      country: "US",
-      items: [],
-      appDocs: [
-        {
-          appId: "fresh",
-          country: "US",
-          name: "Fresh App",
-          averageUserRating: 4,
-          userRatingCount: 100,
-          expiresAt: "2099-01-01T00:00:00.000Z",
-        },
-        {
-          appId: "old",
-          country: "US",
-          name: "Old App",
-          averageUserRating: 3,
-          userRatingCount: 10,
-          expiresAt: "2000-01-01T00:00:00.000Z",
-        },
-      ],
-    });
-
     const docs = await repository.getAppDocs({
       country: "US",
       appIds: ["fresh", "old", "missing"],
@@ -179,26 +202,42 @@ describe("aso-cache-local", () => {
     ]);
   });
 
-  it("does not return app docs missing explicit country", async () => {
-    const cachePath = path.join(tempHome, ".aso", "aso-cache.json");
-    fs.mkdirSync(path.dirname(cachePath), { recursive: true });
-    fs.writeFileSync(
-      cachePath,
-      JSON.stringify({
-        keywords: {},
-        appDocs: {
-          "aso#app#legacy#country#US": {
-            appId: "legacy",
-            name: "Legacy App",
-            averageUserRating: 5,
-            userRatingCount: 10,
-            expiresAt: "2099-01-01T00:00:00.000Z",
-          },
+  it("writes keyword rows to sqlite via upsertMany", async () => {
+    const repository = new LocalAsoCacheRepository();
+    await repository.upsertMany({
+      country: "US",
+      items: [
+        {
+          keyword: "stored",
+          popularity: 44,
+          difficultyScore: 22,
+          minDifficultyScore: 11,
+          appCount: 9,
+          keywordIncluded: 2,
+          orderedAppIds: ["100"],
         },
-      }),
-      "utf8"
+      ],
+    });
+    const stored = getKeyword("US", "stored");
+    expect(stored).toEqual(
+      expect.objectContaining({
+        keyword: "stored",
+        popularity: 44,
+        difficultyScore: 22,
+      })
     );
+  });
 
+  it("does not return app docs from other countries", async () => {
+    upsertCompetitorAppDocs("GB", [
+      {
+        appId: "legacy",
+        name: "Legacy App",
+        averageUserRating: 5,
+        userRatingCount: 10,
+        expiresAt: "2099-01-01T00:00:00.000Z",
+      },
+    ]);
     const repository = new LocalAsoCacheRepository();
     const docs = await repository.getAppDocs({
       country: "US",

@@ -48,7 +48,6 @@ Most common variables:
 
 Runtime files are local under `~/.aso`:
 - `aso-db.sqlite`
-- `aso-cache.json`
 - `aso-cookies.json`
 - `version-cache.json`
 
