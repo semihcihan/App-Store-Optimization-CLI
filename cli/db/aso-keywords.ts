@@ -1,5 +1,6 @@
 import type { StoredAsoKeyword } from "./types";
 import { getDb } from "./store";
+import { computePopularityExpiryIso } from "../services/cache-api/services/aso-keyword-utils";
 
 type KeywordRow = {
   country: string;
@@ -13,7 +14,8 @@ type KeywordRow = {
   ordered_app_ids: string;
   created_at: string;
   updated_at: string;
-  expires_at: string;
+  order_expires_at: string;
+  popularity_expires_at: string;
 };
 
 function normalizeKeyword(keyword: string): string {
@@ -47,7 +49,8 @@ function toStoredKeyword(row: KeywordRow): StoredAsoKeyword {
     orderedAppIds,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
-    expiresAt: row.expires_at,
+    orderExpiresAt: row.order_expires_at,
+    popularityExpiresAt: row.popularity_expires_at,
   };
 }
 
@@ -57,7 +60,7 @@ export function getKeyword(country: string, keyword: string): StoredAsoKeyword |
     .prepare(
       `SELECT country, normalized_keyword, keyword, popularity, difficulty_score,
               min_difficulty_score, app_count, keyword_included, ordered_app_ids,
-              created_at, updated_at, expires_at
+              created_at, updated_at, order_expires_at, popularity_expires_at
        FROM aso_keywords
        WHERE country = ? AND normalized_keyword = ?`
     )
@@ -72,12 +75,35 @@ export function listKeywords(country: string): StoredAsoKeyword[] {
     .prepare(
       `SELECT country, normalized_keyword, keyword, popularity, difficulty_score,
               min_difficulty_score, app_count, keyword_included, ordered_app_ids,
-              created_at, updated_at, expires_at
+              created_at, updated_at, order_expires_at, popularity_expires_at
        FROM aso_keywords
        WHERE country = ?
        ORDER BY keyword COLLATE NOCASE ASC`
     )
     .all(country) as KeywordRow[];
+  return rows.map(toStoredKeyword);
+}
+
+export function getKeywords(
+  country: string,
+  keywords: string[]
+): StoredAsoKeyword[] {
+  const normalizedKeywords = Array.from(
+    new Set(keywords.map((keyword) => normalizeKeyword(keyword)).filter(Boolean))
+  );
+  if (normalizedKeywords.length === 0) return [];
+
+  const db = getDb();
+  const placeholders = normalizedKeywords.map(() => "?").join(", ");
+  const rows = db
+    .prepare(
+      `SELECT country, normalized_keyword, keyword, popularity, difficulty_score,
+              min_difficulty_score, app_count, keyword_included, ordered_app_ids,
+              created_at, updated_at, order_expires_at, popularity_expires_at
+       FROM aso_keywords
+       WHERE country = ? AND normalized_keyword IN (${placeholders})`
+    )
+    .all(country, ...normalizedKeywords) as KeywordRow[];
   return rows.map(toStoredKeyword);
 }
 
@@ -94,14 +120,15 @@ export function upsertKeywords(
     orderedAppIds: string[];
     createdAt?: string;
     updatedAt?: string;
-    expiresAt: string;
+    orderExpiresAt: string;
+    popularityExpiresAt?: string;
   }>
 ): void {
   if (items.length === 0) return;
   const db = getDb();
   const now = new Date().toISOString();
-  const getCreatedAtStmt = db.prepare(
-    `SELECT created_at
+  const getExistingStmt = db.prepare(
+    `SELECT created_at, popularity_expires_at
      FROM aso_keywords
      WHERE country = ? AND normalized_keyword = ?`
   );
@@ -109,12 +136,12 @@ export function upsertKeywords(
     INSERT INTO aso_keywords (
       country, normalized_keyword, keyword, popularity, difficulty_score,
       min_difficulty_score, app_count, keyword_included, ordered_app_ids,
-      created_at, updated_at, expires_at
+      created_at, updated_at, order_expires_at, popularity_expires_at
     )
     VALUES (
       @country, @normalizedKeyword, @keyword, @popularity, @difficultyScore,
       @minDifficultyScore, @appCount, @keywordIncluded, @orderedAppIds,
-      @createdAt, @updatedAt, @expiresAt
+      @createdAt, @updatedAt, @orderExpiresAt, @popularityExpiresAt
     )
     ON CONFLICT(country, normalized_keyword) DO UPDATE SET
       keyword = excluded.keyword,
@@ -125,13 +152,14 @@ export function upsertKeywords(
       keyword_included = excluded.keyword_included,
       ordered_app_ids = excluded.ordered_app_ids,
       updated_at = excluded.updated_at,
-      expires_at = excluded.expires_at
+      order_expires_at = excluded.order_expires_at,
+      popularity_expires_at = excluded.popularity_expires_at
   `);
   const tx = db.transaction(() => {
     for (const item of items) {
       const norm = item.normalizedKeyword ?? normalizeKeyword(item.keyword);
-      const existing = getCreatedAtStmt.get(country, norm) as
-        | { created_at: string }
+      const existing = getExistingStmt.get(country, norm) as
+        | { created_at: string; popularity_expires_at: string }
         | undefined;
       const record: StoredAsoKeyword = {
         keyword: item.keyword,
@@ -145,7 +173,11 @@ export function upsertKeywords(
         orderedAppIds: item.orderedAppIds,
         createdAt: item.createdAt ?? existing?.created_at ?? now,
         updatedAt: item.updatedAt ?? now,
-        expiresAt: item.expiresAt,
+        orderExpiresAt: item.orderExpiresAt,
+        popularityExpiresAt:
+          item.popularityExpiresAt ??
+          existing?.popularity_expires_at ??
+          computePopularityExpiryIso(),
       };
       upsertStmt.run({
         country: record.country,
@@ -159,7 +191,8 @@ export function upsertKeywords(
         orderedAppIds: JSON.stringify(record.orderedAppIds),
         createdAt: record.createdAt,
         updatedAt: record.updatedAt,
-        expiresAt: record.expiresAt,
+        orderExpiresAt: record.orderExpiresAt,
+        popularityExpiresAt: record.popularityExpiresAt,
       });
     }
   });
@@ -173,7 +206,7 @@ export function getExpiredKeywords(country: string): string[] {
     .prepare(
       `SELECT keyword
        FROM aso_keywords
-       WHERE country = ? AND expires_at <= ?
+       WHERE country = ? AND order_expires_at <= ?
        ORDER BY keyword COLLATE NOCASE ASC`
     )
     .all(country, now) as Array<{ keyword: string }>;

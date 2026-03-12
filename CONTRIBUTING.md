@@ -42,7 +42,8 @@ See `.env.example` for optional runtime settings.
 
 Most common variables:
 - `ASO_DB_PATH`
-- `ASO_CACHE_TTL_HOURS`
+- `ASO_KEYWORD_ORDER_TTL_HOURS`
+- `ASO_POPULARITY_CACHE_TTL_HOURS`
 - `ASO_APP_CACHE_TTL_HOURS`
 - `ASO_KEYWORD_ENRICHMENT_CONCURRENCY`
 

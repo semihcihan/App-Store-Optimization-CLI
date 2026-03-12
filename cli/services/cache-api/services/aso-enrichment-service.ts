@@ -313,6 +313,48 @@ async function fetchSearchPageOrderedData(params: {
   return { orderedAppIds, appDocs };
 }
 
+export async function refreshKeywordOrder(params: {
+  keyword: string;
+  country: string;
+}): Promise<{
+  keyword: string;
+  normalizedKeyword: string;
+  appCount: number;
+  orderedAppIds: string[];
+}> {
+  const country = params.country.toUpperCase();
+  const normalizedKeyword = normalizeKeyword(params.keyword);
+  let orderedAppIds: string[] = [];
+
+  try {
+    const searchPageData = await fetchSearchPageOrderedData({
+      keyword: normalizedKeyword,
+      country,
+    });
+    orderedAppIds = searchPageData.orderedAppIds;
+    logger.info(
+      `ASO order refresh: search page HTML succeeded for keyword="${params.keyword}" country=${params.country}`
+    );
+  } catch (htmlErr) {
+    const htmlMessage =
+      htmlErr instanceof Error ? htmlErr.message : String(htmlErr);
+    logger.info(
+      `ASO order refresh: search page HTML failed for keyword="${params.keyword}" (${htmlMessage}), falling back to MZSearch`
+    );
+    orderedAppIds = await fetchPopularityOrderedIds({
+      keyword: normalizedKeyword,
+      country,
+    });
+  }
+
+  return {
+    keyword: params.keyword,
+    normalizedKeyword,
+    appCount: orderedAppIds.length,
+    orderedAppIds,
+  };
+}
+
 type LookupDetails = {
   releaseDate: string | null;
   currentVersionReleaseDate: string | null;

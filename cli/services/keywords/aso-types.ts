@@ -22,7 +22,8 @@ export interface AsoKeywordItem {
   orderedAppIds: string[];
   createdAt?: string;
   updatedAt?: string;
-  expiresAt?: string;
+  orderExpiresAt: string;
+  popularityExpiresAt: string;
   normalizedKeyword?: string;
   country?: string;
   appDocs?: AsoAppDocItem[];

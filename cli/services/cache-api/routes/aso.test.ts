@@ -59,7 +59,7 @@ describe("ASO routes", () => {
           country,
           createdAt: "2025-01-01T00:00:00.000Z",
           updatedAt: "2025-01-01T00:00:00.000Z",
-          expiresAt: "2025-01-02T00:00:00.000Z",
+          orderExpiresAt: "2025-01-02T00:00:00.000Z",
         }))
       ),
     };

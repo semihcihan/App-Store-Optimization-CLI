@@ -21,6 +21,8 @@ import {
   normalizeKeywords,
   fetchAndPersistKeywordPopularityStage,
   enrichAndPersistKeywords,
+  refreshAndPersistKeywordOrder,
+  refreshKeywordsForStartup,
 } from "../services/keywords/aso-keyword-service";
 import {
   asoAuthService,
@@ -279,7 +281,7 @@ const startupRefreshManager = createStartupRefreshManager({
   country: "US",
   listKeywords,
   listAppKeywords: listAllAppKeywords,
-  enrichKeywords: (country, items) => enrichAndPersistKeywords(country, items),
+  enrichKeywords: (country, items) => refreshKeywordsForStartup(country, items),
   isForegroundBusy: () => foregroundMutationCount > 0,
   reportError: (error, metadata) => {
     reportDashboardError(error, {
@@ -688,18 +690,20 @@ async function handleApiAsoKeywordsPost(
   }
 
   try {
-    const { hits, pendingItems } = await fetchAndPersistKeywordPopularityStage(
-      country,
-      keywordsToAdd,
-      { allowInteractiveAuthRecovery: false }
-    );
+    const { hits, pendingItems, orderRefreshKeywords } =
+      await fetchAndPersistKeywordPopularityStage(
+        country,
+        keywordsToAdd,
+        { allowInteractiveAuthRecovery: false }
+      );
     createAppKeywords(appId, keywordsToAdd, country);
+    const pendingCount = pendingItems.length + orderRefreshKeywords.length;
 
     sendJson(res, 201, {
       success: true,
       data: {
         cachedCount: hits.length,
-        pendingCount: pendingItems.length,
+        pendingCount,
       },
     });
     logger.debug("[aso-dashboard] response", {
@@ -708,45 +712,101 @@ async function handleApiAsoKeywordsPost(
       status: 201,
       durationMs: Date.now() - startedAt,
       cachedCount: hits.length,
-      pendingCount: pendingItems.length,
+      pendingCount,
     });
 
-    if (pendingItems.length > 0) {
-      logger.debug("[aso-dashboard] request -> backend", {
-        method: "POST",
-        path: "/aso/enrich",
-        country,
-        itemCount: pendingItems.length,
-      });
-      void enrichAndPersistKeywords(country, pendingItems).catch((err) => {
-        reportDashboardError(err, {
+    if (pendingItems.length > 0 || orderRefreshKeywords.length > 0) {
+      const backgroundTasks: Array<Promise<unknown>> = [];
+
+      if (pendingItems.length > 0) {
+        logger.debug("[aso-dashboard] request -> backend", {
           method: "POST",
           path: "/aso/enrich",
           country,
           itemCount: pendingItems.length,
-          phase: "background-enrichment",
         });
-        logger.debug("[aso-dashboard] response <- backend", {
-          method: "POST",
-          path: "/aso/enrich",
-          status: 500,
-          country,
-          error: err instanceof Error ? err.message : String(err),
-        });
-        const message = err instanceof Error ? err.message : String(err);
-        logger.error(
-          `ASO dashboard enrichment failed for ${pendingItems.length} keyword(s): ${message}`
+        backgroundTasks.push(
+          enrichAndPersistKeywords(country, pendingItems)
+            .catch((err) => {
+              reportDashboardError(err, {
+                method: "POST",
+                path: "/aso/enrich",
+                country,
+                itemCount: pendingItems.length,
+                phase: "background-enrichment",
+              });
+              logger.debug("[aso-dashboard] response <- backend", {
+                method: "POST",
+                path: "/aso/enrich",
+                status: 500,
+                country,
+                error: err instanceof Error ? err.message : String(err),
+              });
+              const message = err instanceof Error ? err.message : String(err);
+              logger.error(
+                `ASO dashboard enrichment failed for ${pendingItems.length} keyword(s): ${message}`
+              );
+              return null;
+            })
+            .then((items) => {
+              if (!items) return null;
+              logger.debug("[aso-dashboard] response <- backend", {
+                method: "POST",
+                path: "/aso/enrich",
+                status: 200,
+                country,
+                itemCount: items.length,
+              });
+              return items;
+            })
         );
-      }).then((items) => {
-        if (!items) return;
-        logger.debug("[aso-dashboard] response <- backend", {
+      }
+
+      if (orderRefreshKeywords.length > 0) {
+        logger.debug("[aso-dashboard] request -> backend", {
           method: "POST",
-          path: "/aso/enrich",
-          status: 200,
+          path: "/aso/order-refresh",
           country,
-          itemCount: items.length,
+          keywordCount: orderRefreshKeywords.length,
         });
-      });
+        backgroundTasks.push(
+          refreshAndPersistKeywordOrder(country, orderRefreshKeywords)
+            .catch((err) => {
+              reportDashboardError(err, {
+                method: "POST",
+                path: "/aso/order-refresh",
+                country,
+                keywordCount: orderRefreshKeywords.length,
+                phase: "background-order-refresh",
+              });
+              logger.debug("[aso-dashboard] response <- backend", {
+                method: "POST",
+                path: "/aso/order-refresh",
+                status: 500,
+                country,
+                error: err instanceof Error ? err.message : String(err),
+              });
+              const message = err instanceof Error ? err.message : String(err);
+              logger.error(
+                `ASO dashboard order refresh failed for ${orderRefreshKeywords.length} keyword(s): ${message}`
+              );
+              return null;
+            })
+            .then((items) => {
+              if (!items) return null;
+              logger.debug("[aso-dashboard] response <- backend", {
+                method: "POST",
+                path: "/aso/order-refresh",
+                status: 200,
+                country,
+                keywordCount: items.length,
+              });
+              return items;
+            })
+        );
+      }
+
+      void Promise.all(backgroundTasks);
     }
   } catch (err) {
     if (isAsoAuthReauthRequiredError(err)) {

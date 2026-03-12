@@ -2,6 +2,7 @@ import {
   lookupAsoCache,
   enrichAsoKeywords,
   getAsoAppDocs,
+  refreshKeywordOrder,
 } from "../cache-api";
 import type { AsoAppDocItem, AsoCacheLookupResponse, AsoKeywordItem } from "./aso-types";
 
@@ -24,4 +25,11 @@ export async function getAsoAppDocsLocal(
   appIds: string[]
 ): Promise<AsoAppDocItem[]> {
   return getAsoAppDocs({ country, appIds }) as Promise<AsoAppDocItem[]>;
+}
+
+export async function refreshAsoKeywordOrderLocal(
+  country: string,
+  keyword: string
+): Promise<{ keyword: string; normalizedKeyword: string; appCount: number; orderedAppIds: string[] }> {
+  return refreshKeywordOrder({ country, keyword });
 }

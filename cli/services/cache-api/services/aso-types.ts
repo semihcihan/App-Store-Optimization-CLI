@@ -39,7 +39,8 @@ export interface AsoKeywordRecord {
   orderedAppIds: string[];
   createdAt: string;
   updatedAt: string;
-  expiresAt: string;
+  orderExpiresAt: string;
+  popularityExpiresAt: string;
   sourceVersion?: string;
 }
 

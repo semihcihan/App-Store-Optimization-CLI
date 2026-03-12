@@ -52,7 +52,7 @@ describe("aso-keywords", () => {
         appCount: 4,
         keywordIncluded: 1,
         orderedAppIds: ["a", "b"],
-        expiresAt: "2026-12-31T00:00:00.000Z",
+        orderExpiresAt: "2026-12-31T00:00:00.000Z",
       },
     ]);
     const exact = getKeyword("US", "mixed");
@@ -72,7 +72,7 @@ describe("aso-keywords", () => {
         appCount: null,
         keywordIncluded: null,
         orderedAppIds: [],
-        expiresAt: "2026-12-31T00:00:00.000Z",
+        orderExpiresAt: "2026-12-31T00:00:00.000Z",
       },
     ]);
     upsertKeywords("GB", [
@@ -84,7 +84,7 @@ describe("aso-keywords", () => {
         appCount: null,
         keywordIncluded: null,
         orderedAppIds: [],
-        expiresAt: "2026-12-31T00:00:00.000Z",
+        orderExpiresAt: "2026-12-31T00:00:00.000Z",
       },
     ]);
     expect(listKeywords("US").map((k) => k.keyword)).toEqual(["us-keyword"]);
@@ -100,7 +100,7 @@ describe("aso-keywords", () => {
         appCount: 4,
         keywordIncluded: 1,
         orderedAppIds: [],
-        expiresAt: "2026-12-31T00:00:00.000Z",
+        orderExpiresAt: "2026-12-31T00:00:00.000Z",
       },
     ]);
     const row = getKeyword("US", "rounded");
@@ -120,7 +120,7 @@ describe("aso-keywords", () => {
         orderedAppIds: [],
         createdAt: "2026-01-01T00:00:00.000Z",
         updatedAt: "2026-01-01T00:00:00.000Z",
-        expiresAt: "2026-12-31T00:00:00.000Z",
+        orderExpiresAt: "2026-12-31T00:00:00.000Z",
       },
     ]);
     upsertKeywords("US", [
@@ -132,7 +132,7 @@ describe("aso-keywords", () => {
         appCount: 10,
         keywordIncluded: 2,
         orderedAppIds: ["x"],
-        expiresAt: "2026-12-31T00:00:00.000Z",
+        orderExpiresAt: "2026-12-31T00:00:00.000Z",
       },
     ]);
     const row = getKeyword("US", "keep-created");
@@ -153,7 +153,7 @@ describe("aso-keywords", () => {
         appCount: null,
         keywordIncluded: null,
         orderedAppIds: [],
-        expiresAt: past,
+        orderExpiresAt: past,
       },
       {
         keyword: "fresh-us",
@@ -163,7 +163,7 @@ describe("aso-keywords", () => {
         appCount: null,
         keywordIncluded: null,
         orderedAppIds: [],
-        expiresAt: future,
+        orderExpiresAt: future,
       },
     ]);
     upsertKeywords("GB", [
@@ -175,7 +175,7 @@ describe("aso-keywords", () => {
         appCount: null,
         keywordIncluded: null,
         orderedAppIds: [],
-        expiresAt: past,
+        orderExpiresAt: past,
       },
     ]);
     expect(getExpiredKeywords("US")).toEqual(["expired-us"]);

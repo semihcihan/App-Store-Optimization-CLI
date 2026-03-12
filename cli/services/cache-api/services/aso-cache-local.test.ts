@@ -49,7 +49,8 @@ describe("aso-cache-local", () => {
   });
 
   it("upserts keywords and returns cache hits/misses with normalization", async () => {
-    process.env.ASO_CACHE_TTL_HOURS = "1";
+    process.env.ASO_KEYWORD_ORDER_TTL_HOURS = "1";
+    process.env.ASO_POPULARITY_CACHE_TTL_HOURS = "720";
     const repository = new LocalAsoCacheRepository();
 
     await repository.upsertMany({
@@ -132,7 +133,7 @@ describe("aso-cache-local", () => {
         appCount: 10,
         keywordIncluded: 2,
         orderedAppIds: ["1"],
-        expiresAt: "2000-01-01T00:00:00.000Z",
+        orderExpiresAt: "2000-01-01T00:00:00.000Z",
       },
     ]);
     const repository = new LocalAsoCacheRepository();
@@ -155,7 +156,7 @@ describe("aso-cache-local", () => {
         appCount: null,
         keywordIncluded: null,
         orderedAppIds: [],
-        expiresAt: "2099-01-01T00:00:00.000Z",
+        orderExpiresAt: "2099-01-01T00:00:00.000Z",
       },
     ]);
 

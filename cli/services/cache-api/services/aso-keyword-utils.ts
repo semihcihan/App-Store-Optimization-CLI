@@ -21,17 +21,31 @@ export function sanitizeKeywords(input: string[]): string[] {
   return Array.from(unique);
 }
 
-export function getTtlHours(): number {
+export function getOrderTtlHours(): number {
   const parsed = Number.parseInt(
-    process.env.ASO_CACHE_TTL_HOURS || "24",
+    process.env.ASO_KEYWORD_ORDER_TTL_HOURS || "24",
     10
   );
   if (Number.isNaN(parsed) || parsed <= 0) return 24;
   return parsed;
 }
 
-export function computeExpiryIso(now: Date = new Date()): string {
-  const ttlHours = getTtlHours();
+export function computeOrderExpiryIso(now: Date = new Date()): string {
+  const ttlHours = getOrderTtlHours();
+  return new Date(now.getTime() + ttlHours * 60 * 60 * 1000).toISOString();
+}
+
+export function getPopularityTtlHours(): number {
+  const parsed = Number.parseInt(
+    process.env.ASO_POPULARITY_CACHE_TTL_HOURS ?? "720",
+    10
+  );
+  if (Number.isNaN(parsed) || parsed <= 0) return 720;
+  return parsed;
+}
+
+export function computePopularityExpiryIso(now: Date = new Date()): string {
+  const ttlHours = getPopularityTtlHours();
   return new Date(now.getTime() + ttlHours * 60 * 60 * 1000).toISOString();
 }
 

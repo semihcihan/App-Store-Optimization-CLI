@@ -1,5 +1,11 @@
 import type { StoredAppKeyword, StoredAsoKeyword } from "../db";
 import { isResearchAppId } from "../services/keywords/aso-research";
+import { normalizeKeyword } from "../services/cache-api/services/aso-keyword-utils";
+import {
+  isCompleteStoredAsoKeyword,
+  isStoredKeywordOrderFresh,
+  isStoredKeywordPopularityFresh,
+} from "../services/keywords/aso-keyword-validity";
 
 export type StartupRefreshStatus = "idle" | "running" | "completed" | "failed";
 
@@ -54,7 +60,7 @@ export function selectKeywordRefreshCandidates(params: {
   const associatedKeywords = new Set(
     params.appKeywords
       .filter((row) => !isResearchAppId(row.appId))
-      .map((row) => row.keyword.trim().toLowerCase())
+      .map((row) => normalizeKeyword(row.keyword))
       .filter(Boolean)
   );
 
@@ -65,6 +71,14 @@ export function selectKeywordRefreshCandidates(params: {
         typeof keyword.popularity === "number" &&
         Number.isFinite(keyword.popularity)
     )
+    .filter((keyword) => {
+      const orderFresh = isStoredKeywordOrderFresh(keyword, params.nowMs);
+      const popularityFresh = isStoredKeywordPopularityFresh(
+        keyword,
+        params.nowMs
+      );
+      return !isCompleteStoredAsoKeyword(keyword) || !orderFresh || !popularityFresh;
+    })
     .map((keyword) => ({
       keyword: keyword.keyword,
       popularity: keyword.popularity,

@@ -1,8 +1,14 @@
 export { lookupAsoCache, enrichAsoKeywords, getAsoAppDocs } from "./routes/aso";
-export { enrichKeyword } from "./services/aso-enrichment-service";
+export {
+  enrichKeyword,
+  refreshKeywordOrder,
+} from "./services/aso-enrichment-service";
 export {
   normalizeKeyword,
-  computeExpiryIso,
+  computeOrderExpiryIso,
+  computePopularityExpiryIso,
+  getOrderTtlHours,
+  getPopularityTtlHours,
   computeAppExpiryIsoForApp,
   getAppTtlHours,
 } from "./services/aso-keyword-utils";

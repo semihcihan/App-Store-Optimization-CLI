@@ -20,7 +20,8 @@ function buildKeyword(
     orderedAppIds: ["app-1"],
     createdAt: "2026-01-01T00:00:00.000Z",
     updatedAt: "2026-01-01T00:00:00.000Z",
-    expiresAt: "2099-01-01T00:00:00.000Z",
+    orderExpiresAt: "2099-01-01T00:00:00.000Z",
+    popularityExpiresAt: "2099-01-30T00:00:00.000Z",
     ...overrides,
   };
 }
@@ -49,12 +50,29 @@ async function waitForManagerToFinish(
 }
 
 describe("startup-refresh-manager", () => {
-  it("selects associated non-research keywords with valid popularity", () => {
+  it("selects stale or incomplete associated non-research keywords with valid popularity", () => {
     const now = Date.parse("2026-03-07T00:00:00.000Z");
     const selected = selectKeywordRefreshCandidates({
       keywords: [
-        buildKeyword({ keyword: "expired", normalizedKeyword: "expired" }),
+        buildKeyword({
+          keyword: "order-stale",
+          normalizedKeyword: "order-stale",
+          orderExpiresAt: "2026-03-06T00:00:00.000Z",
+        }),
         buildKeyword({ keyword: "fresh", normalizedKeyword: "fresh" }),
+        buildKeyword({
+          keyword: "difficulty-missing",
+          normalizedKeyword: "difficulty-missing",
+          difficultyScore: null,
+          minDifficultyScore: null,
+          appCount: null,
+          keywordIncluded: null,
+        }),
+        buildKeyword({
+          keyword: "popularity-stale",
+          normalizedKeyword: "popularity-stale",
+          popularityExpiresAt: "2026-03-06T00:00:00.000Z",
+        }),
         buildKeyword({
           keyword: "research-only",
           normalizedKeyword: "research-only",
@@ -67,8 +85,10 @@ describe("startup-refresh-manager", () => {
         }),
       ],
       appKeywords: [
-        buildAssociation({ appId: "app-1", keyword: "expired" }),
+        buildAssociation({ appId: "app-1", keyword: "order-stale" }),
         buildAssociation({ appId: "app-1", keyword: "fresh" }),
+        buildAssociation({ appId: "app-1", keyword: "difficulty-missing" }),
+        buildAssociation({ appId: "app-1", keyword: "popularity-stale" }),
         buildAssociation({ appId: "research:ideas", keyword: "research-only" }),
         buildAssociation({ appId: "app-1", keyword: "no-popularity" }),
       ],
@@ -76,8 +96,9 @@ describe("startup-refresh-manager", () => {
     });
 
     expect(selected).toEqual<KeywordRefreshItem[]>([
-      { keyword: "expired", popularity: 10 },
-      { keyword: "fresh", popularity: 10 },
+      { keyword: "order-stale", popularity: 10 },
+      { keyword: "difficulty-missing", popularity: 10 },
+      { keyword: "popularity-stale", popularity: 10 },
     ]);
   });
 
@@ -89,9 +110,21 @@ describe("startup-refresh-manager", () => {
     const manager = createStartupRefreshManager({
       country: "US",
       listKeywords: () => [
-        buildKeyword({ keyword: "k1", normalizedKeyword: "k1" }),
-        buildKeyword({ keyword: "k2", normalizedKeyword: "k2" }),
-        buildKeyword({ keyword: "k3", normalizedKeyword: "k3" }),
+        buildKeyword({
+          keyword: "k1",
+          normalizedKeyword: "k1",
+          orderExpiresAt: "2026-03-06T00:00:00.000Z",
+        }),
+        buildKeyword({
+          keyword: "k2",
+          normalizedKeyword: "k2",
+          orderExpiresAt: "2026-03-06T00:00:00.000Z",
+        }),
+        buildKeyword({
+          keyword: "k3",
+          normalizedKeyword: "k3",
+          orderExpiresAt: "2026-03-06T00:00:00.000Z",
+        }),
       ],
       listAppKeywords: () => [
         buildAssociation({ keyword: "k1", appId: "app-1" }),
@@ -131,7 +164,13 @@ describe("startup-refresh-manager", () => {
 
     const manager = createStartupRefreshManager({
       country: "US",
-      listKeywords: () => [buildKeyword({ keyword: "k1", normalizedKeyword: "k1" })],
+      listKeywords: () => [
+        buildKeyword({
+          keyword: "k1",
+          normalizedKeyword: "k1",
+          orderExpiresAt: "2026-03-06T00:00:00.000Z",
+        }),
+      ],
       listAppKeywords: () => [buildAssociation({ keyword: "k1", appId: "app-1" })],
       enrichKeywords: async () => {
         throw new Error("always fails");

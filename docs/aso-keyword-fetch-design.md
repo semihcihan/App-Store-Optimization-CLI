@@ -20,10 +20,14 @@ Also covers MCP keyword suggestion entrypoint (`aso_suggest`) that evaluates exp
 ## Pipeline
 1. Normalize (`trim + lowercase + dedupe`).
 2. `POST /aso/cache-lookup` to get hits/misses.
-3. Fetch popularity for misses from Search Ads endpoint.
-4. Persist popularity-only local rows (`difficultyScore = null`).
-5. `POST /aso/enrich` with `{ keyword, popularity }`.
+3. Classify misses:
+   - popularity missing/expired -> fetch popularity from Search Ads endpoint.
+   - popularity fresh + difficulty incomplete -> reuse cached popularity and enrich.
+   - popularity fresh + difficulty complete + order expired -> order-only refresh.
+4. Persist popularity-only local rows (`difficultyScore = null`) only for keywords that still need enrichment.
+5. `POST /aso/enrich` with `{ keyword, popularity }` for full-enrich keywords.
 6. Persist enriched keywords and returned app docs.
+7. For order-only keywords, refresh `orderedAppIds` + `appCount` without refetching popularity.
 
 ## Machine-Safe `--stdout` Contract
 - `aso keywords "<comma-separated-keywords>" --stdout` is keyword-only and intended for agents/machine calls.
@@ -93,9 +97,13 @@ Keyword-level difficulty:
 - Rank delta baseline lives in `app_keywords.previous_position`.
 
 ## Expiration and Refresh
-- Keyword and app-doc TTL are env-configurable.
-- Cache lookup returns only fresh, fully enriched keyword rows; expired/incomplete rows are treated as misses.
-- Startup refresh re-enriches associated owned-app keywords in background batches.
+- TTLs are env-configurable and split by data volatility:
+  - `ASO_KEYWORD_ORDER_TTL_HOURS` (default `24`): keyword order/rank data (`orderedAppIds`, `appCount`).
+  - `ASO_POPULARITY_CACHE_TTL_HOURS` (default `720`): popularity + difficulty lifecycle (`30` days).
+  - `ASO_APP_CACHE_TTL_HOURS` (default `168`): app document cache (`7` days).
+- Cache lookup returns only rows that are complete and fresh for both order TTL and popularity TTL.
+- Popularity and difficulty are refreshed together when popularity TTL expires.
+- Startup refresh processes associated owned-app keywords in background batches when popularity expires, difficulty is missing, or order expires.
 - Missing/expired app docs trigger hydration.
 
 ## API Surface

@@ -22,10 +22,13 @@ Runtime flow contracts across CLI commands, local dashboard API, and ASO service
 ## Flow A: CLI Keyword Fetch
 1. Normalize and validate keywords.
 2. Cache lookup (`/aso/cache-lookup`).
-3. Fetch popularity for misses via Search Ads cookie session.
-4. Persist popularity-only local rows.
-5. Enrich misses (`/aso/enrich`).
-6. Persist enriched keywords and competitor app docs.
+3. Classify misses:
+   - popularity missing/expired -> fetch popularity from Search Ads, then full enrich.
+   - popularity fresh + difficulty/order incomplete -> full enrich with cached popularity.
+   - popularity fresh + difficulty complete + order expired -> order-only refresh.
+4. Persist popularity-only local rows for keywords awaiting full enrich.
+5. Enrich required keywords (`/aso/enrich`) and persist enriched keywords + competitor app docs.
+6. Refresh order-only keywords and persist updated `orderedAppIds` + `appCount` without refetching popularity.
 7. In interactive CLI mode (without `--stdout`), associate returned keywords with the default research app (`research`) in `app_keywords`.
 
 ### Flow A1: CLI Keyword Fetch in `--stdout` Mode
@@ -43,7 +46,9 @@ Runtime flow contracts across CLI commands, local dashboard API, and ASO service
 3. Run stage-1 popularity pipeline with interactive auth recovery disabled.
 4. Create new app-keyword associations.
 5. Return `201` immediately with `{ cachedCount, pendingCount }`.
-6. Run enrichment in background for pending items.
+6. Run background keyword work for misses:
+   - full enrichment for `pendingItems`
+   - order-only refresh for `orderRefreshKeywords`
 
 ## Flow C: Dashboard Reauthentication
 1. Add-keyword flow returns `AUTH_REQUIRED` or `AUTH_IN_PROGRESS` when auth state blocks stage 1.
@@ -54,8 +59,11 @@ Runtime flow contracts across CLI commands, local dashboard API, and ASO service
 
 ## Flow D: Startup Background Refresh
 1. Start once at dashboard boot.
-2. Select keywords associated with non-research apps and finite popularity.
-3. Re-enrich in batches while pausing for foreground mutations.
+2. Select keywords associated with non-research apps and finite popularity where at least one is true:
+   - popularity TTL is stale
+   - difficulty has never been computed
+   - order TTL is stale
+3. Run the same keyword pipeline used by CLI fetch in non-interactive mode, in batches while pausing for foreground mutations.
 4. Publish refresh status via `GET /api/aso/refresh-status`.
 
 ## Flow E: App Doc Hydration

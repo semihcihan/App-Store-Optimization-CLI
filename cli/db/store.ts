@@ -36,11 +36,12 @@ function initializeDatabase(database: Database.Database): void {
       ordered_app_ids TEXT NOT NULL,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
-      expires_at TEXT NOT NULL,
+      order_expires_at TEXT NOT NULL,
+      popularity_expires_at TEXT NOT NULL,
       PRIMARY KEY (country, normalized_keyword)
     );
-    CREATE INDEX IF NOT EXISTS idx_aso_keywords_country_expires
-      ON aso_keywords(country, expires_at);
+    CREATE INDEX IF NOT EXISTS idx_aso_keywords_country_order_expires
+      ON aso_keywords(country, order_expires_at);
 
     CREATE TABLE IF NOT EXISTS aso_apps (
       bucket TEXT NOT NULL,
@@ -104,6 +105,7 @@ function initializeDatabase(database: Database.Database): void {
   if (!existingColumns.has("previous_fetched_at")) {
     database.exec("ALTER TABLE aso_apps ADD COLUMN previous_fetched_at TEXT");
   }
+
 }
 
 export function getDbPath(): string {

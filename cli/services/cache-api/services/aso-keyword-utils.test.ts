@@ -1,8 +1,10 @@
 import {
   computeAppExpiryIsoForApp,
-  computeExpiryIso,
+  computeOrderExpiryIso,
+  computePopularityExpiryIso,
   getAppTtlHours,
-  getTtlHours,
+  getOrderTtlHours,
+  getPopularityTtlHours,
   normalizeKeyword,
   normalizeTextForKeywordMatch,
   sanitizeKeywords,
@@ -30,22 +32,31 @@ describe("aso-keyword-utils", () => {
     ]);
   });
 
-  it("uses fallback keyword ttl when env is missing or invalid", () => {
-    delete process.env.ASO_CACHE_TTL_HOURS;
-    expect(getTtlHours()).toBe(24);
+  it("uses fallback order ttl when env is missing or invalid", () => {
+    delete process.env.ASO_KEYWORD_ORDER_TTL_HOURS;
+    expect(getOrderTtlHours()).toBe(24);
 
-    process.env.ASO_CACHE_TTL_HOURS = "0";
-    expect(getTtlHours()).toBe(24);
+    process.env.ASO_KEYWORD_ORDER_TTL_HOURS = "0";
+    expect(getOrderTtlHours()).toBe(24);
 
-    process.env.ASO_CACHE_TTL_HOURS = "abc";
-    expect(getTtlHours()).toBe(24);
+    process.env.ASO_KEYWORD_ORDER_TTL_HOURS = "abc";
+    expect(getOrderTtlHours()).toBe(24);
   });
 
-  it("computes keyword expiry with configured ttl", () => {
-    process.env.ASO_CACHE_TTL_HOURS = "2";
+  it("computes order expiry with configured ttl", () => {
+    process.env.ASO_KEYWORD_ORDER_TTL_HOURS = "2";
     const now = new Date("2026-01-01T00:00:00.000Z");
 
-    expect(computeExpiryIso(now)).toBe("2026-01-01T02:00:00.000Z");
+    expect(computeOrderExpiryIso(now)).toBe("2026-01-01T02:00:00.000Z");
+  });
+
+  it("computes popularity expiry with configured ttl", () => {
+    process.env.ASO_POPULARITY_CACHE_TTL_HOURS = "720";
+    const now = new Date("2026-01-01T00:00:00.000Z");
+    expect(computePopularityExpiryIso(now)).toBe("2026-01-31T00:00:00.000Z");
+
+    delete process.env.ASO_POPULARITY_CACHE_TTL_HOURS;
+    expect(getPopularityTtlHours()).toBe(720);
   });
 
   it("supports app ttl zero and falls back for invalid app ttl", () => {

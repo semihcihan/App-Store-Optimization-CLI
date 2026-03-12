@@ -15,7 +15,8 @@ export interface StoredAsoKeyword {
   orderedAppIds: string[];
   createdAt: string;
   updatedAt: string;
-  expiresAt: string;
+  orderExpiresAt: string;
+  popularityExpiresAt: string;
 }
 
 export interface StoredAsoApp {

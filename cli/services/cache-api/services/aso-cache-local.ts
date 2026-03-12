@@ -1,5 +1,6 @@
 import {
-  computeExpiryIso,
+  computeOrderExpiryIso,
+  computePopularityExpiryIso,
   computeAppExpiryIsoForApp,
   normalizeKeyword,
   sanitizeKeywords,
@@ -15,23 +16,15 @@ import type {
   AsoKeywordRecord,
   AsoAppDoc,
 } from "./aso-types";
+import {
+  isCompleteStoredAsoKeyword,
+  isStoredKeywordCacheHit,
+} from "../../keywords/aso-keyword-validity";
 
 function isFiniteFutureIso(iso: string | undefined, nowMs: number): boolean {
   if (!iso) return false;
   const parsed = Date.parse(iso);
   return Number.isFinite(parsed) && parsed > nowMs;
-}
-
-function isCompleteKeywordRecord(
-  item: Awaited<ReturnType<typeof getKeyword>>
-): item is AsoKeywordRecord {
-  if (!item) return false;
-  return (
-    item.difficultyScore != null &&
-    item.minDifficultyScore != null &&
-    item.appCount != null &&
-    item.keywordIncluded != null
-  );
 }
 
 function toAsoAppDoc(row: ReturnType<typeof getCompetitorAppDocs>[number]): AsoAppDoc {
@@ -63,10 +56,7 @@ export class LocalAsoCacheRepository implements AsoCacheRepository {
 
     for (const keyword of keywords) {
       const item = getKeyword(country, keyword);
-      if (
-        !isCompleteKeywordRecord(item) ||
-        !isFiniteFutureIso(item.expiresAt, nowMs)
-      ) {
+      if (!isStoredKeywordCacheHit(item, nowMs)) {
         misses.push(keyword);
         continue;
       }
@@ -89,7 +79,8 @@ export class LocalAsoCacheRepository implements AsoCacheRepository {
     appDocs?: AsoAppDoc[];
   }): Promise<AsoKeywordRecord[]> {
     const country = params.country.toUpperCase();
-    const expiresAt = computeExpiryIso();
+    const orderExpiresAt = computeOrderExpiryIso();
+    const popularityExpiresAt = computePopularityExpiryIso();
     const records: AsoKeywordRecord[] = params.items.map((item) => ({
       keyword: item.keyword,
       normalizedKeyword: normalizeKeyword(item.keyword),
@@ -102,7 +93,8 @@ export class LocalAsoCacheRepository implements AsoCacheRepository {
       orderedAppIds: item.orderedAppIds,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
-      expiresAt,
+      orderExpiresAt,
+      popularityExpiresAt,
     }));
 
     if (params.items.length > 0) {
@@ -117,7 +109,8 @@ export class LocalAsoCacheRepository implements AsoCacheRepository {
           appCount: item.appCount,
           keywordIncluded: item.keywordIncluded,
           orderedAppIds: item.orderedAppIds,
-          expiresAt,
+          orderExpiresAt,
+          popularityExpiresAt,
         }))
       );
     }
@@ -144,8 +137,11 @@ export class LocalAsoCacheRepository implements AsoCacheRepository {
 
     return records.map((fallback) => {
       const stored = getKeyword(country, fallback.keyword);
-      if (isCompleteKeywordRecord(stored)) {
-        return stored;
+      if (isCompleteStoredAsoKeyword(stored)) {
+        return {
+          ...stored,
+          popularityExpiresAt: stored.popularityExpiresAt,
+        };
       }
       return fallback;
     });
