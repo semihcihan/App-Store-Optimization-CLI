@@ -208,7 +208,7 @@ export async function requestPopularitiesWithKwsRetry(
         : response.statusCode === 429
           ? "rate_limit"
           : "upstream_error";
-      logger.warn(
+      logger.debug(
         `[aso-popularity] transient response status=${response.statusCode} requestID=${
           response.data.requestID || "none"
         } cause=${cause}; retrying (${attempt + 1}/${maxAttempts}) after ${Math.round(delayMs)}ms`
@@ -226,7 +226,7 @@ export async function requestPopularitiesWithKwsRetry(
           : undefined,
         attempt,
       });
-      logger.warn(
+      logger.debug(
         `[aso-popularity] transient request error cause=network; retrying (${attempt + 1}/${maxAttempts}) after ${Math.round(delayMs)}ms`
       );
       await wait(delayMs);

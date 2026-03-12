@@ -301,7 +301,7 @@ export class AsoPopularityService {
         );
       }
       if (response.statusCode === 403 && messageCode === KWS_NO_ORG_CONTENT_PROVIDERS) {
-        logger.warn(
+        logger.debug(
           `[aso-popularity] KWS_NO_ORG_CONTENT_PROVIDERS requestID=${
             response.data.requestID || "none"
           }; attempting keyword-level isolation`

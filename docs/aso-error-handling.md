@@ -48,6 +48,7 @@ Define failure boundaries, retry rules, and recovery behavior across CLI, dashbo
 - Apple HTTP calls carry trace context.
 - Dashboard server reports failures with structured metadata (path, phase, counts).
 - Startup refresh state (`status`, counters, timestamps, lastError) is exposed via API.
+- CLI ASO retry/fallback diagnostics (auth, popularity, and enrichment fallback traces) are logged at `debug`; user-facing flows should surface terminal outcomes and actionable prompts/errors instead of intermediate warning noise.
 
 ## Auth Persistence Contract
 - Cookie persistence is atomic (temp file + rename).

@@ -332,13 +332,13 @@ export async function refreshKeywordOrder(params: {
       country,
     });
     orderedAppIds = searchPageData.orderedAppIds;
-    logger.info(
+    logger.debug(
       `ASO order refresh: search page HTML succeeded for keyword="${params.keyword}" country=${params.country}`
     );
   } catch (htmlErr) {
     const htmlMessage =
       htmlErr instanceof Error ? htmlErr.message : String(htmlErr);
-    logger.info(
+    logger.debug(
       `ASO order refresh: search page HTML failed for keyword="${params.keyword}" (${htmlMessage}), falling back to MZSearch`
     );
     orderedAppIds = await fetchPopularityOrderedIds({
@@ -479,13 +479,13 @@ export async function enrichKeyword(
     orderedAppIds = searchPageData.orderedAppIds;
     appDocs = searchPageData.appDocs;
     usedSearchPage = true;
-    logger.info(
+    logger.debug(
       `ASO enrichment: search page HTML succeeded for keyword="${params.keyword}" country=${params.country}`
     );
   } catch (htmlErr) {
     const htmlMessage =
       htmlErr instanceof Error ? htmlErr.message : String(htmlErr);
-    logger.info(
+    logger.debug(
       `ASO enrichment: search page HTML failed for keyword="${params.keyword}" (${htmlMessage}), falling back to MZSearch`
     );
     orderedAppIds = await fetchPopularityOrderedIds({
@@ -497,7 +497,7 @@ export async function enrichKeyword(
       appIds: firstFiveIds,
       country: params.country,
     });
-    logger.info(
+    logger.debug(
       `ASO enrichment: using MZSearch for keyword="${params.keyword}" (app docs from lookup for first ${firstFiveIds.length})`
     );
   }

@@ -908,7 +908,7 @@ export class AsoAuthEngine {
       if (!this.shouldFallbackToLegacyFromSirp(error)) {
         throw error;
       }
-      logger.warn(
+      logger.debug(
         `[aso-auth] SIRP failed, falling back to legacy: ${String(error)}`
       );
       await this.loginWithLegacy(credentials, { maxAttempts: 1 });
@@ -1015,7 +1015,7 @@ export class AsoAuthEngine {
           bHex,
         });
         if (!ruby.ok || !ruby.m1_hex || !ruby.m2_hex) {
-          logger.warn(
+          logger.debug(
             `[aso-auth] Ruby SIRP oracle failed: ${ruby.error || "unknown"}`
           );
         } else {
@@ -1033,7 +1033,7 @@ export class AsoAuthEngine {
           }
         }
       } catch (error) {
-        logger.warn(`[aso-auth] Ruby oracle exception: ${String(error)}`);
+        logger.debug(`[aso-auth] Ruby oracle exception: ${String(error)}`);
       }
     }
 
@@ -1059,7 +1059,7 @@ export class AsoAuthEngine {
     });
     logger.debug(`[aso-auth] SIRP complete status=${completeResponse.status}`);
     if (completeResponse.status >= 400) {
-      logger.warn(
+      logger.debug(
         `[aso-auth] SIRP complete error payload: ${summarizeAppleErrorPayload(
           completeResponse.data
         )}`
@@ -1122,7 +1122,7 @@ export class AsoAuthEngine {
           response.status === 504);
       if (!shouldRetry || attempt === maxAttempts) {
         if (response.status >= 400) {
-          logger.warn(
+          logger.debug(
             `[aso-auth] Legacy login error payload: ${summarizeAppleErrorPayload(
               response.data
             )}`
@@ -1132,7 +1132,7 @@ export class AsoAuthEngine {
       }
 
       const backoffMs = 1000 * 2 ** (attempt - 1);
-      logger.warn(
+      logger.debug(
         `[aso-auth] Legacy login transient status=${response.status}; retrying in ${backoffMs}ms (attempt ${attempt}/${maxAttempts})`
       );
       await sleep(backoffMs);
@@ -1369,12 +1369,12 @@ export class AsoAuthEngine {
         return authServiceKey;
       }
 
-      logger.warn(
+      logger.debug(
         `[aso-auth] Failed to load widget key dynamically (status=${response.status}); using fallback`
       );
       return APPLE_WIDGET_KEY_FALLBACK;
     } catch (error) {
-      logger.warn(
+      logger.debug(
         `[aso-auth] Widget key lookup failed; using fallback. error=${String(error)}`
       );
       return APPLE_WIDGET_KEY_FALLBACK;
@@ -1548,7 +1548,7 @@ export class AsoAuthEngine {
           data: { phoneNumber: { id: phoneId }, mode },
         });
         if (sendCodeResponse.status < 200 || sendCodeResponse.status >= 300) {
-          logger.warn(
+          logger.debug(
             `[aso-auth] 2FA SMS send error payload: ${summarizeAppleErrorPayload(
               sendCodeResponse.data
             )}`
@@ -1609,7 +1609,7 @@ export class AsoAuthEngine {
         verifyResponse.data
       );
       if (isRetryableCodeError) {
-        logger.warn(
+        logger.debug(
           `[aso-auth] 2FA verify error payload: ${summarizeAppleErrorPayload(
             verifyResponse.data
           )}`
@@ -1622,7 +1622,7 @@ export class AsoAuthEngine {
         continue;
       }
 
-      logger.warn(
+      logger.debug(
         `[aso-auth] 2FA verify error payload: ${summarizeAppleErrorPayload(
           verifyResponse.data
         )}`
@@ -1660,7 +1660,7 @@ export class AsoAuthEngine {
       headers: this.twoFactorHeaders(latestHeadersFromChallenge),
     });
     if (trustResponse.status < 200 || trustResponse.status >= 300) {
-      logger.warn(
+      logger.debug(
         `[aso-auth] 2FA trust error payload: ${summarizeAppleErrorPayload(
           trustResponse.data
         )}`
@@ -1827,7 +1827,7 @@ export class AsoAuthEngine {
         return;
       }
 
-      logger.warn(
+      logger.debug(
         `[aso-auth] App Ads session not ready yet (attempt ${attempt}/5). finalUrl=${lastFinalUrl || "unknown"}`
       );
       await sleep(1000);
@@ -1961,7 +1961,7 @@ export class AsoAuthService {
           throw error;
         }
 
-        logger.warn(
+        logger.debug(
           "[aso-auth] Stored keychain credentials were rejected by Apple. Clearing and prompting again."
         );
         asoKeychainService.clearCredentials();

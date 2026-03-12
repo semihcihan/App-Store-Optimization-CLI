@@ -1398,7 +1398,7 @@ export function startDashboard(openBrowser: boolean = true): Promise<never> {
       if (err.code === "EADDRINUSE" && !retriedWithDynamicPort) {
         retriedWithDynamicPort = true;
         boundPort = 0;
-        logger.info(
+        logger.debug(
           `ASO dashboard port ${DEFAULT_PORT} is busy; retrying with an available local port.`
         );
         server.listen(0, "127.0.0.1");

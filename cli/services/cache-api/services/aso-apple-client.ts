@@ -136,7 +136,7 @@ export async function asoAppleGet<T = unknown>(
   const requestId = generateRequestId();
   const startedAt = Date.now();
 
-  logger.info(`[${requestId}] ASO APPLE REQ GET ${operation}`, {
+  logger.debug(`[${requestId}] ASO APPLE REQ GET ${operation}`, {
     requestId,
     operation,
     method: "GET",
@@ -151,7 +151,7 @@ export async function asoAppleGet<T = unknown>(
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
       const response = await axios.get<T>(url, requestConfig);
-      logger.info(`[${requestId}] ASO APPLE RES GET ${operation}`, {
+      logger.debug(`[${requestId}] ASO APPLE RES GET ${operation}`, {
         requestId,
         operation,
         method: "GET",
@@ -198,7 +198,7 @@ export async function asoAppleGet<T = unknown>(
         delayMs
       );
 
-      logger.warn(`[${requestId}] ASO APPLE RETRY GET ${operation}`, {
+      logger.debug(`[${requestId}] ASO APPLE RETRY GET ${operation}`, {
         requestId,
         operation,
         method: "GET",

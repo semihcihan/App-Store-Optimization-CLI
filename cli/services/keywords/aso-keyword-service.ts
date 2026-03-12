@@ -319,7 +319,7 @@ export async function fetchAndPersistKeywordPopularityStage(
       popularityResult.failedKeywords
     );
     if (popularityFailureSummary) {
-      logger.warn(
+      logger.debug(
         `[aso-keyword-service] popularity failures=${popularityResult.failedKeywords.length} details=${popularityFailureSummary}`
       );
     }
@@ -400,7 +400,7 @@ export async function refreshAndPersistKeywordOrder(
     try {
       updatedOrder = await refreshAsoKeywordOrderLocal(country, keyword);
     } catch (error) {
-      logger.warn(
+      logger.debug(
         `[aso-keyword-service] order refresh skipped keyword=${keyword} reason=${String(error)}`
       );
       continue;
@@ -479,7 +479,7 @@ export async function fetchAndPersistKeywords(
     items.map((item) => item.keyword)
   );
   if (failedKeywords.length > 0) {
-    logger.warn(
+    logger.debug(
       `[aso-keyword-service] failed keywords count=${failedKeywords.length} details=${summarizeFailedKeywords(
         failedKeywords
       )}`
