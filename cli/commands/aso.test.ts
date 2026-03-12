@@ -175,6 +175,22 @@ describe("aso command", () => {
     expect(fetchAndPersistKeywords).not.toHaveBeenCalled();
   });
 
+  it("fails fast when more than 100 keywords are provided", async () => {
+    const tooManyKeywords = Array.from({ length: 101 }, (_, index) => `term-${index}`);
+    jest.mocked(parseKeywords).mockReturnValue(tooManyKeywords);
+
+    await expect(
+      asoCommand.handler?.({
+        subcommand: "keywords",
+        country: "US",
+        terms: tooManyKeywords.join(","),
+      } as any)
+    ).rejects.toThrow("A maximum of 100 keywords is supported per call");
+
+    expect(resolveAsoAdamId).not.toHaveBeenCalled();
+    expect(fetchAndPersistKeywords).not.toHaveBeenCalled();
+  });
+
   it("rejects keyword flags on dashboard command", async () => {
     await expect(
       asoCommand.handler?.({

@@ -163,6 +163,28 @@ describe("dashboard server keyword add flow", () => {
     mockDeleteKeywordFailures.mockReturnValue(0);
   });
 
+  it("rejects over-limit keyword requests before association lookup and stage calls", async () => {
+    const response = await requestJson({
+      method: "POST",
+      path: "/api/aso/keywords",
+      body: {
+        appId: "app-1",
+        country: "US",
+        keywords: Array.from({ length: 300 }, (_, index) => `kw-${index}`),
+      },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.body).toEqual({
+      success: false,
+      errorCode: "INVALID_REQUEST",
+      error: "A maximum of 100 keywords is supported per request.",
+    });
+    expect(mockListByApp).not.toHaveBeenCalled();
+    expect(mockFetchKeywordStage).not.toHaveBeenCalled();
+    expect(mockCreateAppKeywords).not.toHaveBeenCalled();
+  });
+
   it("schedules order refresh when stage returns order-only misses", async () => {
     mockFetchKeywordStage.mockResolvedValue({
       hits: [],

@@ -42,6 +42,7 @@ Runtime flow contracts across CLI commands, local dashboard API, and ASO service
 
 ## Flow B: Dashboard Add Keywords (`POST /api/aso/keywords`)
 1. Validate and normalize input.
+   - Requests over `100` normalized keywords fail immediately before app-association lookups.
 2. Remove already-associated keywords for selected app.
 3. Run stage-1 popularity pipeline with interactive auth recovery disabled.
 4. Create new app-keyword associations.
@@ -85,6 +86,7 @@ Runtime flow contracts across CLI commands, local dashboard API, and ASO service
 ## Guardrails
 - Country must be `US`.
 - Keyword limit is `100`.
+- Dashboard keyword reads pre-index app-keyword associations by keyword to avoid repeated scans per row.
 - App-doc backend requests are chunked to max `50` IDs.
 - In ASO research, a `keyword` is a search term candidate and may be a long-tail phrase, not only a single word.
 - In App Store metadata fields, keywords are comma-separated terms under a `100`-character limit.

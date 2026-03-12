@@ -44,6 +44,10 @@ import {
   type StartupRefreshState,
 } from "./startup-refresh-manager";
 import { chunkArray, getMissingOrExpiredAppIds } from "./refresh-utils";
+import {
+  ASO_MAX_KEYWORDS,
+  ASO_MAX_KEYWORDS_PER_REQUEST_ERROR,
+} from "../shared/aso-keyword-limits";
 
 const DEFAULT_PORT = 3456;
 const DEFAULT_APP_DOCS_HYDRATION_COUNTRY = "US";
@@ -642,11 +646,19 @@ async function handleApiAsoKeywordsPost(
   const rawKeywords = body.keywords ?? [];
   const keywords = normalizeKeywords(rawKeywords);
   const country = (body.country ?? "US").toUpperCase();
+  const startedAt = Date.now();
+  if (keywords.length === 0) {
+    sendApiError(res, 400, "INVALID_REQUEST", "Please provide at least one keyword.");
+    return;
+  }
+  if (keywords.length > ASO_MAX_KEYWORDS) {
+    sendApiError(res, 400, "INVALID_REQUEST", ASO_MAX_KEYWORDS_PER_REQUEST_ERROR);
+    return;
+  }
   const existingForApp = new Set(
     listByApp(appId, country).map((row) => row.keyword.trim().toLowerCase())
   );
   const keywordsToAdd = keywords.filter((keyword) => !existingForApp.has(keyword));
-  const startedAt = Date.now();
   logger.debug("[aso-dashboard] request", {
     method: "POST",
     path: "/api/aso/keywords",
@@ -655,14 +667,6 @@ async function handleApiAsoKeywordsPost(
     keywordCount: keywordsToAdd.length,
     requestedKeywordCount: keywords.length,
   });
-  if (keywords.length === 0) {
-    sendApiError(res, 400, "INVALID_REQUEST", "Please provide at least one keyword.");
-    return;
-  }
-  if (keywords.length > 100) {
-    sendApiError(res, 400, "INVALID_REQUEST", "A maximum of 100 keywords is supported per request.");
-    return;
-  }
 
   if (keywordsToAdd.length === 0) {
     sendJson(res, 201, {
@@ -1022,10 +1026,21 @@ function handleApiAsoKeywordsGet(
   const keywords = listKeywords(country);
   const appKeywords = listAllAppKeywords(country);
   const byApp = new Map<string, string[]>();
+  const byKeyword = new Map<string, typeof appKeywords>();
   for (const ak of appKeywords) {
-    const list = byApp.get(ak.appId) ?? [];
-    list.push(ak.keyword);
-    byApp.set(ak.appId, list);
+    const appKeywordsForApp = byApp.get(ak.appId);
+    if (appKeywordsForApp) {
+      appKeywordsForApp.push(ak.keyword);
+    } else {
+      byApp.set(ak.appId, [ak.keyword]);
+    }
+
+    const appAssociationsForKeyword = byKeyword.get(ak.keyword);
+    if (appAssociationsForKeyword) {
+      appAssociationsForKeyword.push(ak);
+    } else {
+      byKeyword.set(ak.keyword, [ak]);
+    }
   }
   let filtered = keywords;
   if (appId != null && appId !== "") {
@@ -1041,9 +1056,7 @@ function handleApiAsoKeywordsGet(
     keywordFailures.map((failure) => [failure.normalizedKeyword, failure] as const)
   );
   const withMeta = filtered.map((k) => {
-    const assocs = appKeywords.filter(
-      (a) => a.keyword === k.normalizedKeyword && a.country === country
-    );
+    const assocs = byKeyword.get(k.normalizedKeyword) ?? [];
     const positions = assocs.map((a) => ({
       appId: a.appId,
       previousPosition: a.previousPosition,

@@ -13,6 +13,10 @@ import {
 } from "./apple-upstream-error";
 import { getAsoResilienceConfig } from "./aso-resilience";
 import type { FailedKeyword } from "./aso-types";
+import {
+  ASO_MAX_KEYWORDS,
+  ASO_MAX_KEYWORDS_PER_CALL_ERROR,
+} from "../../shared/aso-keyword-limits";
 
 const AUTH_REAUTH_REQUIRED_ERROR_CODE = "ASO_AUTH_REAUTH_REQUIRED";
 const NO_USER_OWNED_APPS_FOUND_CODE = "NO_USER_OWNED_APPS_FOUND_CODE";
@@ -130,10 +134,8 @@ export class AsoPopularityService {
     keywords: string[],
     options?: FetchKeywordPopularitiesOptions
   ): Promise<KeywordPopularityResult> {
-    if (keywords.length > 100) {
-      throw new ContextualError(
-        "A maximum of 100 keywords is supported per call"
-      );
+    if (keywords.length > ASO_MAX_KEYWORDS) {
+      throw new ContextualError(ASO_MAX_KEYWORDS_PER_CALL_ERROR);
     }
 
     const sanitizedToOriginal = new Map<string, string>();

@@ -1,8 +1,8 @@
 import { z } from "zod";
 import { runAsoCommand, toMcpToolResult } from "../execute-aso-cli";
 import { saveKeywordsToDefaultResearchApp } from "../../services/keywords/aso-research-keyword-service";
+import { ASO_MAX_KEYWORDS } from "../../shared/aso-keyword-limits";
 
-const ASO_MAX_KEYWORDS = 100;
 const DEFAULT_MIN_POPULARITY = 15;
 const DEFAULT_MAX_DIFFICULTY = 70;
 const ABSOLUTE_MIN_POPULARITY = 6;

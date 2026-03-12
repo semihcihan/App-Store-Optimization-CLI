@@ -10,6 +10,10 @@ import { resolveAsoAdamId } from "../services/keywords/aso-adam-id-service";
 import { asoAuthService } from "../services/auth/aso-auth-service";
 import { saveKeywordsToDefaultResearchApp } from "../services/keywords/aso-research-keyword-service";
 import { logger } from "../utils/logger";
+import {
+  ASO_MAX_KEYWORDS,
+  ASO_MAX_KEYWORDS_PER_CALL_ERROR,
+} from "../shared/aso-keyword-limits";
 
 const DEFAULT_COUNTRY = "US";
 const AUTH_REAUTH_REQUIRED_ERROR_CODE = "ASO_AUTH_REAUTH_REQUIRED";
@@ -124,6 +128,9 @@ const asoCommand: CommandModule = {
       throw new Error(
         "`aso keywords` requires a comma-separated keyword argument."
       );
+    }
+    if (keywords.length > ASO_MAX_KEYWORDS) {
+      throw new Error(ASO_MAX_KEYWORDS_PER_CALL_ERROR);
     }
 
     await resolveAsoAdamId({ adamId: primaryAppId, allowPrompt: !stdout });

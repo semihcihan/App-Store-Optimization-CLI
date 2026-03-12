@@ -34,8 +34,10 @@ import {
   isStoredKeywordPopularityFresh,
   type CompleteStoredAsoKeyword,
 } from "./aso-keyword-validity";
-
-const MAX_KEYWORDS = 100;
+import {
+  ASO_MAX_KEYWORDS,
+  ASO_MAX_KEYWORDS_PER_CALL_ERROR,
+} from "../../shared/aso-keyword-limits";
 export type PendingKeywordPopularityItem = {
   keyword: string;
   popularity: number;
@@ -71,10 +73,8 @@ export function parseKeywords(raw: string | undefined): string[] {
 }
 
 function validateKeywordCount(keywords: string[]): void {
-  if (keywords.length > MAX_KEYWORDS) {
-    throw new Error(
-      `A maximum of ${MAX_KEYWORDS} keywords is supported per call`
-    );
+  if (keywords.length > ASO_MAX_KEYWORDS) {
+    throw new Error(ASO_MAX_KEYWORDS_PER_CALL_ERROR);
   }
 }
 

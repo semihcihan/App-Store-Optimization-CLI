@@ -27,6 +27,10 @@ import {
   roundTo,
   toActionableErrorMessage,
 } from "./app-helpers";
+import {
+  ASO_MAX_KEYWORDS,
+  ASO_MAX_KEYWORDS_PER_REQUEST_ERROR,
+} from "../shared/aso-keyword-limits";
 
 type AppItem = { id: string; name: string; lastKeywordAddedAt?: string | null };
 type ManualAddType = "app" | "research";
@@ -180,6 +184,17 @@ function CheckIcon() {
       />
     </svg>
   );
+}
+
+function normalizeKeywordInput(rawInput: string): string[] {
+  const unique = new Set<string>();
+  for (const token of rawInput.split(",")) {
+    const normalized = token.trim().toLowerCase();
+    if (normalized) {
+      unique.add(normalized);
+    }
+  }
+  return Array.from(unique);
 }
 
 export function App() {
@@ -831,22 +846,19 @@ export function App() {
 
   const onAddKeywords = async (event: React.FormEvent) => {
     event.preventDefault();
-    const kws = addInput
-      .split(",")
-      .map((k) => k.trim())
-      .filter(Boolean)
-      .filter((k, idx, arr) => arr.findIndex((x) => x.toLowerCase() === k.toLowerCase()) === idx);
-    const existingKeywords = new Set(keywords.map((row) => row.keyword.trim().toLowerCase()));
-    const kwsToAdd = kws.filter((keyword) => !existingKeywords.has(keyword.toLowerCase()));
+    const normalizedKeywords = normalizeKeywordInput(addInput);
 
-    if (kws.length === 0) {
+    if (normalizedKeywords.length === 0) {
       setErrorText("Please add at least one keyword.");
       return;
     }
-    if (kws.length > 100) {
-      setErrorText("A maximum of 100 keywords is supported per request.");
+    if (normalizedKeywords.length > ASO_MAX_KEYWORDS) {
+      setErrorText(ASO_MAX_KEYWORDS_PER_REQUEST_ERROR);
       return;
     }
+
+    const existingKeywords = new Set(keywords.map((row) => row.keyword.trim().toLowerCase()));
+    const kwsToAdd = normalizedKeywords.filter((keyword) => !existingKeywords.has(keyword));
 
     if (kwsToAdd.length === 0) {
       setErrorText("");

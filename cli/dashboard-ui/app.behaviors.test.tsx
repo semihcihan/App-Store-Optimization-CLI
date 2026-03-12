@@ -191,12 +191,13 @@ describe("dashboard app behaviors", () => {
     fireEvent.click(screen.getByRole("button", { name: "Add Keywords" }));
     expect(await screen.findByText("Please add at least one keyword.")).toBeInTheDocument();
 
-    const tooManyKeywords = Array.from({ length: 101 }, (_, index) => `kw-${index}`).join(",");
+    const tooManyKeywords = Array.from({ length: 300 }, (_, index) => `kw-${index}`).join(",");
     fireEvent.change(input, { target: { value: tooManyKeywords } });
     fireEvent.click(screen.getByRole("button", { name: "Add Keywords" }));
     expect(
       await screen.findByText("A maximum of 100 keywords is supported per request.")
     ).toBeInTheDocument();
+    await waitFor(() => expect(addKeywordCallCount).toBe(0));
 
     fireEvent.change(input, { target: { value: "alpha, Alpha" } });
     fireEvent.click(screen.getByRole("button", { name: "Add Keywords" }));

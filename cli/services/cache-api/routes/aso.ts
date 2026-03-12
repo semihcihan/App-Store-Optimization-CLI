@@ -6,17 +6,16 @@ import { localAsoCacheRepository } from "../services/aso-cache-local";
 import { enrichKeyword } from "../services/aso-enrichment-service";
 import { normalizeKeyword, sanitizeKeywords } from "../services/aso-keyword-utils";
 import { getAsoAppDocs as getAsoAppDocsFromService } from "../services/aso-app-doc-service";
+import { ASO_MAX_KEYWORDS } from "../../../shared/aso-keyword-limits";
 import type {
   AsoAppDoc,
   AsoCacheRepository,
   AsoKeywordRecord,
 } from "../services/aso-types";
 
-const MAX_KEYWORDS = 100;
-
 const CacheLookupRequestSchema = z.object({
   country: z.string().default("US"),
-  keywords: z.array(z.string()).min(1).max(MAX_KEYWORDS),
+  keywords: z.array(z.string()).min(1).max(ASO_MAX_KEYWORDS),
 });
 
 const EnrichRequestSchema = z.object({
@@ -29,7 +28,7 @@ const EnrichRequestSchema = z.object({
       })
     )
     .min(1)
-    .max(MAX_KEYWORDS),
+    .max(ASO_MAX_KEYWORDS),
 });
 const AppDocsRequestSchema = z.object({
   country: z.string().default("US"),
