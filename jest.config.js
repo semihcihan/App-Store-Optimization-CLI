@@ -57,10 +57,14 @@ module.exports = {
     }
   ],
   collectCoverageFrom: [
-    "cli/**/*.{js,ts,tsx}",
+    "cli/**/*.{ts,tsx}",
     "!**/*.test.{js,ts,tsx}",
     "!**/*.spec.{js,ts,tsx}",
-    "!**/generated/**/*"
+    "!**/generated/**/*",
+    "!cli/dist/**/*",
+    "!cli/dashboard-public/**/*",
+    "!cli/dashboard-ui/vite.config.ts",
+    "!cli/dashboard-ui/main.tsx"
   ],
-  coverageReporters: ["text"]
+  coverageReporters: ["text", "lcov"]
 };

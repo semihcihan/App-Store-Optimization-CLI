@@ -1,5 +1,4 @@
-import * as http from "http";
-import type { AddressInfo } from "net";
+import { PassThrough } from "stream";
 import { jest } from "@jest/globals";
 import { createAppKeywords, listByApp } from "../db/app-keywords";
 import {
@@ -81,62 +80,55 @@ jest.mock("../utils/logger", () => ({
   },
 }));
 
-function createTestServer(): Promise<http.Server> {
-  const server = http.createServer(createServerRequestHandler());
-  return new Promise((resolve) => {
-    server.listen(0, () => resolve(server));
-  });
-}
-
-function closeServer(server: http.Server): Promise<void> {
-  return new Promise((resolve, reject) => {
-    server.close((error) => {
-      if (error) {
-        reject(error);
-        return;
-      }
-      resolve();
-    });
-  });
-}
-
 function requestJson(params: {
-  server: http.Server;
   method: string;
   path: string;
   body?: unknown;
 }): Promise<{ statusCode: number; body: any }> {
-  const address = params.server.address() as AddressInfo;
+  const handler = createServerRequestHandler();
   const payload = params.body ? JSON.stringify(params.body) : "";
 
-  return new Promise((resolve, reject) => {
-    const req = http.request(
-      {
-        hostname: "127.0.0.1",
-        family: 4,
-        port: address.port,
-        path: params.path,
-        method: params.method,
-        headers: {
-          "Content-Type": "application/json",
-          "Content-Length": Buffer.byteLength(payload),
-        },
-      },
-      (res) => {
-        const chunks: Buffer[] = [];
-        res.on("data", (chunk) => {
-          chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
-        });
-        res.on("end", () => {
-          const raw = Buffer.concat(chunks).toString("utf8");
-          resolve({
-            statusCode: res.statusCode ?? 0,
-            body: raw ? JSON.parse(raw) : null,
-          });
-        });
+  return new Promise((resolve) => {
+    const req = new PassThrough() as any;
+    req.method = params.method;
+    req.url = params.path;
+    req.headers = {
+      "content-type": "application/json",
+      "content-length": Buffer.byteLength(payload),
+    };
+
+    const res = new PassThrough() as any;
+    const chunks: Buffer[] = [];
+    let statusCode = 200;
+    res.statusCode = statusCode;
+    res.headers = {};
+    res.setHeader = (name: string, value: unknown) => {
+      res.headers[name.toLowerCase()] = value;
+    };
+    res.writeHead = (code: number, headers?: Record<string, unknown>) => {
+      statusCode = code;
+      res.statusCode = code;
+      if (headers) {
+        for (const [key, value] of Object.entries(headers)) {
+          res.headers[key.toLowerCase()] = value;
+        }
       }
-    );
-    req.on("error", reject);
+      return res;
+    };
+
+    res.on("data", (chunk: Buffer | string) => {
+      chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+    });
+    res.on("finish", () => {
+      const raw = Buffer.concat(chunks).toString("utf8");
+      resolve({
+        statusCode,
+        body: raw ? JSON.parse(raw) : null,
+      });
+    });
+
+    handler(req, res);
+
     if (payload) {
       req.write(payload);
     }
@@ -179,34 +171,28 @@ describe("dashboard server keyword add flow", () => {
       failedKeywords: [],
     });
 
-    const server = await createTestServer();
-    try {
-      const response = await requestJson({
-        server,
-        method: "POST",
-        path: "/api/aso/keywords",
-        body: {
-          appId: "app-1",
-          country: "US",
-          keywords: ["Order-Stale"],
-        },
-      });
+    const response = await requestJson({
+      method: "POST",
+      path: "/api/aso/keywords",
+      body: {
+        appId: "app-1",
+        country: "US",
+        keywords: ["Order-Stale"],
+      },
+    });
 
-      expect(response.statusCode).toBe(201);
-      expect(response.body).toEqual({
-        success: true,
-        data: {
-          cachedCount: 0,
-          pendingCount: 1,
-          failedCount: 0,
-        },
-      });
-      expect(mockCreateAppKeywords).toHaveBeenCalledWith("app-1", ["order-stale"], "US");
-      expect(mockRefreshOrder).toHaveBeenCalledWith("US", ["order-stale"]);
-      expect(mockEnrichKeywords).not.toHaveBeenCalled();
-    } finally {
-      await closeServer(server);
-    }
+    expect(response.statusCode).toBe(201);
+    expect(response.body).toEqual({
+      success: true,
+      data: {
+        cachedCount: 0,
+        pendingCount: 1,
+        failedCount: 0,
+      },
+    });
+    expect(mockCreateAppKeywords).toHaveBeenCalledWith("app-1", ["order-stale"], "US");
+    expect(mockRefreshOrder).toHaveBeenCalledWith("US", ["order-stale"]);
+    expect(mockEnrichKeywords).not.toHaveBeenCalled();
   });
 
   it("retries failed keywords for selected app", async () => {
@@ -249,30 +235,24 @@ describe("dashboard server keyword add flow", () => {
       failedKeywords: [],
     });
 
-    const server = await createTestServer();
-    try {
-      const response = await requestJson({
-        server,
-        method: "POST",
-        path: "/api/aso/keywords/retry-failed",
-        body: {
-          appId: "app-1",
-          country: "US",
-        },
-      });
+    const response = await requestJson({
+      method: "POST",
+      path: "/api/aso/keywords/retry-failed",
+      body: {
+        appId: "app-1",
+        country: "US",
+      },
+    });
 
-      expect(response.statusCode).toBe(200);
-      expect(response.body).toEqual({
-        success: true,
-        data: {
-          retriedCount: 1,
-          succeededCount: 1,
-          failedCount: 0,
-        },
-      });
-      expect(mockDeleteKeywordFailures).toHaveBeenCalledWith("US", ["bad"]);
-    } finally {
-      await closeServer(server);
-    }
+    expect(response.statusCode).toBe(200);
+    expect(response.body).toEqual({
+      success: true,
+      data: {
+        retriedCount: 1,
+        succeededCount: 1,
+        failedCount: 0,
+      },
+    });
+    expect(mockDeleteKeywordFailures).toHaveBeenCalledWith("US", ["bad"]);
   });
 });

@@ -415,4 +415,96 @@ describe("dashboard auth modal UI flow", () => {
       )
     ).not.toBeInTheDocument();
   });
+
+  it("shows reauthenticate button after auth status fails and allows restarting auth", async () => {
+    let authStartCount = 0;
+    const fetchMock = jest.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = (init?.method ?? "GET").toUpperCase();
+
+      if (method === "GET" && url === "/api/apps") {
+        return jsonResponse({ status: 200, body: { success: true, data: [] } });
+      }
+      if (method === "GET" && url.startsWith("/api/aso/keywords?")) {
+        return jsonResponse({ status: 200, body: { success: true, data: [] } });
+      }
+      if (method === "GET" && url === "/api/aso/refresh-status") {
+        return jsonResponse({
+          status: 200,
+          body: {
+            success: true,
+            data: {
+              status: "idle",
+              startedAt: null,
+              finishedAt: null,
+              lastError: null,
+              counters: {
+                eligibleKeywordCount: 0,
+                refreshedKeywordCount: 0,
+                failedKeywordCount: 0,
+                appListRefreshAttempted: false,
+                appListRefreshSucceeded: false,
+              },
+            },
+          },
+        });
+      }
+      if (method === "POST" && url === "/api/aso/keywords") {
+        return jsonResponse({
+          status: 401,
+          body: {
+            success: false,
+            errorCode: "AUTH_REQUIRED",
+            error: "Auth required",
+          },
+        });
+      }
+      if (method === "POST" && url === "/api/aso/auth/start") {
+        authStartCount += 1;
+        return jsonResponse({
+          status: 202,
+          body: {
+            success: true,
+            data: {
+              status: "in_progress",
+              updatedAt: "2026-03-07T00:00:00.000Z",
+              lastError: null,
+              requiresTerminalAction: false,
+              canPrompt: true,
+            },
+          },
+        });
+      }
+      if (method === "GET" && url === "/api/aso/auth/status") {
+        return jsonResponse({
+          status: 200,
+          body: {
+            success: true,
+            data: {
+              status: "failed",
+              updatedAt: "2026-03-07T00:00:01.000Z",
+              lastError: "Apple rejected the session.",
+              requiresTerminalAction: false,
+              canPrompt: true,
+            },
+          },
+        });
+      }
+
+      throw new Error(`Unhandled fetch: ${method} ${url}`);
+    });
+    global.fetch = fetchMock as typeof fetch;
+
+    render(<App />);
+
+    const input = await screen.findByPlaceholderText("Add keywords (comma-separated)");
+    fireEvent.change(input, { target: { value: "term" } });
+    fireEvent.click(screen.getByRole("button", { name: "Add Keywords" }));
+
+    const reauthButton = await screen.findByRole("button", { name: "Reauthenticate" });
+    fireEvent.click(reauthButton);
+
+    await waitFor(() => expect(authStartCount).toBeGreaterThanOrEqual(2));
+    expect(await screen.findByText("Apple rejected the session.")).toBeInTheDocument();
+  });
 });

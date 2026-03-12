@@ -22,6 +22,7 @@ npm run dev
 Useful scripts:
 - `npm run typecheck`
 - `npm test -- --watchman=false`
+- `npm run test:coverage -- --watchman=false`
 - `npm run build`
 - `npm run ci`
 
@@ -71,6 +72,7 @@ Before opening a PR, run:
 ```bash
 npm run typecheck
 npm test -- --watchman=false
+npm run test:coverage -- --watchman=false
 npm run build
 ```
 
