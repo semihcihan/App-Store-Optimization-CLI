@@ -1,7 +1,7 @@
 import { z } from "zod";
-import { getAsoResilienceConfig } from "../../keywords/aso-resilience";
-import { normalizeAppleUpstreamError } from "../../keywords/apple-upstream-error";
-import type { FailedKeyword } from "../../keywords/aso-types";
+import { getAsoResilienceConfig } from "../../../shared/aso-resilience";
+import { normalizeAppleUpstreamError } from "../../../shared/apple-upstream-error";
+import type { FailedKeyword } from "../../../shared/aso-keyword-types";
 import { localAsoCacheRepository } from "../services/aso-cache-local";
 import { enrichKeyword } from "../services/aso-enrichment-service";
 import { normalizeKeyword, sanitizeKeywords } from "../services/aso-keyword-utils";

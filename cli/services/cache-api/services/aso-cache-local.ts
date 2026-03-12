@@ -6,10 +6,17 @@ import {
 } from "./aso-keyword-utils";
 import {
   getKeyword,
+  getKeywords,
   upsertKeywords,
+} from "../../../db/aso-keywords";
+import {
   getCompetitorAppDocs,
   upsertCompetitorAppDocs,
-} from "../../../db";
+} from "../../../db/aso-apps";
+import {
+  getAssociationsForKeyword,
+  setPreviousPosition,
+} from "../../../db/app-keywords";
 import type {
   AsoCacheRepository,
   AsoKeywordRecord,
@@ -18,7 +25,7 @@ import type {
 import {
   isCompleteStoredAsoKeyword,
   isStoredKeywordCacheHit,
-} from "../../keywords/aso-keyword-validity";
+} from "../../../shared/aso-keyword-validity";
 
 function isFiniteFutureIso(iso: string | undefined, nowMs: number): boolean {
   if (!iso) return false;
@@ -80,9 +87,35 @@ export class LocalAsoCacheRepository implements AsoCacheRepository {
     const country = params.country.toUpperCase();
     const orderExpiresAt = computeOrderExpiryIso();
     const popularityExpiresAt = computePopularityExpiryIso();
-    const records: AsoKeywordRecord[] = params.items.map((item) => ({
-      keyword: item.keyword,
+    const now = new Date().toISOString();
+    const normalizedItems = params.items.map((item) => ({
+      ...item,
       normalizedKeyword: normalizeKeyword(item.keyword),
+    }));
+    const existingByNormalized = new Map(
+      getKeywords(
+        country,
+        normalizedItems.map((item) => item.normalizedKeyword)
+      ).map((keyword) => [keyword.normalizedKeyword, keyword] as const)
+    );
+
+    for (const item of normalizedItems) {
+      const existing = existingByNormalized.get(item.normalizedKeyword);
+      if (!existing) continue;
+      const orderedIds = existing.orderedAppIds;
+      if (orderedIds.length === 0) continue;
+      const associations = getAssociationsForKeyword(item.keyword, country);
+      for (const assoc of associations) {
+        const idx = orderedIds.indexOf(assoc.appId);
+        if (idx >= 0) {
+          setPreviousPosition(item.keyword, country, assoc.appId, idx + 1);
+        }
+      }
+    }
+
+    const records: AsoKeywordRecord[] = normalizedItems.map((item) => ({
+      keyword: item.keyword,
+      normalizedKeyword: item.normalizedKeyword,
       country,
       popularity: item.popularity,
       difficultyScore: item.difficultyScore,
@@ -90,18 +123,18 @@ export class LocalAsoCacheRepository implements AsoCacheRepository {
       appCount: item.appCount,
       keywordIncluded: item.keywordIncluded,
       orderedAppIds: item.orderedAppIds,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
+      createdAt: now,
+      updatedAt: now,
       orderExpiresAt,
       popularityExpiresAt,
     }));
 
-    if (params.items.length > 0) {
+    if (normalizedItems.length > 0) {
       upsertKeywords(
         country,
-        params.items.map((item) => ({
+        normalizedItems.map((item) => ({
           keyword: item.keyword,
-          normalizedKeyword: normalizeKeyword(item.keyword),
+          normalizedKeyword: item.normalizedKeyword,
           popularity: item.popularity,
           difficultyScore: item.difficultyScore,
           minDifficultyScore: item.minDifficultyScore,

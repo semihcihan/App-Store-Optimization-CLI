@@ -16,6 +16,7 @@ Also covers MCP keyword suggestion entrypoint (`aso_suggest`) that evaluates exp
 - MCP server (`cli/mcp/index.ts`): validate explicit `keywords` input (max 100), call `aso keywords "<comma-separated-keywords>" --stdout`, and return only accepted rows after threshold filtering.
 - Backend (`cli/services/cache-api/routes/aso.ts`, `cli/services/cache-api/services/*`): lookup cache, enrich keywords, serve app docs, persist backend cache.
 - Dashboard server (`cli/dashboard-server/server.ts`): run stage 1 synchronously, return early, run stage 2 in background.
+- Shared domain policy (`cli/shared/*`): keyword normalization/TTL policy, freshness validation, resilience config, and upstream error normalization used by both `keywords` and `cache-api` layers.
 
 ## Pipeline
 1. Normalize (`trim + lowercase + dedupe`).
@@ -133,3 +134,4 @@ Keyword-level difficulty:
 - Popularity stays in CLI because it depends on local Search Ads auth + Primary App ID context.
 - Enrichment/cache stays backend-side for deterministic reuse.
 - Two-stage flow keeps dashboard latency low while preserving full enrichment asynchronously.
+- `cache-api` repository is the single persistence owner for enriched keyword/app-doc cache writes; CLI orchestration avoids duplicate writes for the same enrichment payload.

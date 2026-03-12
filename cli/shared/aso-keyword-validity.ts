@@ -1,6 +1,15 @@
-import type { StoredAsoKeyword } from "../../db/types";
+type KeywordFreshnessFields = {
+  difficultyScore: number | null;
+  minDifficultyScore: number | null;
+  appCount: number | null;
+  keywordIncluded: number | null;
+  orderExpiresAt: string;
+  popularityExpiresAt: string;
+};
 
-export type CompleteStoredAsoKeyword = StoredAsoKeyword & {
+export type CompleteStoredAsoKeyword<
+  T extends KeywordFreshnessFields = KeywordFreshnessFields,
+> = T & {
   difficultyScore: number;
   minDifficultyScore: number;
   appCount: number;
@@ -13,9 +22,9 @@ export function isFreshIso(iso: string | undefined, nowMs: number): boolean {
   return Number.isFinite(ts) && ts > nowMs;
 }
 
-export function isCompleteStoredAsoKeyword(
-  keyword: StoredAsoKeyword | null | undefined
-): keyword is CompleteStoredAsoKeyword {
+export function isCompleteStoredAsoKeyword<T extends KeywordFreshnessFields>(
+  keyword: T | null | undefined
+): keyword is CompleteStoredAsoKeyword<T> {
   if (!keyword) return false;
   return (
     keyword.difficultyScore != null &&
@@ -26,23 +35,23 @@ export function isCompleteStoredAsoKeyword(
 }
 
 export function isStoredKeywordOrderFresh(
-  keyword: StoredAsoKeyword,
+  keyword: KeywordFreshnessFields,
   nowMs: number
 ): boolean {
   return isFreshIso(keyword.orderExpiresAt, nowMs);
 }
 
 export function isStoredKeywordPopularityFresh(
-  keyword: StoredAsoKeyword,
+  keyword: KeywordFreshnessFields,
   nowMs: number
 ): boolean {
   return isFreshIso(keyword.popularityExpiresAt, nowMs);
 }
 
-export function isStoredKeywordCacheHit(
-  keyword: StoredAsoKeyword | null | undefined,
+export function isStoredKeywordCacheHit<T extends KeywordFreshnessFields>(
+  keyword: T | null | undefined,
   nowMs: number
-): keyword is CompleteStoredAsoKeyword {
+): keyword is CompleteStoredAsoKeyword<T> {
   return (
     isCompleteStoredAsoKeyword(keyword) &&
     isStoredKeywordOrderFresh(keyword, nowMs) &&

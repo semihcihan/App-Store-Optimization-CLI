@@ -9,6 +9,7 @@ import type {
   FailedKeyword,
   KeywordFetchResult,
 } from "./aso-types";
+import type { StoredAsoKeyword } from "../../db/types";
 import {
   enrichAsoKeywordsLocal,
   lookupAsoCacheLocal,
@@ -18,22 +19,25 @@ import {
   computeOrderExpiryIso,
   computePopularityExpiryIso,
   normalizeKeyword,
-} from "../cache-api/services/aso-keyword-utils";
+} from "../../shared/aso-keyword-utils";
 import {
   getKeywords,
+  upsertKeywords,
+} from "../../db/aso-keywords";
+import {
   upsertKeywordFailures,
   deleteKeywordFailures,
-  upsertKeywords,
+} from "../../db/aso-keyword-failures";
+import {
   getAssociationsForKeyword,
   setPreviousPosition,
-  upsertCompetitorAppDocs,
-} from "../../db";
+} from "../../db/app-keywords";
 import {
   isCompleteStoredAsoKeyword,
   isStoredKeywordOrderFresh,
   isStoredKeywordPopularityFresh,
   type CompleteStoredAsoKeyword,
-} from "./aso-keyword-validity";
+} from "../../shared/aso-keyword-validity";
 import {
   ASO_MAX_KEYWORDS,
   ASO_MAX_KEYWORDS_PER_CALL_ERROR,
@@ -91,7 +95,9 @@ function defaultPopularityExpiresAt(): string {
   return computePopularityExpiryIso();
 }
 
-function toAsoKeywordItem(item: CompleteStoredAsoKeyword): AsoKeywordItem {
+function toAsoKeywordItem(
+  item: CompleteStoredAsoKeyword<StoredAsoKeyword>
+): AsoKeywordItem {
   return {
     keyword: item.keyword,
     normalizedKeyword: item.normalizedKeyword,
@@ -154,10 +160,6 @@ function persistKeywords(country: string, items: AsoKeywordItem[]): void {
         defaultPopularityExpiresAt(),
     }))
   );
-  const appDocs = items.flatMap((item) => item.appDocs ?? []);
-  if (appDocs.length > 0) {
-    upsertCompetitorAppDocs(country, appDocs);
-  }
 }
 
 function persistPopularityOnlyKeywords(
@@ -276,9 +278,6 @@ export async function fetchAndPersistKeywordPopularityStage(
     country,
     keywords
   )) as AsoCacheLookupResponse;
-  if (lookupData.hits.length > 0) {
-    persistKeywords(country, lookupData.hits);
-  }
 
   if (lookupData.misses.length === 0) {
     return {
@@ -360,9 +359,6 @@ export async function enrichAndPersistKeywords(
     country,
     items
   );
-  if (enrichedResult.items.length > 0) {
-    persistKeywords(country, enrichedResult.items);
-  }
   persistFailedKeywords(country, enrichedResult.failedKeywords);
   clearFailedKeywords(
     country,

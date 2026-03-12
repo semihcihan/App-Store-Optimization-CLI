@@ -1,6 +1,6 @@
 import type { StoredAsoKeyword } from "./types";
 import { getDb } from "./store";
-import { computePopularityExpiryIso } from "../services/cache-api/services/aso-keyword-utils";
+import { computePopularityExpiryIso } from "../shared/aso-keyword-utils";
 
 type KeywordRow = {
   country: string;

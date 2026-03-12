@@ -1,7 +1,7 @@
 import axios, { AxiosError, AxiosRequestConfig, AxiosResponse } from "axios";
 import { ContextualError } from "../../../utils/error-handling-helpers";
 import { logger } from "../../../utils/logger";
-import { getAsoResilienceConfig } from "../../keywords/aso-resilience";
+import { getAsoResilienceConfig } from "../../../shared/aso-resilience";
 
 const SENSITIVE_HEADER_KEYS = ["authorization", "cookie", "set-cookie", "x-api-key"];
 

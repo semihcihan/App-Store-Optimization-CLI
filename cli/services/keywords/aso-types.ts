@@ -1,3 +1,8 @@
+import type {
+  FailedKeyword,
+  FailedKeywordStage,
+} from "../../shared/aso-keyword-types";
+
 export interface AsoAppDocItem {
   appId: string;
   country: string;
@@ -29,18 +34,7 @@ export interface AsoKeywordItem {
   appDocs?: AsoAppDocItem[];
 }
 
-export type FailedKeywordStage = "popularity" | "enrichment";
-
-export interface FailedKeyword {
-  keyword: string;
-  stage: FailedKeywordStage;
-  reasonCode: string;
-  message: string;
-  statusCode?: number;
-  retryable: boolean;
-  attempts: number;
-  requestId?: string;
-}
+export type { FailedKeyword, FailedKeywordStage };
 
 export interface KeywordFetchResult {
   items: AsoKeywordItem[];

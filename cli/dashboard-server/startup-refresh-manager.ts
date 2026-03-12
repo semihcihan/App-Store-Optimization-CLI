@@ -1,11 +1,11 @@
-import type { StoredAppKeyword, StoredAsoKeyword } from "../db";
+import type { StoredAppKeyword, StoredAsoKeyword } from "../db/types";
 import { isResearchAppId } from "../shared/aso-research";
-import { normalizeKeyword } from "../services/cache-api/services/aso-keyword-utils";
+import { normalizeKeyword } from "../shared/aso-keyword-utils";
 import {
   isCompleteStoredAsoKeyword,
   isStoredKeywordOrderFresh,
   isStoredKeywordPopularityFresh,
-} from "../services/keywords/aso-keyword-validity";
+} from "../shared/aso-keyword-validity";
 
 export type StartupRefreshStatus = "idle" | "running" | "completed" | "failed";
 
