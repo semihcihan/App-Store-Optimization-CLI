@@ -1,0 +1,10 @@
+{
+  "service_errors": [
+    {
+      "code": "-21669",
+      "title": "Incorrect Verification Code",
+      "message": "Incorrect verification code."
+    }
+  ],
+  "hasError": true
+}

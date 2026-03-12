@@ -1,0 +1,10 @@
+{
+  "serviceErrors": [
+    {
+      "code": "-99999",
+      "title": "Rate Limited",
+      "message": "Rate limit exceeded for verification attempts."
+    }
+  ],
+  "hasError": true
+}

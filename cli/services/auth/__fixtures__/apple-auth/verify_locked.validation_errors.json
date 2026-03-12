@@ -1,0 +1,10 @@
+{
+  "validationErrors": [
+    {
+      "code": "-21671",
+      "title": "Too many verification codes",
+      "message": "Your account is locked. Try again later."
+    }
+  ],
+  "hasError": true
+}

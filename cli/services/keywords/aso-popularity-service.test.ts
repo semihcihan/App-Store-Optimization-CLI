@@ -80,6 +80,9 @@ describe("AsoPopularityService", () => {
         "cookie=value",
         expect.any(String)
       );
+      expect(asoAuthService.getCookieHeader).toHaveBeenCalledWith(
+        "https://app-ads.apple.com/cm/api/v2/keywords/popularities"
+      );
     });
 
     it("skips items with null popularity", async () => {

@@ -1,10 +1,25 @@
 import {
   AsoAuthEngine,
+  AsoAuthService,
   AppleAuthResponseError,
   getTwoFactorVerificationErrorMessage,
   isInvalidAppleCredentialsError,
   isRetryableTwoFactorCodeError,
 } from "./aso-auth-service";
+import fs from "fs";
+import inquirer from "inquirer";
+import path from "path";
+import { asoCookieStoreService } from "./aso-cookie-store-service";
+import { asoKeychainService } from "./aso-keychain-service";
+
+function loadFixture(name: string): unknown {
+  return JSON.parse(
+    fs.readFileSync(
+      path.join(__dirname, "__fixtures__", "apple-auth", name),
+      "utf8"
+    )
+  );
+}
 
 describe("aso-auth-service 2FA error classification", () => {
   it("treats verification-code messages as retryable for service_errors", () => {
@@ -114,6 +129,40 @@ describe("aso-auth-service 2FA error classification", () => {
       )
     ).toBe(false);
   });
+});
+
+describe("aso-auth-service fixture-backed verification payload handling", () => {
+  const fixtureCases = [
+    {
+      file: "verify_incorrect_code.service_errors.json",
+      retryable: true,
+      message: "Incorrect verification code.",
+    },
+    {
+      file: "verify_locked.validation_errors.json",
+      retryable: false,
+      message: "Your account is locked. Try again later.",
+    },
+    {
+      file: "verify_rate_limited.service_errors.json",
+      retryable: false,
+      message: "Rate limit exceeded for verification attempts.",
+    },
+    {
+      file: "verify_expired_code.service_errors.json",
+      retryable: false,
+      message: "This verification code has expired.",
+    },
+  ];
+
+  it.each(fixtureCases)(
+    "classifies $file correctly",
+    ({ file, retryable, message }) => {
+      const payload = loadFixture(file);
+      expect(isRetryableTwoFactorCodeError(payload)).toBe(retryable);
+      expect(getTwoFactorVerificationErrorMessage(payload)).toBe(message);
+    }
+  );
 });
 
 describe("aso-auth-service legacy parity edge handling", () => {
@@ -249,5 +298,617 @@ describe("aso-auth-service sirp fallback policy", () => {
     expect(engine.loginWithLegacy).toHaveBeenCalledWith(credentials, {
       maxAttempts: 1,
     });
+  });
+});
+
+describe("aso-auth-service session reuse and keychain flow", () => {
+  const originalStdinTTY = process.stdin.isTTY;
+  const originalStdoutTTY = process.stdout.isTTY;
+
+  beforeEach(() => {
+    Object.defineProperty(process.stdin, "isTTY", {
+      configurable: true,
+      value: true,
+    });
+    Object.defineProperty(process.stdout, "isTTY", {
+      configurable: true,
+      value: true,
+    });
+  });
+
+  afterEach(() => {
+    Object.defineProperty(process.stdin, "isTTY", {
+      configurable: true,
+      value: originalStdinTTY,
+    });
+    Object.defineProperty(process.stdout, "isTTY", {
+      configurable: true,
+      value: originalStdoutTTY,
+    });
+    jest.restoreAllMocks();
+  });
+
+  it("reuses an existing valid session before keychain/prompt auth", async () => {
+    const service = new AsoAuthService();
+    const establishSpy = jest
+      .spyOn(AsoAuthEngine.prototype, "establishAppAdsSession")
+      .mockResolvedValue(undefined);
+    const ensureSpy = jest
+      .spyOn(AsoAuthEngine.prototype, "ensureAuthenticated")
+      .mockResolvedValue(undefined);
+    const loadKeychainSpy = jest
+      .spyOn(asoKeychainService, "loadCredentials")
+      .mockReturnValue({
+        appleId: "user@example.com",
+        password: "pw",
+      });
+    jest.spyOn(asoCookieStoreService, "loadCookies").mockReturnValue([
+      {
+        name: "appads",
+        value: "1",
+        domain: "app.searchads.apple.com",
+        path: "/",
+        expires: -1,
+        httpOnly: true,
+        secure: true,
+      },
+    ]);
+    jest.spyOn(asoCookieStoreService, "saveCookies").mockImplementation(() => {});
+
+    const cookieHeader = await service.reAuthenticate();
+    expect(cookieHeader).toContain("appads=1");
+    expect(establishSpy).toHaveBeenCalledTimes(1);
+    expect(ensureSpy).not.toHaveBeenCalled();
+    expect(loadKeychainSpy).not.toHaveBeenCalled();
+  });
+
+  it("clears invalid keychain credentials and retries with prompted credentials", async () => {
+    const service = new AsoAuthService();
+    const ensureSpy = jest
+      .spyOn(AsoAuthEngine.prototype, "ensureAuthenticated")
+      .mockRejectedValueOnce(
+        new AppleAuthResponseError({
+          message: "Invalid Apple ID credentials",
+          status: 403,
+          payload: {},
+          reason: "invalid_credentials",
+        })
+      )
+      .mockResolvedValueOnce(undefined);
+
+    jest.spyOn(asoCookieStoreService, "loadCookies").mockReturnValue([]);
+    jest.spyOn(asoCookieStoreService, "saveCookies").mockImplementation(() => {});
+    jest
+      .spyOn(asoKeychainService, "loadCredentials")
+      .mockReturnValueOnce({
+        appleId: "old@example.com",
+        password: "old-pw",
+      })
+      .mockReturnValueOnce(null);
+
+    const clearSpy = jest
+      .spyOn(asoKeychainService, "clearCredentials")
+      .mockImplementation(() => {});
+    const saveSpy = jest
+      .spyOn(asoKeychainService, "saveCredentials")
+      .mockImplementation(() => {});
+    const promptSpy = jest
+      .spyOn(inquirer, "prompt")
+      .mockResolvedValueOnce({
+        appleId: "new@example.com",
+        password: "new-pw",
+      } as any)
+      .mockResolvedValueOnce({ remember: true } as any);
+
+    await service.reAuthenticate();
+
+    expect(ensureSpy).toHaveBeenCalledTimes(2);
+    expect(clearSpy).toHaveBeenCalledTimes(1);
+    expect(promptSpy).toHaveBeenCalledTimes(2);
+    expect(saveSpy).toHaveBeenCalledWith({
+      appleId: "new@example.com",
+      password: "new-pw",
+    });
+  });
+
+  it("fails with actionable message when prompt auth is required without TTY", async () => {
+    const service = new AsoAuthService();
+    Object.defineProperty(process.stdin, "isTTY", {
+      configurable: true,
+      value: false,
+    });
+    Object.defineProperty(process.stdout, "isTTY", {
+      configurable: true,
+      value: false,
+    });
+
+    jest.spyOn(asoCookieStoreService, "loadCookies").mockReturnValue([]);
+    jest.spyOn(asoKeychainService, "loadCredentials").mockReturnValue(null);
+
+    await expect(service.reAuthenticate()).rejects.toThrow(
+      "Interactive terminal is required to enter Apple credentials"
+    );
+  });
+});
+
+describe("aso-auth-service cookie header scoping", () => {
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  it("filters cookies by target URL domain/path/secure rules", () => {
+    const service = new AsoAuthService();
+    jest.spyOn(asoCookieStoreService, "loadCookies").mockReturnValue([
+      {
+        name: "searchads-path-match",
+        value: "1",
+        domain: "app.searchads.apple.com",
+        path: "/cm",
+        expires: -1,
+        httpOnly: true,
+        secure: true,
+      },
+      {
+        name: "searchads-path-miss",
+        value: "2",
+        domain: "app.searchads.apple.com",
+        path: "/foo",
+        expires: -1,
+        httpOnly: true,
+        secure: true,
+      },
+      {
+        name: "app-ads-domain",
+        value: "3",
+        domain: "app-ads.apple.com",
+        path: "/",
+        expires: -1,
+        httpOnly: true,
+        secure: true,
+      },
+    ]);
+
+    const httpsHeader = service.getCookieHeader(
+      "https://app.searchads.apple.com/cm/api/v4"
+    );
+    expect(httpsHeader).toContain("searchads-path-match=1");
+    expect(httpsHeader).not.toContain("searchads-path-miss=2");
+    expect(httpsHeader).not.toContain("app-ads-domain=3");
+
+    const httpHeader = service.getCookieHeader(
+      "http://app.searchads.apple.com/cm/api/v4"
+    );
+    expect(httpHeader).toBe("");
+  });
+});
+
+describe("aso-auth-service 2FA method handling", () => {
+  const originalStdinTTY = process.stdin.isTTY;
+  const originalStdoutTTY = process.stdout.isTTY;
+
+  beforeEach(() => {
+    Object.defineProperty(process.stdin, "isTTY", {
+      configurable: true,
+      value: true,
+    });
+    Object.defineProperty(process.stdout, "isTTY", {
+      configurable: true,
+      value: true,
+    });
+  });
+
+  afterEach(() => {
+    Object.defineProperty(process.stdin, "isTTY", {
+      configurable: true,
+      value: originalStdinTTY,
+    });
+    Object.defineProperty(process.stdout, "isTTY", {
+      configurable: true,
+      value: originalStdoutTTY,
+    });
+    jest.restoreAllMocks();
+  });
+
+  it("uses single-phone noTrustedDevices flow without requesting SMS send", async () => {
+    const request = jest
+      .fn()
+      .mockResolvedValueOnce({
+        status: 200,
+        data: {
+          noTrustedDevices: true,
+          trustedPhoneNumbers: [{ id: 7, numberWithDialCode: "+1 ••• ••11" }],
+          securityCode: { length: 6 },
+        },
+        headers: {},
+      })
+      .mockResolvedValueOnce({
+        status: 204,
+        data: {},
+        headers: {},
+      })
+      .mockResolvedValueOnce({
+        status: 204,
+        data: {},
+        headers: {},
+      });
+    const engine = new AsoAuthEngine({ request } as any, "auto") as any;
+    jest.spyOn(inquirer, "prompt").mockResolvedValue({ code: "123456" } as any);
+
+    await expect(
+      engine.handleTwoFactor({
+        scnt: "scnt",
+        xAppleIdSessionId: "session-id",
+      })
+    ).resolves.toEqual({
+      scnt: "scnt",
+      xAppleIdSessionId: "session-id",
+    });
+
+    const calledUrls = request.mock.calls.map(
+      (call) => (call[0] as { url?: string }).url || ""
+    );
+    expect(
+      calledUrls.some((url) => url.endsWith("/verify/phone"))
+    ).toBe(false);
+    expect(
+      calledUrls.some((url) => url.endsWith("/verify/phone/securitycode"))
+    ).toBe(true);
+  });
+
+  it("retries once for retryable verification error and then succeeds", async () => {
+    const request = jest
+      .fn()
+      .mockResolvedValueOnce({
+        status: 200,
+        data: {
+          noTrustedDevices: true,
+          trustedPhoneNumbers: [{ id: 7, numberWithDialCode: "+1 ••• ••11" }],
+          securityCode: { length: 6 },
+        },
+        headers: {},
+      })
+      .mockResolvedValueOnce({
+        status: 409,
+        data: loadFixture("verify_incorrect_code.service_errors.json"),
+        headers: {},
+      })
+      .mockResolvedValueOnce({
+        status: 204,
+        data: {},
+        headers: {},
+      })
+      .mockResolvedValueOnce({
+        status: 204,
+        data: {},
+        headers: {},
+      });
+    const engine = new AsoAuthEngine({ request } as any, "auto") as any;
+    jest
+      .spyOn(inquirer, "prompt")
+      .mockResolvedValueOnce({ code: "111111" } as any)
+      .mockResolvedValueOnce({ code: "222222" } as any);
+
+    await expect(
+      engine.handleTwoFactor({
+        scnt: "scnt",
+        xAppleIdSessionId: "session-id",
+      })
+    ).resolves.toEqual({
+      scnt: "scnt",
+      xAppleIdSessionId: "session-id",
+    });
+
+    const verifyCodeCalls = request.mock.calls.filter((call) =>
+      String((call[0] as { url?: string }).url || "").endsWith(
+        "/verify/phone/securitycode"
+      )
+    );
+    expect(verifyCodeCalls).toHaveLength(2);
+  });
+
+  it("throws on non-retryable lockout verification error", async () => {
+    const request = jest
+      .fn()
+      .mockResolvedValueOnce({
+        status: 200,
+        data: {
+          noTrustedDevices: true,
+          trustedPhoneNumbers: [{ id: 7, numberWithDialCode: "+1 ••• ••11" }],
+          securityCode: { length: 6 },
+        },
+        headers: {},
+      })
+      .mockResolvedValueOnce({
+        status: 409,
+        data: loadFixture("verify_locked.validation_errors.json"),
+        headers: {},
+      });
+    const engine = new AsoAuthEngine({ request } as any, "auto") as any;
+    jest.spyOn(inquirer, "prompt").mockResolvedValue({ code: "111111" } as any);
+
+    await expect(
+      engine.handleTwoFactor({
+        scnt: "scnt",
+        xAppleIdSessionId: "session-id",
+      })
+    ).rejects.toThrow("Try again later.");
+  });
+
+  it("prompts for phone selection when noTrustedDevices has multiple phones", async () => {
+    const request = jest
+      .fn()
+      .mockResolvedValueOnce({
+        status: 200,
+        data: {
+          noTrustedDevices: true,
+          trustedPhoneNumbers: [
+            { id: 7, numberWithDialCode: "+1 ••• ••11" },
+            { id: 8, numberWithDialCode: "+1 ••• ••22" },
+          ],
+          securityCode: { length: 8 },
+        },
+        headers: {},
+      })
+      .mockResolvedValueOnce({
+        status: 204,
+        data: {},
+        headers: {},
+      })
+      .mockResolvedValueOnce({
+        status: 204,
+        data: {},
+        headers: {},
+      })
+      .mockResolvedValueOnce({
+        status: 204,
+        data: {},
+        headers: {},
+      });
+    const engine = new AsoAuthEngine({ request } as any, "auto") as any;
+    const promptSpy = jest
+      .spyOn(inquirer, "prompt")
+      .mockResolvedValueOnce({
+        selectedPhone: { id: 8, numberWithDialCode: "+1 ••• ••22" },
+      } as any)
+      .mockResolvedValueOnce({ code: "12345678" } as any);
+
+    await engine.handleTwoFactor({
+      scnt: "scnt",
+      xAppleIdSessionId: "session-id",
+    });
+
+    const sendCodeCall = request.mock.calls.find((call) =>
+      String((call[0] as { url?: string }).url || "").endsWith("/verify/phone")
+    );
+    expect(sendCodeCall).toBeDefined();
+    expect((sendCodeCall?.[0] as { data?: { phoneNumber?: { id: number } } }).data)
+      .toMatchObject({ phoneNumber: { id: 8 } });
+
+    const verifyCall = request.mock.calls.find((call) =>
+      String((call[0] as { url?: string }).url || "").endsWith(
+        "/verify/phone/securitycode"
+      )
+    );
+    expect(verifyCall).toBeDefined();
+    expect((verifyCall?.[0] as { data?: { securityCode?: { code: string } } }).data)
+      .toMatchObject({ securityCode: { code: "12345678" } });
+    expect(promptSpy).toHaveBeenCalledTimes(2);
+  });
+
+  it("uses trusted-device path with dynamic code length when selected", async () => {
+    const request = jest
+      .fn()
+      .mockResolvedValueOnce({
+        status: 200,
+        data: {
+          noTrustedDevices: false,
+          trustedPhoneNumbers: [{ id: 7, numberWithDialCode: "+1 ••• ••11" }],
+          trustedDevices: [{ id: "trusted-device" }],
+          securityCode: { length: 8 },
+        },
+        headers: {},
+      })
+      .mockResolvedValueOnce({
+        status: 204,
+        data: {},
+        headers: {},
+      })
+      .mockResolvedValueOnce({
+        status: 204,
+        data: {},
+        headers: {},
+      });
+    const engine = new AsoAuthEngine({ request } as any, "auto") as any;
+    const promptSpy = jest
+      .spyOn(inquirer, "prompt")
+      .mockResolvedValueOnce({ method: "trusteddevice" } as any)
+      .mockResolvedValueOnce({ code: "12345678" } as any);
+
+    await engine.handleTwoFactor({
+      scnt: "scnt",
+      xAppleIdSessionId: "session-id",
+    });
+
+    const calledUrls = request.mock.calls.map(
+      (call) => (call[0] as { url?: string }).url || ""
+    );
+    expect(
+      calledUrls.some((url) => url.endsWith("/verify/trusteddevice/securitycode"))
+    ).toBe(true);
+    expect(calledUrls.some((url) => url.endsWith("/verify/phone"))).toBe(false);
+    const secondPromptQuestions = promptSpy.mock.calls[1][0] as Array<{
+      message?: string;
+    }>;
+    expect(secondPromptQuestions[0]?.message).toContain("8-digit");
+  });
+
+  it("fails when no supported 2FA verification methods are returned", async () => {
+    const request = jest
+      .fn()
+      .mockResolvedValueOnce({
+        status: 200,
+        data: {
+          noTrustedDevices: true,
+          trustedPhoneNumbers: [],
+          trustedDevices: [],
+        },
+        headers: {},
+      })
+      .mockResolvedValueOnce({
+        status: 200,
+        data: {
+          noTrustedDevices: true,
+          trustedPhoneNumbers: [],
+          trustedDevices: [],
+        },
+        headers: {},
+      });
+    const engine = new AsoAuthEngine({ request } as any, "auto") as any;
+
+    await expect(
+      engine.handleTwoFactor({
+        scnt: "scnt",
+        xAppleIdSessionId: "session-id",
+      })
+    ).rejects.toThrow("No supported 2FA verification methods were returned.");
+  });
+
+  it("fails fast when 2FA is attempted without interactive TTY", async () => {
+    Object.defineProperty(process.stdin, "isTTY", {
+      configurable: true,
+      value: false,
+    });
+    Object.defineProperty(process.stdout, "isTTY", {
+      configurable: true,
+      value: false,
+    });
+    const request = jest.fn();
+    const engine = new AsoAuthEngine({ request } as any, "auto") as any;
+
+    await expect(
+      engine.handleTwoFactor({
+        scnt: "scnt",
+        xAppleIdSessionId: "session-id",
+      })
+    ).rejects.toThrow(
+      "Interactive terminal is required to complete Apple two-factor authentication"
+    );
+    expect(request).not.toHaveBeenCalled();
+  });
+});
+
+describe("aso-auth-service app-ads handoff integration", () => {
+  function createResponse(
+    status: number,
+    options?: {
+      headers?: Record<string, string>;
+      responseUrl?: string;
+      data?: unknown;
+    }
+  ): Record<string, unknown> {
+    return {
+      status,
+      data: options?.data ?? {},
+      headers: options?.headers ?? {},
+      request: {
+        res: {
+          responseUrl: options?.responseUrl,
+        },
+      },
+    };
+  }
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  it("establishes app-ads session via webauth handoff redirects", async () => {
+    const request = jest.fn(async (config: { method: string; url: string }) => {
+      if (
+        config.method === "get" &&
+        config.url.includes("/IDMSWebAuth/signin")
+      ) {
+        return createResponse(200, { headers: { scnt: "scnt-updated" } });
+      }
+      if (
+        config.method === "post" &&
+        config.url.includes("/IDMSWebAuth/signin")
+      ) {
+        return createResponse(302, {
+          headers: {
+            location: "https://app.searchads.apple.com/cm/app?handoff=1",
+          },
+        });
+      }
+      if (config.url.includes("handoff=1")) {
+        return createResponse(302, {
+          headers: { location: "https://app-ads.apple.com/cm/app/final" },
+        });
+      }
+      if (config.url.includes("app-ads.apple.com/cm/app/final")) {
+        return createResponse(200, {
+          responseUrl: "https://app-ads.apple.com/cm/app/final",
+        });
+      }
+      throw new Error(`Unexpected request: ${config.method} ${config.url}`);
+    });
+
+    const engine = new AsoAuthEngine({ request } as any, "auto");
+    await expect(
+      engine.establishAppAdsSession({
+        scnt: "scnt",
+        xAppleIdSessionId: "session-id",
+      })
+    ).resolves.toBeUndefined();
+  });
+
+  it("rejects handoff when redirect location is not searchads", async () => {
+    const request = jest.fn(async (config: { method: string; url: string }) => {
+      if (
+        config.method === "get" &&
+        config.url.includes("/IDMSWebAuth/signin")
+      ) {
+        return createResponse(200, { headers: { scnt: "scnt-updated" } });
+      }
+      if (
+        config.method === "post" &&
+        config.url.includes("/IDMSWebAuth/signin")
+      ) {
+        return createResponse(302, {
+          headers: {
+            location: "https://example.com/unexpected",
+          },
+        });
+      }
+      throw new Error(`Unexpected request: ${config.method} ${config.url}`);
+    });
+
+    const engine = new AsoAuthEngine({ request } as any, "auto");
+    await expect(
+      engine.establishAppAdsSession({
+        scnt: "scnt",
+        xAppleIdSessionId: "session-id",
+      })
+    ).rejects.toThrow("WebAuth handoff redirected to unexpected location");
+  });
+
+  it("establishes app-ads session from app-ads start when no session headers are passed", async () => {
+    const request = jest.fn(async (config: { method: string; url: string }) => {
+      if (
+        config.method === "get" &&
+        config.url.includes("/IDMSWebAuth/signin")
+      ) {
+        return createResponse(200);
+      }
+      if (config.url === "https://app-ads.apple.com/cm/app") {
+        return createResponse(200, {
+          responseUrl: "https://app-ads.apple.com/cm/app",
+        });
+      }
+      throw new Error(`Unexpected request: ${config.method} ${config.url}`);
+    });
+
+    const engine = new AsoAuthEngine({ request } as any, "auto");
+    await expect(engine.establishAppAdsSession()).resolves.toBeUndefined();
   });
 });

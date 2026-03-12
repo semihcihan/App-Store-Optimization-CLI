@@ -89,11 +89,25 @@ Accepted row fields:
 - `minDifficultyScore`: lowest visibility score among the top 5 search results for the keyword.
 
 ## Flow G: CLI Auth-Only (`aso auth`)
-1. Run Apple Search Ads reauthentication.
-2. Save refreshed cookie/auth state.
-3. Exit without dashboard startup, keyword fetch, or Primary App ID resolution.
+1. Try reusing cached Apple session cookies first (non-interactive validation).
+2. If cached session is valid, refresh and save cookie/auth state, then exit.
+3. If cached session is invalid:
+   - Use saved macOS Keychain credentials first when available.
+   - Prompt for credentials only when missing/invalid keychain credentials.
+4. Complete Apple login + 2FA as needed, save refreshed cookie/auth state, then exit.
+5. Exit without dashboard startup, keyword fetch, or Primary App ID resolution.
+
+2FA fallback behavior:
+- If `noTrustedDevices=true` and exactly one trusted phone exists, treat code delivery as already triggered and prompt only for code.
+- If `noTrustedDevices=true` and multiple trusted phones exist, prompt user to choose the phone before requesting code.
+- Otherwise, default to trusted-device flow with optional SMS/phone selection.
 
 ## Flow H: Credential Reset (`aso reset-credentials`)
 1. Clear saved ASO keychain credentials.
 2. Clear saved ASO cookies.
 3. Exit without dashboard startup, keyword fetch, or reauthentication.
+
+## Prompt / TTY Contract
+- Credential and 2FA prompts require an interactive terminal (`stdin` + `stdout` TTY).
+- When prompt-required auth runs in non-interactive mode, auth fails with explicit actionable guidance.
+- `aso keywords --stdout` keeps machine-safe behavior: silent session reuse only; no interactive auth prompts.

@@ -1,0 +1,10 @@
+{
+  "service_errors": [
+    {
+      "code": "-21670",
+      "title": "Verification code expired",
+      "message": "This verification code has expired."
+    }
+  ],
+  "hasError": true
+}

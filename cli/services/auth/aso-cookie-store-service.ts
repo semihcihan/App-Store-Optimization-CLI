@@ -18,6 +18,15 @@ interface CookieStorePayload {
   updatedAt: string;
 }
 
+function isExpiredCookie(cookie: StoredCookie, nowSeconds: number): boolean {
+  return cookie.expires > 0 && cookie.expires < nowSeconds;
+}
+
+function pruneExpiredCookies(cookies: StoredCookie[]): StoredCookie[] {
+  const nowSeconds = Math.floor(Date.now() / 1000);
+  return cookies.filter((cookie) => !isExpiredCookie(cookie, nowSeconds));
+}
+
 export class AsoCookieStoreService {
   private readonly cookiePath = path.join(
     os.homedir(),
@@ -36,7 +45,7 @@ export class AsoCookieStoreService {
       if (!Array.isArray(payload.cookies)) {
         return [];
       }
-      return payload.cookies;
+      return pruneExpiredCookies(payload.cookies);
     } catch {
       return [];
     }
@@ -45,13 +54,19 @@ export class AsoCookieStoreService {
   saveCookies(cookies: StoredCookie[]): void {
     const dir = path.dirname(this.cookiePath);
     if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
+      fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
     }
+    const sanitizedCookies = pruneExpiredCookies(cookies);
     const payload: CookieStorePayload = {
-      cookies,
+      cookies: sanitizedCookies,
       updatedAt: new Date().toISOString(),
     };
-    fs.writeFileSync(this.cookiePath, JSON.stringify(payload, null, 2), "utf8");
+    const tempPath = `${this.cookiePath}.tmp`;
+    fs.writeFileSync(tempPath, JSON.stringify(payload, null, 2), {
+      encoding: "utf8",
+      mode: 0o600,
+    });
+    fs.renameSync(tempPath, this.cookiePath);
   }
 
   clearCookies(): void {

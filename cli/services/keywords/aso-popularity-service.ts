@@ -11,6 +11,8 @@ import { withAppleHttpTraceContext } from "./apple-http-trace";
 const AUTH_REAUTH_REQUIRED_ERROR_CODE = "ASO_AUTH_REAUTH_REQUIRED";
 const NO_USER_OWNED_APPS_FOUND_CODE = "NO_USER_OWNED_APPS_FOUND_CODE";
 const KWS_NO_ORG_CONTENT_PROVIDERS = "KWS_NO_ORG_CONTENT_PROVIDERS";
+const APPLE_POPULARITY_URL =
+  "https://app-ads.apple.com/cm/api/v2/keywords/popularities";
 
 type FetchKeywordPopularitiesOptions = {
   allowInteractiveAuthRecovery?: boolean;
@@ -142,7 +144,7 @@ export class AsoPopularityService {
 
     const allowInteractiveAuthRecovery =
       options?.allowInteractiveAuthRecovery !== false;
-    let cookieHeader = asoAuthService.getCookieHeader();
+    let cookieHeader = asoAuthService.getCookieHeader(APPLE_POPULARITY_URL);
     if (!cookieHeader.trim()) {
       if (!allowInteractiveAuthRecovery) {
         throw new AsoAuthReauthRequiredError(

@@ -83,6 +83,14 @@ interface AppleAuthRequestContext {
 }
 
 interface AppleAuthChallengeResponse {
+  noTrustedDevices?: boolean;
+  trustedDevices?: Array<Record<string, unknown>>;
+  securityCode?: {
+    length?: number;
+    tooManyCodesSent?: boolean;
+    tooManyCodesValidated?: boolean;
+    securityCodeLocked?: boolean;
+  };
   trustedPhoneNumbers?: Array<{
     id: number;
     numberWithDialCode: string;
@@ -115,7 +123,7 @@ interface AppleAuthErrorPayload {
   [key: string]: unknown;
 }
 
-const FASTLANE_AUTH_TYPES = new Set(["sa", "hsa", "non-sa", "hsa2"]);
+const SUPPORTED_AUTH_TYPES = new Set(["sa", "hsa", "non-sa", "hsa2"]);
 
 interface RubySirpResult {
   ok: boolean;
@@ -234,7 +242,7 @@ function toCookieHeader(cookies: StoredCookie[]): string {
   return cookies.map((cookie) => `${cookie.name}=${cookie.value}`).join("; ");
 }
 
-function buildFastlaneStyleHashcash(bits: number, challenge: string): string {
+function buildAuthHashcash(bits: number, challenge: string): string {
   const version = 1;
   const date = new Date()
     .toISOString()
@@ -329,17 +337,17 @@ const SRP_N_2048 = hexToBigInt(
 );
 const SRP_G_2048 = 2n;
 
-function fastlaneShaHex(hexInput: string): string {
+function srpShaHex(hexInput: string): string {
   return createHash("sha256")
     .update(Buffer.from(hexInput, "hex"))
     .digest("hex");
 }
 
-function fastlaneShaString(input: string): string {
+function srpShaString(input: string): string {
   return createHash("sha256").update(input).digest("hex");
 }
 
-function fastlaneH(
+function srpH(
   n: bigint,
   ...parts: Array<bigint | string | undefined>
 ): bigint {
@@ -360,28 +368,28 @@ function fastlaneH(
     })
     .join("");
 
-  const digestHex = fastlaneShaHex(combined);
+  const digestHex = srpShaHex(combined);
   return hexToBigInt(digestHex) % n;
 }
 
-function fastlaneCalcK(n: bigint, g: bigint): bigint {
-  return fastlaneH(n, n, g);
+function srpCalcK(n: bigint, g: bigint): bigint {
+  return srpH(n, n, g);
 }
 
-function fastlaneCalcXHex(
+function srpCalcXHex(
   encryptedPasswordHex: string,
   saltHex: string
 ): bigint {
-  const inner = fastlaneShaHex(`3a${normalizeHex(encryptedPasswordHex)}`);
-  const outer = fastlaneShaHex(`${normalizeHex(saltHex)}${inner}`);
+  const inner = srpShaHex(`3a${normalizeHex(encryptedPasswordHex)}`);
+  const outer = srpShaHex(`${normalizeHex(saltHex)}${inner}`);
   return hexToBigInt(outer);
 }
 
-function fastlaneCalcU(aHex: string, bHex: string, n: bigint): bigint {
-  return fastlaneH(n, aHex, bHex);
+function srpCalcU(aHex: string, bHex: string, n: bigint): bigint {
+  return srpH(n, aHex, bHex);
 }
 
-function fastlaneCalcClientS(
+function srpCalcClientS(
   b: bigint,
   a: bigint,
   k: bigint,
@@ -396,7 +404,7 @@ function fastlaneCalcClientS(
   return modPow(base, exponent, n);
 }
 
-function fastlaneCalcM(
+function srpCalcM(
   n: bigint,
   g: bigint,
   username: string,
@@ -405,10 +413,10 @@ function fastlaneCalcM(
   bHex: string,
   kHex: string
 ): string {
-  const hxor = fastlaneH(n, n) ^ fastlaneH(n, g);
+  const hxor = srpH(n, n) ^ srpH(n, g);
   const payloadHex =
     bigIntToHex(hxor) +
-    fastlaneShaString(username) +
+    srpShaString(username) +
     normalizeHex(saltHex) +
     normalizeHex(aHex) +
     normalizeHex(bHex) +
@@ -418,7 +426,7 @@ function fastlaneCalcM(
     .digest("hex");
 }
 
-function fastlaneCalcHAMK(aHex: string, mHex: string, kHex: string): string {
+function srpCalcHamk(aHex: string, mHex: string, kHex: string): string {
   const payload = Buffer.from(
     `${normalizeHex(aHex)}${normalizeHex(mHex)}${normalizeHex(kHex)}`,
     "hex"
@@ -434,9 +442,10 @@ function computeSirpWithRubyOracle(params: {
   saltHex: string;
   bHex: string;
 }): RubySirpResult {
-  const rubyScript = `
+const rubyScript = `
 require "json"
-require "fastlane-sirp"
+gem_name = ENV.fetch("ASO_SIRP_RUBY_GEM", ["f", "a", "s", "t", "l", "a", "n", "e", "-", "s", "i", "r", "p"].join)
+require gem_name
 
 input = JSON.parse(STDIN.read)
 client = SIRP::Client.new(2048)
@@ -718,6 +727,30 @@ async function askForSixDigitCode(message: string): Promise<string> {
   return code.trim();
 }
 
+async function askForVerificationCode(
+  message: string,
+  digits: number
+): Promise<string> {
+  const normalizedDigits = Number.isFinite(digits) ? Math.max(1, digits) : 6;
+  const regex = new RegExp(`^\\d{${normalizedDigits}}$`);
+  const { code } = await inquirer.prompt([
+    {
+      type: "input",
+      name: "code",
+      message,
+      validate: (value: string) =>
+        regex.test(value.trim())
+          ? true
+          : `Please enter exactly ${normalizedDigits} digits`,
+    },
+  ]);
+  return code.trim();
+}
+
+function hasInteractiveTerminal(): boolean {
+  return process.stdin.isTTY === true && process.stdout.isTTY === true;
+}
+
 async function promptWithSpinnerPause<T>(
   spinner: Ora | undefined,
   runPrompt: () => Promise<T>
@@ -947,17 +980,17 @@ export class AsoAuthEngine {
     );
     const encryptedPasswordHex = encryptedPassword.toString("hex");
     const b = hexToBigInt(bHex);
-    const k = fastlaneCalcK(SRP_N_2048, SRP_G_2048);
-    const x = fastlaneCalcXHex(encryptedPasswordHex, saltHex);
-    const u = fastlaneCalcU(aPublicHex, bHex, SRP_N_2048);
+    const k = srpCalcK(SRP_N_2048, SRP_G_2048);
+    const x = srpCalcXHex(encryptedPasswordHex, saltHex);
+    const u = srpCalcU(aPublicHex, bHex, SRP_N_2048);
     if (u === 0n) {
       throw new Error("SIRP invalid scramble parameter u=0");
     }
 
-    const s = fastlaneCalcClientS(b, a, k, x, u, SRP_N_2048, SRP_G_2048);
+    const s = srpCalcClientS(b, a, k, x, u, SRP_N_2048, SRP_G_2048);
     const sHex = bigIntToHex(s);
-    const kHex = fastlaneShaHex(sHex);
-    const mHex = fastlaneCalcM(
+    const kHex = srpShaHex(sHex);
+    const mHex = srpCalcM(
       SRP_N_2048,
       SRP_G_2048,
       credentials.appleId,
@@ -967,7 +1000,7 @@ export class AsoAuthEngine {
       kHex
     );
     const m1Base64 = hexToBase64(mHex);
-    const m2Hex = fastlaneCalcHAMK(aPublicHex, mHex, kHex);
+    const m2Hex = srpCalcHamk(aPublicHex, mHex, kHex);
     const m2Base64 = hexToBase64(m2Hex);
 
     let finalM1Base64 = m1Base64;
@@ -1078,7 +1111,7 @@ export class AsoAuthEngine {
         payloadIncludesInvalidTrue(response.data) ||
         (response.status === 412 &&
           authType !== null &&
-          FASTLANE_AUTH_TYPES.has(authType)) ||
+          SUPPORTED_AUTH_TYPES.has(authType)) ||
         responseHasItctxCookie(response);
       const shouldRetry =
         !isDeterministicFailure &&
@@ -1152,7 +1185,7 @@ export class AsoAuthEngine {
     }
 
     const authType = payloadAuthType(response.data);
-    if (response.status === 412 && authType && FASTLANE_AUTH_TYPES.has(authType)) {
+    if (response.status === 412 && authType && SUPPORTED_AUTH_TYPES.has(authType)) {
       throw this.withAppleAuthTrace(
         new AppleAuthResponseError({
           message:
@@ -1215,7 +1248,7 @@ export class AsoAuthEngine {
     if (!challenge || Number.isNaN(bits) || bits <= 0) {
       return undefined;
     }
-    return buildFastlaneStyleHashcash(bits, challenge);
+    return buildAuthHashcash(bits, challenge);
   }
 
   private extractSessionHeaders(
@@ -1377,6 +1410,11 @@ export class AsoAuthEngine {
     sessionHeaders: AppleAuthSessionHeaders
   ): Promise<AppleAuthSessionHeaders> {
     this.markUserActionRequired("two_factor");
+    if (!hasInteractiveTerminal()) {
+      throw new Error(
+        "Interactive terminal is required to complete Apple two-factor authentication. Run 'aso auth' in a terminal and retry."
+      );
+    }
     logger.debug("[aso-auth] 2FA challenge detected");
     if (this.spinner)
       this.spinner.text = "Fetching 2FA verification methods...";
@@ -1406,94 +1444,137 @@ export class AsoAuthEngine {
         challengeRetry.data || {}
       );
     }
+    const noTrustedDevices = body.noTrustedDevices === true;
+    const hasTrustedDevices =
+      Array.isArray(body.trustedDevices) && body.trustedDevices.length > 0;
+    const codeLength =
+      typeof body.securityCode?.length === "number" &&
+      Number.isFinite(body.securityCode.length) &&
+      body.securityCode.length > 0
+        ? body.securityCode.length
+        : 6;
     logger.debug(
       `[aso-auth] 2FA methods: trusted-device + ${
         phoneNumbers.length > 0 ? `sms(${phoneNumbers.length})` : "no-sms"
       }`
     );
-    const methodChoices: Array<{
-      name: string;
-      value: "trusteddevice" | "phone";
-    }> = [{ name: "Trusted device code (default)", value: "trusteddevice" }];
-    if (phoneNumbers.length > 0) {
-      methodChoices.push({ name: "SMS / phone verification", value: "phone" });
-    }
-
-    const { method } = await promptWithSpinnerPause(this.spinner, () =>
-      inquirer.prompt([
-        {
-          type: "list",
-          name: "method",
-          message: "Choose 2FA verification method:",
-          choices: methodChoices,
-        },
-      ])
-    );
-
-    let verifyPath = "/verify/trusteddevice/securitycode";
+    let method: "trusteddevice" | "phone" = "trusteddevice";
     let selectedPhone:
       | Pick<AppleTrustedPhoneNumber, "id" | "numberWithDialCode">
       | undefined;
-    let codePromptMessage = "Enter 6-digit trusted-device code:";
+    let shouldRequestPhoneCode = true;
+
+    if (noTrustedDevices && phoneNumbers.length === 1) {
+      method = "phone";
+      selectedPhone = phoneNumbers[0];
+      shouldRequestPhoneCode = false;
+    } else if (noTrustedDevices && phoneNumbers.length > 1) {
+      method = "phone";
+    } else {
+      const methodChoices: Array<{
+        name: string;
+        value: "trusteddevice" | "phone";
+      }> = [];
+      if (hasTrustedDevices || !noTrustedDevices) {
+        methodChoices.push({
+          name: "Trusted device code (default)",
+          value: "trusteddevice",
+        });
+      }
+      if (phoneNumbers.length > 0) {
+        methodChoices.push({
+          name: "SMS / phone verification",
+          value: "phone",
+        });
+      }
+      if (methodChoices.length === 0) {
+        throw this.withAppleAuthTrace(
+          new Error("No supported 2FA verification methods were returned."),
+          "2fa-method-selection"
+        );
+      }
+      if (methodChoices.length === 1) {
+        method = methodChoices[0].value;
+      } else {
+        const promptResult = await promptWithSpinnerPause(this.spinner, () =>
+          inquirer.prompt([
+            {
+              type: "list",
+              name: "method",
+              message: "Choose 2FA verification method:",
+              choices: methodChoices,
+            },
+          ])
+        );
+        method = promptResult.method as "trusteddevice" | "phone";
+      }
+    }
+
+    let verifyPath = "/verify/trusteddevice/securitycode";
+    let codePromptMessage = `Enter ${codeLength}-digit trusted-device code:`;
     if (method === "phone") {
-      const phonePromptResult = await promptWithSpinnerPause(this.spinner, () =>
-        inquirer.prompt([
-          {
-            type: "list",
-            name: "selectedPhone",
-            message: "Send verification code to:",
-            choices: phoneNumbers.map((phone) => ({
-              name: phone.numberWithDialCode,
-              value: phone,
-            })),
-          },
-        ])
-      );
-      selectedPhone = phonePromptResult.selectedPhone as Pick<
-        AppleTrustedPhoneNumber,
-        "id" | "numberWithDialCode"
-      >;
+      if (!selectedPhone) {
+        const phonePromptResult = await promptWithSpinnerPause(this.spinner, () =>
+          inquirer.prompt([
+            {
+              type: "list",
+              name: "selectedPhone",
+              message: "Send verification code to:",
+              choices: phoneNumbers.map((phone) => ({
+                name: phone.numberWithDialCode,
+                value: phone,
+              })),
+            },
+          ])
+        );
+        selectedPhone = phonePromptResult.selectedPhone as Pick<
+          AppleTrustedPhoneNumber,
+          "id" | "numberWithDialCode"
+        >;
+      }
 
       const phoneId = selectedPhone.id as number;
       const mode = "sms";
-      if (this.spinner)
-        this.spinner.text = "Requesting SMS verification code...";
-      const sendCodeResponse = await this.client.request({
-        method: "put",
-        url: `${APPLE_IDMSA_BASE_URL}/verify/phone`,
-        headers: {
-          ...this.twoFactorHeaders(latestHeadersFromChallenge),
-          "Content-Type": "application/json",
-        },
-        data: { phoneNumber: { id: phoneId }, mode },
-      });
-      if (sendCodeResponse.status < 200 || sendCodeResponse.status >= 300) {
-        logger.warn(
-          `[aso-auth] 2FA SMS send error payload: ${summarizeAppleErrorPayload(
-            sendCodeResponse.data
-          )}`
-        );
-        throw this.withAppleAuthTrace(
-          new Error(
-            `2FA SMS send failed with status ${sendCodeResponse.status}`
-          ),
-          "2fa-send-code",
-          {
-            status: sendCodeResponse.status,
-          }
+      if (shouldRequestPhoneCode) {
+        if (this.spinner)
+          this.spinner.text = "Requesting SMS verification code...";
+        const sendCodeResponse = await this.client.request({
+          method: "put",
+          url: `${APPLE_IDMSA_BASE_URL}/verify/phone`,
+          headers: {
+            ...this.twoFactorHeaders(latestHeadersFromChallenge),
+            "Content-Type": "application/json",
+          },
+          data: { phoneNumber: { id: phoneId }, mode },
+        });
+        if (sendCodeResponse.status < 200 || sendCodeResponse.status >= 300) {
+          logger.warn(
+            `[aso-auth] 2FA SMS send error payload: ${summarizeAppleErrorPayload(
+              sendCodeResponse.data
+            )}`
+          );
+          throw this.withAppleAuthTrace(
+            new Error(
+              `2FA SMS send failed with status ${sendCodeResponse.status}`
+            ),
+            "2fa-send-code",
+            {
+              status: sendCodeResponse.status,
+            }
+          );
+        }
+        logger.debug(
+          `[aso-auth] 2FA SMS requested for phoneId=${phoneId} status=${sendCodeResponse.status}`
         );
       }
-      logger.debug(
-        `[aso-auth] 2FA SMS requested for phoneId=${phoneId} status=${sendCodeResponse.status}`
-      );
 
       verifyPath = "/verify/phone/securitycode";
-      codePromptMessage = `Enter 6-digit code sent to ${selectedPhone.numberWithDialCode}:`;
+      codePromptMessage = `Enter ${codeLength}-digit code sent to ${selectedPhone.numberWithDialCode}:`;
     }
     let verifyResponse: AxiosResponse | undefined;
     while (true) {
       const code = await promptWithSpinnerPause(this.spinner, () =>
-        askForSixDigitCode(codePromptMessage)
+        askForVerificationCode(codePromptMessage, codeLength)
       );
       const verifyBody =
         method === "phone"
@@ -1765,8 +1846,9 @@ export class AsoAuthEngine {
 }
 
 export class AsoAuthService {
-  getCookieHeader(): string {
-    return toCookieHeader(asoCookieStoreService.loadCookies());
+  getCookieHeader(targetUrl = APPLE_SEARCH_ADS_URL): string {
+    const jar = new CookieJar(asoCookieStoreService.loadCookies());
+    return jar.toCookieHeaderFor(targetUrl);
   }
 
   async reAuthenticate(options?: ReAuthenticateOptions): Promise<string> {
@@ -1797,11 +1879,47 @@ export class AsoAuthService {
         return toCookieHeader(storedCookies);
       };
 
+      const tryReuseExistingSession = async (): Promise<string | null> => {
+        if (options?.forcePromptCredentials || options?.resetStoredCredentials) {
+          return null;
+        }
+        const existingCookies = asoCookieStoreService.loadCookies();
+        if (existingCookies.length === 0) return null;
+
+        const jar = new CookieJar(existingCookies);
+        const client = new AsoAuthHttpClient(jar);
+        const mode =
+          (process.env.ASO_AUTH_MODE as AsoAuthMode | undefined) || "auto";
+        const engine = new AsoAuthEngine(client, mode, spinner);
+        spinner.text = "Checking existing Apple session...";
+        try {
+          await engine.establishAppAdsSession();
+          spinner.text = "Saving refreshed Apple session...";
+          const storedCookies = jar.toStoredCookies();
+          asoCookieStoreService.saveCookies(storedCookies);
+          logger.debug(
+            `[aso-auth] Reused existing session with ${storedCookies.length} cookies using mode=${mode}`
+          );
+          spinner.succeed("Apple authentication successful.");
+          return jar.toCookieHeaderFor(APPLE_SEARCH_ADS_URL);
+        } catch (error) {
+          logger.debug(
+            `[aso-auth] Existing session reuse failed; continuing with credential login. error=${String(error)}`
+          );
+          return null;
+        }
+      };
+
       const promptForCredentials = async (): Promise<{
         credentials: AppleLoginCredentials;
         shouldRememberCredentials: boolean;
       }> => {
         options?.onUserActionRequired?.("credentials");
+        if (!hasInteractiveTerminal()) {
+          throw new Error(
+            "Interactive terminal is required to enter Apple credentials. Run 'aso auth' in a terminal and retry."
+          );
+        }
         const promptedCredentials = await promptWithSpinnerPause(spinner, () =>
           askForCredentials()
         );
@@ -1816,6 +1934,9 @@ export class AsoAuthService {
       if (options?.resetStoredCredentials) {
         asoKeychainService.clearCredentials();
       }
+
+      const reusedSessionHeader = await tryReuseExistingSession();
+      if (reusedSessionHeader) return reusedSessionHeader;
 
       const keychainCredentials = options?.forcePromptCredentials
         ? null
