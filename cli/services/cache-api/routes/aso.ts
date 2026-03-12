@@ -1,5 +1,7 @@
 import { z } from "zod";
 import { getAsoResilienceConfig } from "../../keywords/aso-resilience";
+import { normalizeAppleUpstreamError } from "../../keywords/apple-upstream-error";
+import type { FailedKeyword } from "../../keywords/aso-types";
 import { localAsoCacheRepository } from "../services/aso-cache-local";
 import { enrichKeyword } from "../services/aso-enrichment-service";
 import { normalizeKeyword, sanitizeKeywords } from "../services/aso-keyword-utils";
@@ -42,21 +44,32 @@ function getDefaultDependencies(): AsoDependencies {
   return { repository: localAsoCacheRepository };
 }
 
-async function mapWithConcurrency<T, R>(
+async function mapSettledWithConcurrency<T, R>(
   items: T[],
   concurrency: number,
   mapper: (item: T) => Promise<R>
-): Promise<R[]> {
+): Promise<Array<PromiseSettledResult<R>>> {
   if (items.length === 0) return [];
   const maxConcurrency = Math.max(1, Math.floor(concurrency));
-  const results: R[] = new Array(items.length);
+  const results: Array<PromiseSettledResult<R>> = new Array(items.length);
   let index = 0;
 
   const runWorker = async (): Promise<void> => {
     while (index < items.length) {
       const currentIndex = index;
       index += 1;
-      results[currentIndex] = await mapper(items[currentIndex]);
+      try {
+        const value = await mapper(items[currentIndex]);
+        results[currentIndex] = {
+          status: "fulfilled",
+          value,
+        };
+      } catch (reason) {
+        results[currentIndex] = {
+          status: "rejected",
+          reason,
+        };
+      }
     }
   };
 
@@ -87,7 +100,10 @@ export async function enrichAsoKeywords(
     items: Array<{ keyword: string; popularity: number }>;
   },
   dependencies: AsoDependencies = getDefaultDependencies()
-): Promise<Array<AsoKeywordRecord & { appDocs?: AsoAppDoc[] }>> {
+): Promise<{
+  items: Array<AsoKeywordRecord & { appDocs?: AsoAppDoc[] }>;
+  failedKeywords: FailedKeyword[];
+}> {
   const validated = EnrichRequestSchema.parse(params);
   const country = validated.country.toUpperCase();
   if (country !== "US") {
@@ -98,7 +114,7 @@ export async function enrichAsoKeywords(
     ? (appIds: string[]) =>
         dependencies.repository.getAppDocs!({ country, appIds })
     : undefined;
-  const enriched = await mapWithConcurrency(
+  const settled = await mapSettledWithConcurrency(
     validated.items,
     getAsoResilienceConfig().keywordEnrichmentConcurrency,
     (item) =>
@@ -112,6 +128,31 @@ export async function enrichAsoKeywords(
       )
   );
 
+  const enriched = settled.flatMap((entry) =>
+    entry.status === "fulfilled" ? [entry.value] : []
+  );
+  const failedKeywords = settled.flatMap((entry, index) => {
+    if (entry.status !== "rejected") return [];
+    const keyword = validated.items[index]?.keyword ?? "";
+    const normalized = normalizeAppleUpstreamError({
+      error: entry.reason,
+      operation: "keyword-enrichment",
+      defaultReasonCode: "ENRICHMENT_FAILED",
+    });
+    return [
+      {
+        keyword: normalizeKeyword(keyword),
+        stage: "enrichment" as const,
+        reasonCode: normalized.reasonCode,
+        message: normalized.message,
+        statusCode: normalized.statusCode,
+        retryable: normalized.retryable,
+        attempts: normalized.attempts,
+        requestId: normalized.requestId,
+      },
+    ];
+  });
+
   const allAppDocs = enriched.flatMap((e) => e.appDocs);
   const normalizedAppDocs = allAppDocs.map((doc) => ({
     ...doc,
@@ -123,23 +164,29 @@ export async function enrichAsoKeywords(
       (item.appDocs ?? []).map((doc) => ({ ...doc, country })),
     ])
   );
-  const persisted = await dependencies.repository.upsertMany({
-    country,
-    items: enriched.map((e) => ({
-      keyword: e.keyword,
-      popularity: e.popularity,
-      difficultyScore: e.difficultyScore,
-      minDifficultyScore: e.minDifficultyScore,
-      appCount: e.appCount,
-      keywordIncluded: e.keywordIncluded,
-      orderedAppIds: e.orderedAppIds,
+  const persisted =
+    enriched.length > 0
+      ? await dependencies.repository.upsertMany({
+          country,
+          items: enriched.map((e) => ({
+            keyword: e.keyword,
+            popularity: e.popularity,
+            difficultyScore: e.difficultyScore,
+            minDifficultyScore: e.minDifficultyScore,
+            appCount: e.appCount,
+            keywordIncluded: e.keywordIncluded,
+            orderedAppIds: e.orderedAppIds,
+          })),
+          appDocs: normalizedAppDocs,
+        })
+      : [];
+  return {
+    items: persisted.map((item) => ({
+      ...item,
+      appDocs: appDocsByKeyword.get(item.normalizedKeyword) ?? [],
     })),
-    appDocs: normalizedAppDocs,
-  });
-  return persisted.map((item) => ({
-    ...item,
-    appDocs: appDocsByKeyword.get(item.normalizedKeyword) ?? [],
-  }));
+    failedKeywords,
+  };
 }
 
 export async function getAsoAppDocs(

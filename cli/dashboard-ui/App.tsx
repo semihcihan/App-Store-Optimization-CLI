@@ -29,6 +29,7 @@ type KeywordItem = {
   difficultyScore: number | null;
   appCount: number | null;
   updatedAt?: string;
+  keywordStatus?: "ok" | "pending" | "failed";
   orderedAppIds?: string[];
   positions?: Array<{ appId: string; previousPosition: number | null; currentPosition: number | null }>;
 };
@@ -515,6 +516,7 @@ export function App() {
     }
   });
   const [keywords, setKeywords] = useState<Row[]>([]);
+  const [failedKeywordCount, setFailedKeywordCount] = useState(0);
   const [selectedKeywords, setSelectedKeywords] = useState<Set<string>>(new Set());
   const [selectionAnchor, setSelectionAnchor] = useState<string | null>(null);
 
@@ -536,6 +538,7 @@ export function App() {
   const [isInitialLoad, setIsInitialLoad] = useState(true);
   const [hasCachedData, setHasCachedData] = useState(false);
   const [isAddingKeywords, setIsAddingKeywords] = useState(false);
+  const [isRetryingFailedKeywords, setIsRetryingFailedKeywords] = useState(false);
   const [loadingText, setLoadingText] = useState("");
   const [errorText, setErrorText] = useState("");
   const [successText, setSuccessText] = useState("");
@@ -635,6 +638,9 @@ export function App() {
       } satisfies Row;
     });
     setKeywords(rows);
+    setFailedKeywordCount(
+      data.filter((item) => item.keywordStatus === "failed").length
+    );
     const keep = new Set(rows.map((r) => r.keyword));
     setSelectedKeywords((prev) => {
       const next = new Set(Array.from(prev).filter((kw) => keep.has(kw)));
@@ -1171,6 +1177,33 @@ export function App() {
 
     await submitKeywords(kwsToAdd);
   };
+
+  const onRetryFailedKeywords = useCallback(async () => {
+    if (failedKeywordCount <= 0) return;
+    try {
+      setIsRetryingFailedKeywords(true);
+      setErrorText("");
+      setSuccessText("");
+      setLoadingText(`Retrying ${failedKeywordCount} failed keyword${failedKeywordCount === 1 ? "" : "s"}...`);
+      const result = await apiWrite<{
+        retriedCount: number;
+        succeededCount: number;
+        failedCount: number;
+      }>("POST", "/api/aso/keywords/retry-failed", {
+        appId: selectedAppId,
+        country: DEFAULT_ASO_COUNTRY,
+      });
+      await loadKeywords(selectedAppId);
+      setSuccessText(
+        `Retried ${result.retriedCount} failed keywords: ${result.succeededCount} succeeded, ${result.failedCount} still failed.`
+      );
+    } catch (error) {
+      setErrorText(toActionableErrorMessage(error, "Failed to retry failed keywords"));
+    } finally {
+      setIsRetryingFailedKeywords(false);
+      setLoadingText("");
+    }
+  }, [failedKeywordCount, loadKeywords, selectedAppId]);
 
   const onStartReauthentication = useCallback(async () => {
     try {
@@ -1770,6 +1803,19 @@ export function App() {
             <Button id="add-submit" type="submit" disabled={isAddingKeywords || isColdStart}>
               <span className={`add-submit-label ${isAddingKeywords ? "is-loading" : ""}`}>{addButtonLabel}</span>
               <span className={`button-loading-spinner ${isAddingKeywords ? "visible" : ""}`} aria-hidden="true" />
+            </Button>
+            <Button
+              id="retry-failed-submit"
+              type="button"
+              variant="outline"
+              disabled={isRetryingFailedKeywords || failedKeywordCount === 0 || isColdStart}
+              onClick={() => {
+                void onRetryFailedKeywords();
+              }}
+            >
+              {isRetryingFailedKeywords
+                ? "Retrying Failed..."
+                : `Retry Failed (${failedKeywordCount})`}
             </Button>
             <div className="status-slot" aria-live="polite">
               <p id="loading-text" className={`loading-text ${showLoading ? "visible" : ""}`}>

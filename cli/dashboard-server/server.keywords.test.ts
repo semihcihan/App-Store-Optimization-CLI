@@ -3,6 +3,10 @@ import type { AddressInfo } from "net";
 import { jest } from "@jest/globals";
 import { createAppKeywords, listByApp } from "../db/app-keywords";
 import {
+  listKeywordFailuresForApp,
+  deleteKeywordFailures,
+} from "../db/aso-keyword-failures";
+import {
   enrichAndPersistKeywords,
   fetchAndPersistKeywordPopularityStage,
   refreshAndPersistKeywordOrder,
@@ -33,6 +37,12 @@ jest.mock("../db/app-keywords", () => ({
   createAppKeywords: jest.fn(),
   deleteAppKeywords: jest.fn(() => 0),
   getAppLastKeywordAddedAtMap: jest.fn(() => new Map()),
+}));
+
+jest.mock("../db/aso-keyword-failures", () => ({
+  listKeywordFailuresForApp: jest.fn(() => []),
+  getKeywordFailures: jest.fn(() => []),
+  deleteKeywordFailures: jest.fn(() => 0),
 }));
 
 jest.mock("../services/keywords/aso-keyword-service", () => ({
@@ -74,7 +84,7 @@ jest.mock("../utils/logger", () => ({
 function createTestServer(): Promise<http.Server> {
   const server = http.createServer(createServerRequestHandler());
   return new Promise((resolve) => {
-    server.listen(0, "127.0.0.1", () => resolve(server));
+    server.listen(0, () => resolve(server));
   });
 }
 
@@ -103,6 +113,7 @@ function requestJson(params: {
     const req = http.request(
       {
         hostname: "127.0.0.1",
+        family: 4,
         port: address.port,
         path: params.path,
         method: params.method,
@@ -139,6 +150,8 @@ describe("dashboard server keyword add flow", () => {
   const mockFetchKeywordStage = jest.mocked(fetchAndPersistKeywordPopularityStage);
   const mockEnrichKeywords = jest.mocked(enrichAndPersistKeywords);
   const mockRefreshOrder = jest.mocked(refreshAndPersistKeywordOrder);
+  const mockListKeywordFailuresForApp = jest.mocked(listKeywordFailuresForApp);
+  const mockDeleteKeywordFailures = jest.mocked(deleteKeywordFailures);
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -147,9 +160,15 @@ describe("dashboard server keyword add flow", () => {
       hits: [],
       pendingItems: [],
       orderRefreshKeywords: [],
+      failedKeywords: [],
     });
-    mockEnrichKeywords.mockResolvedValue([]);
+    mockEnrichKeywords.mockResolvedValue({
+      items: [],
+      failedKeywords: [],
+    });
     mockRefreshOrder.mockResolvedValue([]);
+    mockListKeywordFailuresForApp.mockReturnValue([]);
+    mockDeleteKeywordFailures.mockReturnValue(0);
   });
 
   it("schedules order refresh when stage returns order-only misses", async () => {
@@ -157,6 +176,7 @@ describe("dashboard server keyword add flow", () => {
       hits: [],
       pendingItems: [],
       orderRefreshKeywords: ["order-stale"],
+      failedKeywords: [],
     });
 
     const server = await createTestServer();
@@ -178,11 +198,79 @@ describe("dashboard server keyword add flow", () => {
         data: {
           cachedCount: 0,
           pendingCount: 1,
+          failedCount: 0,
         },
       });
       expect(mockCreateAppKeywords).toHaveBeenCalledWith("app-1", ["order-stale"], "US");
       expect(mockRefreshOrder).toHaveBeenCalledWith("US", ["order-stale"]);
       expect(mockEnrichKeywords).not.toHaveBeenCalled();
+    } finally {
+      await closeServer(server);
+    }
+  });
+
+  it("retries failed keywords for selected app", async () => {
+    mockListKeywordFailuresForApp.mockReturnValue([
+      {
+        country: "US",
+        normalizedKeyword: "bad",
+        keyword: "bad",
+        status: "failed",
+        stage: "enrichment",
+        reasonCode: "ENRICHMENT_FAILED",
+        message: "failed",
+        statusCode: 500,
+        retryable: true,
+        attempts: 3,
+        requestId: null,
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      },
+    ]);
+    mockFetchKeywordStage.mockResolvedValue({
+      hits: [],
+      pendingItems: [{ keyword: "bad", popularity: 30 }],
+      orderRefreshKeywords: [],
+      failedKeywords: [],
+    });
+    mockEnrichKeywords.mockResolvedValue({
+      items: [
+        {
+          keyword: "bad",
+          popularity: 30,
+          difficultyScore: 10,
+          minDifficultyScore: 8,
+          appCount: 10,
+          keywordIncluded: 1,
+          orderedAppIds: [],
+          orderExpiresAt: "2099-01-01T00:00:00.000Z",
+          popularityExpiresAt: "2099-01-01T00:00:00.000Z",
+        } as any,
+      ],
+      failedKeywords: [],
+    });
+
+    const server = await createTestServer();
+    try {
+      const response = await requestJson({
+        server,
+        method: "POST",
+        path: "/api/aso/keywords/retry-failed",
+        body: {
+          appId: "app-1",
+          country: "US",
+        },
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.body).toEqual({
+        success: true,
+        data: {
+          retriedCount: 1,
+          succeededCount: 1,
+          failedCount: 0,
+        },
+      });
+      expect(mockDeleteKeywordFailures).toHaveBeenCalledWith("US", ["bad"]);
     } finally {
       await closeServer(server);
     }

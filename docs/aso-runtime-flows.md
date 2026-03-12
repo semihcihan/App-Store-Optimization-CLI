@@ -12,7 +12,7 @@ Runtime flow contracts across CLI commands, local dashboard API, and ASO service
 
 ## Trigger Map
 - `aso`: resolve Primary App ID, start dashboard server (`3456` by default, auto-fallback to a free local port when occupied), start startup refresh manager.
-- `aso keywords "..."`: run full keyword pipeline and print merged result.
+- `aso keywords "..."`: run full keyword pipeline and print envelope result (`items`, `failedKeywords`).
 - `aso keywords "..." --stdout`: machine-safe mode; attempts silent reauth and fails when interactive user input is required.
 - `aso auth`: run only Apple Search Ads reauthentication.
 - `aso reset-credentials`: clear saved ASO keychain credentials and local cookies.
@@ -45,10 +45,17 @@ Runtime flow contracts across CLI commands, local dashboard API, and ASO service
 2. Remove already-associated keywords for selected app.
 3. Run stage-1 popularity pipeline with interactive auth recovery disabled.
 4. Create new app-keyword associations.
-5. Return `201` immediately with `{ cachedCount, pendingCount }`.
-6. Run background keyword work for misses:
+5. Return `201` immediately with `{ cachedCount, pendingCount, failedCount }`.
+6. Persist any popularity-stage failures in `aso_keyword_failures`.
+7. Run background keyword work for misses:
    - full enrichment for `pendingItems`
    - order-only refresh for `orderRefreshKeywords`
+
+## Flow B2: Dashboard Retry Failed Keywords (`POST /api/aso/keywords/retry-failed`)
+1. Resolve failed keywords for selected `appId` + `country`.
+2. Rerun the same keyword pipeline in non-interactive auth mode.
+3. Return `{ retriedCount, succeededCount, failedCount }`.
+4. Clear failed status for keywords that succeeded.
 
 ## Flow C: Dashboard Reauthentication
 1. Add-keyword flow returns `AUTH_REQUIRED` or `AUTH_IN_PROGRESS` when auth state blocks stage 1.

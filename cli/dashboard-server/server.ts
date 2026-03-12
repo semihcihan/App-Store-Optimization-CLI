@@ -5,6 +5,11 @@ import { logger } from "../utils/logger";
 import { getAppById, listApps, upsertApps } from "../db/apps";
 import { listKeywords, getKeyword } from "../db/aso-keywords";
 import {
+  listKeywordFailuresForApp,
+  getKeywordFailures,
+  deleteKeywordFailures,
+} from "../db/aso-keyword-failures";
+import {
   getCompetitorAppDocs,
   getOwnedAppDocs,
   upsertCompetitorAppDocs,
@@ -665,6 +670,7 @@ async function handleApiAsoKeywordsPost(
       data: {
         cachedCount: 0,
         pendingCount: 0,
+        failedCount: 0,
       },
     });
     logger.debug("[aso-dashboard] response", {
@@ -690,7 +696,7 @@ async function handleApiAsoKeywordsPost(
   }
 
   try {
-    const { hits, pendingItems, orderRefreshKeywords } =
+    const { hits, pendingItems, orderRefreshKeywords, failedKeywords } =
       await fetchAndPersistKeywordPopularityStage(
         country,
         keywordsToAdd,
@@ -704,6 +710,7 @@ async function handleApiAsoKeywordsPost(
       data: {
         cachedCount: hits.length,
         pendingCount,
+        failedCount: failedKeywords.length,
       },
     });
     logger.debug("[aso-dashboard] response", {
@@ -713,6 +720,7 @@ async function handleApiAsoKeywordsPost(
       durationMs: Date.now() - startedAt,
       cachedCount: hits.length,
       pendingCount,
+      failedCount: failedKeywords.length,
     });
 
     if (pendingItems.length > 0 || orderRefreshKeywords.length > 0) {
@@ -755,7 +763,8 @@ async function handleApiAsoKeywordsPost(
                 path: "/aso/enrich",
                 status: 200,
                 country,
-                itemCount: items.length,
+                itemCount: items.items.length,
+                failedCount: items.failedKeywords.length,
               });
               return items;
             })
@@ -909,6 +918,95 @@ async function handleApiAsoKeywordsDelete(
   }
 }
 
+async function handleApiAsoKeywordsRetryFailedPost(
+  req: http.IncomingMessage,
+  res: http.ServerResponse
+): Promise<void> {
+  let body: { appId?: string; country?: string };
+  try {
+    const raw = await getRequestBody(req);
+    body = JSON.parse(raw) as typeof body;
+  } catch {
+    sendApiError(res, 400, "INVALID_REQUEST", "Invalid request payload.");
+    return;
+  }
+  const appId = body.appId ?? DEFAULT_RESEARCH_APP_ID;
+  const country = (body.country ?? "US").toUpperCase();
+
+  if (dashboardAuthPromise) {
+    sendApiError(
+      res,
+      409,
+      "AUTH_IN_PROGRESS",
+      "Reauthentication is in progress. Finish it in terminal and retry."
+    );
+    return;
+  }
+
+  const failures = listKeywordFailuresForApp(appId, country);
+  const keywordsToRetry = Array.from(
+    new Set(failures.map((failure) => failure.keyword))
+  );
+  if (keywordsToRetry.length === 0) {
+    sendJson(res, 200, {
+      success: true,
+      data: {
+        retriedCount: 0,
+        succeededCount: 0,
+        failedCount: 0,
+      },
+    });
+    return;
+  }
+
+  try {
+    const stageResult = await fetchAndPersistKeywordPopularityStage(
+      country,
+      keywordsToRetry,
+      { allowInteractiveAuthRecovery: false }
+    );
+    const [enrichedResult, orderRefreshedItems] = await Promise.all([
+      enrichAndPersistKeywords(country, stageResult.pendingItems),
+      refreshAndPersistKeywordOrder(country, stageResult.orderRefreshKeywords),
+    ]);
+    const succeededKeywords = [
+      ...stageResult.hits.map((item) => item.keyword),
+      ...orderRefreshedItems.map((item) => item.keyword),
+      ...enrichedResult.items.map((item) => item.keyword),
+    ];
+    if (succeededKeywords.length > 0) {
+      deleteKeywordFailures(country, succeededKeywords);
+    }
+    const failedCount =
+      stageResult.failedKeywords.length + enrichedResult.failedKeywords.length;
+    sendJson(res, 200, {
+      success: true,
+      data: {
+        retriedCount: keywordsToRetry.length,
+        succeededCount: succeededKeywords.length,
+        failedCount,
+      },
+    });
+  } catch (error) {
+    if (isAsoAuthReauthRequiredError(error)) {
+      sendApiError(
+        res,
+        401,
+        "AUTH_REQUIRED",
+        "Apple Search Ads session expired. Reauthenticate from the dashboard and retry."
+      );
+      return;
+    }
+    const publicError = toUserSafeError(error, "Failed to retry failed keywords");
+    sendApiError(
+      res,
+      statusForDashboardErrorCode(publicError.errorCode),
+      publicError.errorCode,
+      publicError.message
+    );
+  }
+}
+
 function handleApiAsoKeywordsGet(
   res: http.ServerResponse,
   query: Record<string, string>
@@ -935,6 +1033,13 @@ function handleApiAsoKeywordsGet(
     const set = new Set(kws.map((k) => k.trim().toLowerCase()));
     filtered = keywords.filter((k) => set.has(k.normalizedKeyword));
   }
+  const keywordFailures = getKeywordFailures(
+    country,
+    filtered.map((item) => item.keyword)
+  );
+  const failureByKeyword = new Map(
+    keywordFailures.map((failure) => [failure.normalizedKeyword, failure] as const)
+  );
   const withMeta = filtered.map((k) => {
     const assocs = appKeywords.filter(
       (a) => a.keyword === k.normalizedKeyword && a.country === country
@@ -949,6 +1054,23 @@ function handleApiAsoKeywordsGet(
     }));
     return {
       ...k,
+      keywordStatus: failureByKeyword.has(k.normalizedKeyword)
+        ? "failed"
+        : k.difficultyScore == null
+          ? "pending"
+          : "ok",
+      failure: failureByKeyword.get(k.normalizedKeyword)
+        ? {
+            stage: failureByKeyword.get(k.normalizedKeyword)?.stage,
+            reasonCode: failureByKeyword.get(k.normalizedKeyword)?.reasonCode,
+            message: failureByKeyword.get(k.normalizedKeyword)?.message,
+            statusCode: failureByKeyword.get(k.normalizedKeyword)?.statusCode,
+            retryable: failureByKeyword.get(k.normalizedKeyword)?.retryable,
+            attempts: failureByKeyword.get(k.normalizedKeyword)?.attempts,
+            requestId: failureByKeyword.get(k.normalizedKeyword)?.requestId,
+            updatedAt: failureByKeyword.get(k.normalizedKeyword)?.updatedAt,
+          }
+        : null,
       positions,
     };
   });
@@ -1227,6 +1349,13 @@ export function createServerRequestHandler(): http.RequestListener {
 
     if (req.method === "POST" && pathname === "/api/aso/keywords") {
       await runAsForegroundMutation(() => handleApiAsoKeywordsPost(req, res));
+      return;
+    }
+
+    if (req.method === "POST" && pathname === "/api/aso/keywords/retry-failed") {
+      await runAsForegroundMutation(() =>
+        handleApiAsoKeywordsRetryFailedPost(req, res)
+      );
       return;
     }
 

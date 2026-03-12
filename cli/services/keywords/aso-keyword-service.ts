@@ -1,6 +1,14 @@
 import { logger } from "../../utils/logger";
-import { asoPopularityService } from "./aso-popularity-service";
-import type { AsoCacheLookupResponse, AsoKeywordItem } from "./aso-types";
+import {
+  asoPopularityService,
+  summarizeFailedPopularityKeywords,
+} from "./aso-popularity-service";
+import type {
+  AsoCacheLookupResponse,
+  AsoKeywordItem,
+  FailedKeyword,
+  KeywordFetchResult,
+} from "./aso-types";
 import {
   enrichAsoKeywordsLocal,
   lookupAsoCacheLocal,
@@ -13,6 +21,8 @@ import {
 } from "../cache-api/services/aso-keyword-utils";
 import {
   getKeywords,
+  upsertKeywordFailures,
+  deleteKeywordFailures,
   upsertKeywords,
   getAssociationsForKeyword,
   setPreviousPosition,
@@ -35,6 +45,7 @@ export type KeywordPopularityStageResult = {
   hits: AsoKeywordItem[];
   pendingItems: PendingKeywordPopularityItem[];
   orderRefreshKeywords: string[];
+  failedKeywords: FailedKeyword[];
 };
 
 type KeywordPopularityStageOptions = {
@@ -170,6 +181,43 @@ function persistPopularityOnlyKeywords(
   );
 }
 
+function persistFailedKeywords(country: string, failures: FailedKeyword[]): void {
+  if (failures.length === 0) return;
+  upsertKeywordFailures(
+    country,
+    failures.map((failure) => ({
+      keyword: failure.keyword,
+      stage: failure.stage,
+      reasonCode: failure.reasonCode,
+      message: failure.message,
+      statusCode: failure.statusCode,
+      retryable: failure.retryable,
+      attempts: failure.attempts,
+      requestId: failure.requestId,
+    }))
+  );
+}
+
+function clearFailedKeywords(country: string, keywords: string[]): void {
+  if (keywords.length === 0) return;
+  deleteKeywordFailures(country, keywords);
+}
+
+function summarizeFailedKeywords(failures: FailedKeyword[]): string {
+  if (failures.length === 0) return "none";
+  const preview = failures
+    .slice(0, 5)
+    .map((failure) => {
+      const statusSuffix =
+        failure.statusCode != null ? `(${failure.statusCode})` : "";
+      return `${failure.keyword}:${failure.reasonCode}${statusSuffix}`;
+    })
+    .join(", ");
+  return failures.length > 5
+    ? `${preview} (+${failures.length - 5} more)`
+    : preview;
+}
+
 type MissClassification = {
   pendingItems: PendingKeywordPopularityItem[];
   popularityFetchKeywords: string[];
@@ -233,29 +281,48 @@ export async function fetchAndPersistKeywordPopularityStage(
   }
 
   if (lookupData.misses.length === 0) {
-    return { hits: lookupData.hits, pendingItems: [], orderRefreshKeywords: [] };
+    return {
+      hits: lookupData.hits,
+      pendingItems: [],
+      orderRefreshKeywords: [],
+      failedKeywords: [],
+    };
   }
 
   const classified = classifyMisses(country, lookupData.misses);
+  const failedKeywords: FailedKeyword[] = [];
   let fetchedPendingItems: PendingKeywordPopularityItem[] = [];
   if (classified.popularityFetchKeywords.length > 0) {
     logger.debug(
       `Cache misses requiring popularity fetch: ${classified.popularityFetchKeywords.length}. Fetching popularities locally...`
     );
-    const popularities =
+    const popularityResult =
       options?.allowInteractiveAuthRecovery === false
-        ? await asoPopularityService.fetchKeywordPopularities(
+        ? await asoPopularityService.fetchKeywordPopularitiesWithFailures(
             classified.popularityFetchKeywords,
             { allowInteractiveAuthRecovery: false }
           )
-        : await asoPopularityService.fetchKeywordPopularities(
+        : await asoPopularityService.fetchKeywordPopularitiesWithFailures(
             classified.popularityFetchKeywords
           );
-    fetchedPendingItems = classified.popularityFetchKeywords.map((keyword) => ({
+    fetchedPendingItems = classified.popularityFetchKeywords
+      .filter((keyword) => popularityResult.popularities[keyword] != null)
+      .map((keyword) => ({
       keyword,
-      popularity: popularities[keyword] ?? 1,
+      popularity: popularityResult.popularities[keyword] ?? 1,
     }));
-    persistPopularityOnlyKeywords(country, fetchedPendingItems);
+    failedKeywords.push(...popularityResult.failedKeywords);
+    if (fetchedPendingItems.length > 0) {
+      persistPopularityOnlyKeywords(country, fetchedPendingItems);
+    }
+    const popularityFailureSummary = summarizeFailedPopularityKeywords(
+      popularityResult.failedKeywords
+    );
+    if (popularityFailureSummary) {
+      logger.warn(
+        `[aso-keyword-service] popularity failures=${popularityResult.failedKeywords.length} details=${popularityFailureSummary}`
+      );
+    }
   }
 
   const reusedByKeyword = new Map(
@@ -268,29 +335,40 @@ export async function fetchAndPersistKeywordPopularityStage(
     .map((keyword) => reusedByKeyword.get(keyword) ?? fetchedByKeyword.get(keyword))
     .filter((item): item is PendingKeywordPopularityItem => item != null);
 
+  persistFailedKeywords(country, failedKeywords);
+
   return {
     hits: lookupData.hits,
     pendingItems,
     orderRefreshKeywords: classified.orderRefreshKeywords,
+    failedKeywords,
   };
 }
 
 export async function enrichAndPersistKeywords(
   country: string,
   items: PendingKeywordPopularityItem[]
-): Promise<AsoKeywordItem[]> {
+): Promise<{ items: AsoKeywordItem[]; failedKeywords: FailedKeyword[] }> {
   if (items.length === 0) {
-    return [];
+    return {
+      items: [],
+      failedKeywords: [],
+    };
   }
   logger.debug("Sending popularity data to backend for enrichment...");
-  const enrichedItems = (await enrichAsoKeywordsLocal(
+  const enrichedResult = await enrichAsoKeywordsLocal(
     country,
     items
-  )) as AsoKeywordItem[];
-  if (enrichedItems.length > 0) {
-    persistKeywords(country, enrichedItems);
+  );
+  if (enrichedResult.items.length > 0) {
+    persistKeywords(country, enrichedResult.items);
   }
-  return enrichedItems;
+  persistFailedKeywords(country, enrichedResult.failedKeywords);
+  clearFailedKeywords(
+    country,
+    enrichedResult.items.map((item) => item.keyword)
+  );
+  return enrichedResult;
 }
 
 export async function refreshAndPersistKeywordOrder(
@@ -311,7 +389,23 @@ export async function refreshAndPersistKeywordOrder(
     const existing = existingByNormalized.get(keyword);
     if (!isCompleteStoredAsoKeyword(existing)) continue;
 
-    const updatedOrder = await refreshAsoKeywordOrderLocal(country, keyword);
+    let updatedOrder:
+      | {
+          keyword: string;
+          normalizedKeyword: string;
+          appCount: number;
+          orderedAppIds: string[];
+        }
+      | null = null;
+    try {
+      updatedOrder = await refreshAsoKeywordOrderLocal(country, keyword);
+    } catch (error) {
+      logger.warn(
+        `[aso-keyword-service] order refresh skipped keyword=${keyword} reason=${String(error)}`
+      );
+      continue;
+    }
+    if (!updatedOrder) continue;
     const orderExpiresAt = defaultOrderExpiresAt();
     const updatedAt = new Date().toISOString();
     const refreshedItem: AsoKeywordItem = {
@@ -354,25 +448,52 @@ export async function refreshKeywordsForStartup(
     keywords.push(normalizedKeyword);
   }
 
-  return fetchAndPersistKeywords(country, keywords, {
+  const result = await fetchAndPersistKeywords(country, keywords, {
     allowInteractiveAuthRecovery: false,
   });
+  return result.items;
 }
 
 export async function fetchAndPersistKeywords(
   country: string,
   keywords: string[],
   options?: KeywordFetchOptions
-): Promise<AsoKeywordItem[]> {
-  const { hits, pendingItems, orderRefreshKeywords } =
+): Promise<KeywordFetchResult> {
+  const { hits, pendingItems, orderRefreshKeywords, failedKeywords: popularityFailures } =
     await fetchAndPersistKeywordPopularityStage(
     country,
     keywords,
     options
   );
-  const [enrichedItems, orderRefreshedItems] = await Promise.all([
+  const [enrichedResult, orderRefreshedItems] = await Promise.all([
     enrichAndPersistKeywords(country, pendingItems),
     refreshAndPersistKeywordOrder(country, orderRefreshKeywords),
   ]);
-  return [...hits, ...orderRefreshedItems, ...enrichedItems].map(stripTimestamps);
+  const items = [...hits, ...orderRefreshedItems, ...enrichedResult.items].map(
+    stripTimestamps
+  );
+  const failedKeywords = [...popularityFailures, ...enrichedResult.failedKeywords];
+  persistFailedKeywords(country, failedKeywords);
+  clearFailedKeywords(
+    country,
+    items.map((item) => item.keyword)
+  );
+  if (failedKeywords.length > 0) {
+    logger.warn(
+      `[aso-keyword-service] failed keywords count=${failedKeywords.length} details=${summarizeFailedKeywords(
+        failedKeywords
+      )}`
+    );
+  }
+  if (items.length === 0 && failedKeywords.length > 0) {
+    throw new Error(
+      `All keywords failed (${failedKeywords.length}): ${summarizeFailedKeywords(
+        failedKeywords
+      )}`
+    );
+  }
+  return {
+    items,
+    failedKeywords,
+  };
 }

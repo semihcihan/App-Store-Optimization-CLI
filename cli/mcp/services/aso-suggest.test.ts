@@ -29,10 +29,13 @@ describe("aso_suggest service", () => {
 
   it("runs `aso keywords <terms> --stdout` for MCP keyword evaluation", async () => {
     mockRunAsoCommand.mockResolvedValue({
-      stdout: JSON.stringify([
-        { keyword: "foo", popularity: 80, difficulty: 10 },
-        { keyword: "bar", popularity: 50, difficulty: 20 },
-      ]),
+      stdout: JSON.stringify({
+        items: [
+          { keyword: "foo", popularity: 80, difficulty: 10 },
+          { keyword: "bar", popularity: 50, difficulty: 20 },
+        ],
+        failedKeywords: [],
+      }),
       stderr: "",
       exitCode: 0,
     });
@@ -50,7 +53,10 @@ describe("aso_suggest service", () => {
 
   it("accepts comma-separated keywords inside array entries", async () => {
     mockRunAsoCommand.mockResolvedValue({
-      stdout: JSON.stringify([{ keyword: "foo", popularity: 80, difficulty: 10 }]),
+      stdout: JSON.stringify({
+        items: [{ keyword: "foo", popularity: 80, difficulty: 10 }],
+        failedKeywords: [],
+      }),
       stderr: "",
       exitCode: 0,
     });
@@ -79,24 +85,27 @@ describe("aso_suggest service", () => {
 
   it("returns only accepted keywords with compact fields", async () => {
     mockRunAsoCommand.mockResolvedValue({
-      stdout: JSON.stringify([
-        {
-          keyword: "romantic",
-          popularity: 20,
-          difficulty: 40,
-          minDifficultyScore: 51.43,
-          appCount: 179,
-          keywordIncluded: 2,
-        },
-        {
-          keyword: "story game",
-          popularity: 10,
-          difficulty: 30,
-          minDifficultyScore: 22,
-          appCount: 55,
-          keywordIncluded: 3,
-        },
-      ]),
+      stdout: JSON.stringify({
+        items: [
+          {
+            keyword: "romantic",
+            popularity: 20,
+            difficulty: 40,
+            minDifficultyScore: 51.43,
+            appCount: 179,
+            keywordIncluded: 2,
+          },
+          {
+            keyword: "story game",
+            popularity: 10,
+            difficulty: 30,
+            minDifficultyScore: 22,
+            appCount: 55,
+            keywordIncluded: 3,
+          },
+        ],
+        failedKeywords: [{ keyword: "failed", stage: "enrichment" }],
+      }),
       stderr: "",
       exitCode: 0,
     });
@@ -120,5 +129,21 @@ describe("aso_suggest service", () => {
       ["romantic"],
       "US"
     );
+  });
+
+  it("returns MCP error when stdout is not strict envelope payload", async () => {
+    mockRunAsoCommand.mockResolvedValue({
+      stdout: JSON.stringify([{ keyword: "foo", popularity: 80, difficulty: 10 }]),
+      stderr: "",
+      exitCode: 0,
+    });
+
+    const result = await handleAsoSuggest({
+      keywords: ["foo"],
+    });
+
+    expect((result as { isError?: boolean }).isError).toBe(true);
+    expect(result.content[0]?.type).toBe("text");
+    expect(result.content[0]?.text).toContain("not valid `{ items, failedKeywords }` payload");
   });
 });

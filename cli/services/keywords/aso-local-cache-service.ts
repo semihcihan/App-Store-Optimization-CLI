@@ -4,7 +4,12 @@ import {
   getAsoAppDocs,
   refreshKeywordOrder,
 } from "../cache-api";
-import type { AsoAppDocItem, AsoCacheLookupResponse, AsoKeywordItem } from "./aso-types";
+import type {
+  AsoAppDocItem,
+  AsoCacheLookupResponse,
+  AsoKeywordItem,
+  FailedKeyword,
+} from "./aso-types";
 
 export async function lookupAsoCacheLocal(
   country: string,
@@ -16,8 +21,11 @@ export async function lookupAsoCacheLocal(
 export async function enrichAsoKeywordsLocal(
   country: string,
   items: Array<{ keyword: string; popularity: number }>
-): Promise<AsoKeywordItem[]> {
-  return enrichAsoKeywords({ country, items }) as Promise<AsoKeywordItem[]>;
+): Promise<{ items: AsoKeywordItem[]; failedKeywords: FailedKeyword[] }> {
+  return enrichAsoKeywords({ country, items }) as Promise<{
+    items: AsoKeywordItem[];
+    failedKeywords: FailedKeyword[];
+  }>;
 }
 
 export async function getAsoAppDocsLocal(

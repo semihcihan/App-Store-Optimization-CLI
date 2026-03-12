@@ -28,6 +28,7 @@ Also covers MCP keyword suggestion entrypoint (`aso_suggest`) that evaluates exp
 5. `POST /aso/enrich` with `{ keyword, popularity }` for full-enrich keywords.
 6. Persist enriched keywords and returned app docs.
 7. For order-only keywords, refresh `orderedAppIds` + `appCount` without refetching popularity.
+8. Persist terminal popularity/enrichment failures in `aso_keyword_failures`.
 
 ## Machine-Safe `--stdout` Contract
 - `aso keywords "<comma-separated-keywords>" --stdout` is keyword-only and intended for agents/machine calls.
@@ -37,6 +38,9 @@ Also covers MCP keyword suggestion entrypoint (`aso_suggest`) that evaluates exp
 - If auth is required, it attempts one reauthentication pass that is allowed only when no user interaction is needed.
 - If credentials/2FA/confirmation input is required, command fails with guidance to run `aso auth` in a terminal first.
 - After successful `aso auth`, later `--stdout` runs can reuse saved session/cookies.
+- Output contract is an envelope:
+  - `items`: successful keyword rows
+  - `failedKeywords`: terminal failures with stage + reason metadata
 
 ## Auth-Only Command
 - `aso auth` performs only Apple Search Ads reauthentication.
@@ -89,6 +93,7 @@ Keyword-level difficulty:
 
 ## Persistence Model
 - Local DB (`~/.aso/aso-db.sqlite`): `aso_keywords`, `aso_apps`, `app_keywords`.
+- Failure DB table: `aso_keyword_failures` keyed by `(country, normalized_keyword)` for current failed state.
 - Local DB stores `difficultyScore` and `minDifficultyScore` as rounded integers on write.
 - Interactive `aso keywords` runs (without `--stdout`) save returned keywords into `app_keywords` for the default research app (`research`) so they appear in dashboard research workspace.
 - MCP `aso_suggest` saves only accepted keywords into the same default research app association.
@@ -110,6 +115,7 @@ Keyword-level difficulty:
 - `POST /aso/cache-lookup`
 - `POST /aso/enrich`
 - `POST /aso/app-docs` (max `50` IDs)
+- `POST /api/aso/keywords/retry-failed`
 
 ## MCP Surface
 - Tool: `aso_suggest`

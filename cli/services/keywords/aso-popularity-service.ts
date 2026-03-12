@@ -7,6 +7,12 @@ import {
   type PopularityResponse,
 } from "./aso-apple-popularity-client";
 import { withAppleHttpTraceContext } from "./apple-http-trace";
+import {
+  normalizeAppleUpstreamError,
+  type NormalizedAppleUpstreamError,
+} from "./apple-upstream-error";
+import { getAsoResilienceConfig } from "./aso-resilience";
+import type { FailedKeyword } from "./aso-types";
 
 const AUTH_REAUTH_REQUIRED_ERROR_CODE = "ASO_AUTH_REAUTH_REQUIRED";
 const NO_USER_OWNED_APPS_FOUND_CODE = "NO_USER_OWNED_APPS_FOUND_CODE";
@@ -16,6 +22,11 @@ const APPLE_POPULARITY_URL =
 
 type FetchKeywordPopularitiesOptions = {
   allowInteractiveAuthRecovery?: boolean;
+};
+
+type KeywordPopularityResult = {
+  popularities: Record<string, number>;
+  failedKeywords: FailedKeyword[];
 };
 
 export class AsoAuthReauthRequiredError extends ContextualError {
@@ -115,10 +126,10 @@ function logPopularityResponse(
 }
 
 export class AsoPopularityService {
-  async fetchKeywordPopularities(
+  async fetchKeywordPopularitiesWithFailures(
     keywords: string[],
     options?: FetchKeywordPopularitiesOptions
-  ): Promise<Record<string, number>> {
+  ): Promise<KeywordPopularityResult> {
     if (keywords.length > 100) {
       throw new ContextualError(
         "A maximum of 100 keywords is supported per call"
@@ -135,7 +146,10 @@ export class AsoPopularityService {
 
     const sanitizedKeywords = Array.from(sanitizedToOriginal.keys());
     if (sanitizedKeywords.length === 0) {
-      return {};
+      return {
+        popularities: {},
+        failedKeywords: [],
+      };
     }
     const adamId = requireAdamId();
     logger.debug(
@@ -157,13 +171,14 @@ export class AsoPopularityService {
       cookieHeader = await asoAuthService.reAuthenticate();
     }
     const requestWithAuthRecovery = async (
+      terms: string[],
       stageLabel: string
-    ): Promise<{ statusCode: number; data: PopularityResponse }> => {
+    ): Promise<{ statusCode: number; data: PopularityResponse; attempts: number }> => {
       logger.debug(
-        `[aso-popularity] sending ${stageLabel} request cookieHeaderLength=${cookieHeader.length}`
+        `[aso-popularity] sending ${stageLabel} request cookieHeaderLength=${cookieHeader.length} terms=${terms.length}`
       );
       let response = await requestPopularitiesWithKwsRetry(
-        sanitizedKeywords,
+        terms,
         cookieHeader,
         adamId
       );
@@ -180,7 +195,7 @@ export class AsoPopularityService {
         );
         cookieHeader = await asoAuthService.reAuthenticate();
         response = await requestPopularitiesWithKwsRetry(
-          sanitizedKeywords,
+          terms,
           cookieHeader,
           adamId
         );
@@ -194,9 +209,38 @@ export class AsoPopularityService {
       return response;
     };
 
-    let response = await requestWithAuthRecovery("initial");
+    const toFailedKeyword = (
+      keyword: string,
+      normalized: NormalizedAppleUpstreamError
+    ): FailedKeyword => ({
+      keyword,
+      stage: "popularity",
+      reasonCode: normalized.reasonCode,
+      message: normalized.message,
+      statusCode: normalized.statusCode,
+      retryable: normalized.retryable,
+      attempts: normalized.attempts,
+      requestId: normalized.requestId,
+    });
 
-    if (response.statusCode !== 200 || response.data.status !== "success") {
+    const parseSuccessPopularities = (
+      response: { statusCode: number; data: PopularityResponse }
+    ): Record<string, number> => {
+      const result: Record<string, number> = {};
+      for (const item of response.data.data || []) {
+        if (item.popularity === null) continue;
+        const originalKeyword = sanitizedToOriginal.get(item.name);
+        if (originalKeyword) {
+          result[originalKeyword] = item.popularity;
+        }
+      }
+      return result;
+    };
+
+    const toFailureFromResponse = (
+      keyword: string,
+      response: { statusCode: number; data: PopularityResponse; attempts: number }
+    ): FailedKeyword => {
       const messageCode = firstMessageCode(response.data);
       const message = firstMessage(response.data);
       logger.debug(
@@ -204,6 +248,38 @@ export class AsoPopularityService {
           response.data.requestID || "none"
         } messageCode=${messageCode || "none"}`
       );
+      const normalized = normalizeAppleUpstreamError({
+        error: Object.assign(
+          new Error(
+            message ||
+              `Popularity API request failed with status ${response.statusCode}`
+          ),
+          {
+            statusCode: response.statusCode,
+            code: messageCode || response.data.internalErrorCode,
+          }
+        ),
+        operation: "keywords-popularities-response",
+        attempts: response.attempts,
+        requestId: response.data.requestID,
+      });
+      return toFailedKeyword(keyword, normalized);
+    };
+
+    const toFailureFromError = (keyword: string, error: unknown): FailedKeyword => {
+      const normalized = normalizeAppleUpstreamError({
+        error,
+        operation: "keywords-popularities-request",
+        attempts: getAsoResilienceConfig().maxAttempts,
+      });
+      return toFailedKeyword(keyword, normalized);
+    };
+
+    let response = await requestWithAuthRecovery(sanitizedKeywords, "initial");
+
+    if (response.statusCode !== 200 || response.data.status !== "success") {
+      const messageCode = firstMessageCode(response.data);
+      const message = firstMessage(response.data);
       if (isPrimaryAppIdAccessError(response.statusCode, response.data)) {
         throw withAppleHttpTraceContext(
           new ContextualError(
@@ -224,63 +300,85 @@ export class AsoPopularityService {
           }
         );
       }
-      if (
-        response.statusCode === 403 &&
-        messageCode === KWS_NO_ORG_CONTENT_PROVIDERS
-      ) {
+      if (response.statusCode === 403 && messageCode === KWS_NO_ORG_CONTENT_PROVIDERS) {
         logger.warn(
           `[aso-popularity] KWS_NO_ORG_CONTENT_PROVIDERS requestID=${
             response.data.requestID || "none"
-          }; this can be transient due to Apple org/session context`
+          }; attempting keyword-level isolation`
         );
-        throw withAppleHttpTraceContext(
-          new ContextualError(
-            `Popularity API forbidden: ${messageCode}${message ? ` (${message})` : ""}`
-          ),
-          {
-            provider: "apple-search-ads",
-            operation: "keywords-popularities-response",
-            context: {
-              adamId,
-              termsCount: sanitizedKeywords.length,
-              statusCode: response.statusCode,
-              requestID: response.data.requestID || null,
-              messageCode: messageCode || null,
-            },
+      }
+      if (sanitizedKeywords.length === 1) {
+        const keyword = sanitizedToOriginal.get(sanitizedKeywords[0]) ?? sanitizedKeywords[0];
+        return {
+          popularities: {},
+          failedKeywords: [toFailureFromResponse(keyword, response)],
+        };
+      }
+
+      const popularities: Record<string, number> = {};
+      const failedKeywords: FailedKeyword[] = [];
+      for (const term of sanitizedKeywords) {
+        const keyword = sanitizedToOriginal.get(term) ?? term;
+        try {
+          const singleResponse = await requestWithAuthRecovery(
+            [term],
+            `isolation:${term}`
+          );
+          if (
+            singleResponse.statusCode === 200 &&
+            singleResponse.data.status === "success"
+          ) {
+            popularities[keyword] = parseSuccessPopularities(singleResponse)[keyword] ?? 1;
+          } else {
+            failedKeywords.push(toFailureFromResponse(keyword, singleResponse));
           }
-        );
-      }
-      throw withAppleHttpTraceContext(
-        new ContextualError(
-          `Popularity API request failed with status ${response.statusCode}${
-            messageCode ? ` (messageCode=${messageCode})` : ""
-          }`
-        ),
-        {
-          provider: "apple-search-ads",
-          operation: "keywords-popularities-response",
-          context: {
-            adamId,
-            termsCount: sanitizedKeywords.length,
-            statusCode: response.statusCode,
-            requestID: response.data.requestID || null,
-            messageCode: messageCode || null,
-          },
+        } catch (error) {
+          failedKeywords.push(toFailureFromError(keyword, error));
         }
-      );
-    }
-
-    const result: Record<string, number> = {};
-    for (const item of response.data.data || []) {
-      if (item.popularity === null) continue;
-      const originalKeyword = sanitizedToOriginal.get(item.name);
-      if (originalKeyword) {
-        result[originalKeyword] = item.popularity;
       }
+      return {
+        popularities,
+        failedKeywords,
+      };
     }
 
-    return result;
+    return {
+      popularities: parseSuccessPopularities(response),
+      failedKeywords: [],
+    };
   }
+
+  async fetchKeywordPopularities(
+    keywords: string[],
+    options?: FetchKeywordPopularitiesOptions
+  ): Promise<Record<string, number>> {
+    const result = await this.fetchKeywordPopularitiesWithFailures(
+      keywords,
+      options
+    );
+    if (result.failedKeywords.length > 0) {
+      const first = result.failedKeywords[0];
+      throw new ContextualError(first.message);
+    }
+    return result.popularities;
+  }
+}
+
+export function summarizeFailedPopularityKeywords(
+  failures: FailedKeyword[]
+): string | null {
+  if (failures.length === 0) return null;
+  const preview = failures
+    .slice(0, 5)
+    .map(
+      (failure) =>
+        `${failure.keyword}:${failure.reasonCode}${
+          failure.statusCode != null ? `(${failure.statusCode})` : ""
+        }`
+    )
+    .join(", ");
+  const suffix = failures.length > 5 ? ` (+${failures.length - 5} more)` : "";
+  return `${preview}${suffix}`;
 }
 
 export const asoPopularityService = new AsoPopularityService();

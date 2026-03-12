@@ -64,7 +64,9 @@ describe("aso command", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     jest.mocked(parseKeywords).mockReturnValue([]);
-    jest.mocked(fetchAndPersistKeywords).mockResolvedValue([]);
+    jest
+      .mocked(fetchAndPersistKeywords)
+      .mockResolvedValue({ items: [], failedKeywords: [] } as any);
     jest.mocked(resolveAsoAdamId).mockResolvedValue("1234567890");
     jest.mocked(saveKeywordsToDefaultResearchApp).mockReturnValue(0);
     jest.mocked(asoAuthService.reAuthenticate).mockResolvedValue(
@@ -105,7 +107,10 @@ describe("aso command", () => {
     jest.mocked(parseKeywords).mockReturnValue(["term"]);
     jest
       .mocked(fetchAndPersistKeywords)
-      .mockResolvedValue([{ keyword: "term", popularity: 42 } as any]);
+      .mockResolvedValue({
+        items: [{ keyword: "term", popularity: 42 } as any],
+        failedKeywords: [],
+      } as any);
     jest.mocked(saveKeywordsToDefaultResearchApp).mockReturnValue(1);
 
     await asoCommand.handler?.({
@@ -182,7 +187,10 @@ describe("aso command", () => {
   });
 
   it("uses non-interactive keyword fetch in --stdout mode and prints JSON", async () => {
-    const result = [{ keyword: "term", popularity: 42 }];
+    const result = {
+      items: [{ keyword: "term", popularity: 42 }],
+      failedKeywords: [],
+    };
     jest.mocked(parseKeywords).mockReturnValue(["term"]);
     jest.mocked(fetchAndPersistKeywords).mockResolvedValue(result as any);
 
@@ -213,7 +221,10 @@ describe("aso command", () => {
     jest
       .mocked(fetchAndPersistKeywords)
       .mockRejectedValueOnce(authRequiredError)
-      .mockResolvedValueOnce([{ keyword: "term", popularity: 42 }] as any);
+      .mockResolvedValueOnce({
+        items: [{ keyword: "term", popularity: 42 }],
+        failedKeywords: [],
+      } as any);
 
     await asoCommand.handler?.({
       subcommand: "keywords",

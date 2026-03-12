@@ -133,7 +133,7 @@ const asoCommand: CommandModule = {
       : await fetchAndPersistKeywords(country, keywords);
     if (!stdout) {
       const savedCount = saveKeywordsToDefaultResearchApp(
-        result.map((item) => item.keyword),
+        result.items.map((item) => item.keyword),
         country
       );
       logger.info(

@@ -185,7 +185,7 @@ export async function requestPopularitiesWithKwsRetry(
   terms: string[],
   cookieHeader: string,
   adamId: string
-): Promise<{ statusCode: number; data: PopularityResponse }> {
+): Promise<{ statusCode: number; data: PopularityResponse; attempts: number }> {
   const { maxAttempts } = getAsoResilienceConfig();
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     try {
@@ -195,6 +195,7 @@ export async function requestPopularitiesWithKwsRetry(
         return {
           statusCode: response.statusCode,
           data: response.data,
+          attempts: attempt,
         };
       }
       const delayMs = getRetryDelayMs({

@@ -81,6 +81,24 @@ function initializeDatabase(database: Database.Database): void {
       value TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS aso_keyword_failures (
+      country TEXT NOT NULL,
+      normalized_keyword TEXT NOT NULL,
+      keyword TEXT NOT NULL,
+      status TEXT NOT NULL,
+      stage TEXT NOT NULL,
+      reason_code TEXT NOT NULL,
+      message TEXT NOT NULL,
+      status_code INTEGER,
+      retryable INTEGER NOT NULL,
+      attempts INTEGER NOT NULL,
+      request_id TEXT,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY (country, normalized_keyword)
+    );
+    CREATE INDEX IF NOT EXISTS idx_aso_keyword_failures_country_stage
+      ON aso_keyword_failures(country, stage);
   `);
 
   const existingColumns = new Set(

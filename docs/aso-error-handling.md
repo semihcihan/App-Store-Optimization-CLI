@@ -25,16 +25,19 @@ Define failure boundaries, retry rules, and recovery behavior across CLI, dashbo
 - Popularity fetch retries transient responses (`429`, `5xx`, `KWS_NO_ORG_CONTENT_PROVIDERS`) and transient network errors.
 - App Store web fetches retry `429`, `5xx`, and transient network errors with jittered exponential backoff.
 - Startup refresh manager retries each unit once and records failures without crashing runtime.
+- Keyword orchestration isolates terminal failures per keyword and stores normalized failure metadata in `aso_keyword_failures`.
 
 ## Recovery Behavior
 - Dashboard add-keyword:
   - If auth is invalid in stage 1, return `AUTH_REQUIRED` (no interactive prompt in request path).
 - If stage-2 enrichment fails, stage-1 writes remain; caller can retry later.
+- Dashboard retry-failed endpoint retries only failed keywords for selected app/country and returns `{ retriedCount, succeededCount, failedCount }`.
 - Top-app and app-doc hydration:
   - Missing/expired docs trigger backend fetch.
   - On hydration failure, return available cached data when possible.
 - CLI keyword fetch:
-  - Unrecoverable popularity/enrichment failures fail the command.
+  - Returns `{ items, failedKeywords }` for partial success.
+  - Hard-fails only when all requested keywords fail.
 - `aso reset-credentials` clears local auth state explicitly.
 - `aso auth`:
   - Attempts cached-session reuse before full credential login.

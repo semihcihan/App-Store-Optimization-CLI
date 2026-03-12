@@ -73,7 +73,10 @@ describe("ASO routes", () => {
     );
 
     expect(maxInFlight).toBeLessThanOrEqual(4);
-    expect(result.map((item) => item.keyword)).toEqual(items.map((item) => item.keyword));
+    expect(result.items.map((item) => item.keyword)).toEqual(
+      items.map((item) => item.keyword)
+    );
+    expect(result.failedKeywords).toEqual([]);
     expect(repository.upsertMany).toHaveBeenCalledWith(
       expect.objectContaining({
         appDocs: expect.arrayContaining([
@@ -84,5 +87,51 @@ describe("ASO routes", () => {
       })
     );
     expect(mockEnrichKeyword).toHaveBeenCalledTimes(10);
+  });
+
+  it("isolates per-keyword enrichment failures", async () => {
+    mockEnrichKeyword.mockImplementation(async ({ keyword, popularity }) => {
+      if (keyword === "bad") {
+        throw new Error("upstream timeout");
+      }
+      return {
+        keyword,
+        normalizedKeyword: keyword,
+        popularity,
+        difficultyScore: 10,
+        minDifficultyScore: 5,
+        appCount: 20,
+        keywordIncluded: 2,
+        orderedAppIds: [],
+        appDocs: [],
+      };
+    });
+    const repository = {
+      upsertMany: jest.fn(async ({ country, items: enriched }: any) =>
+        enriched.map((item: any) => ({
+          ...item,
+          country,
+          createdAt: "2025-01-01T00:00:00.000Z",
+          updatedAt: "2025-01-01T00:00:00.000Z",
+          orderExpiresAt: "2025-01-02T00:00:00.000Z",
+        }))
+      ),
+    };
+    const result = await enrichAsoKeywords(
+      {
+        country: "US",
+        items: [
+          { keyword: "good", popularity: 50 },
+          { keyword: "bad", popularity: 50 },
+        ],
+      },
+      { repository: repository as any }
+    );
+    expect(result.items.map((item) => item.keyword)).toEqual(["good"]);
+    expect(result.failedKeywords).toHaveLength(1);
+    expect(result.failedKeywords[0]).toMatchObject({
+      keyword: "bad",
+      stage: "enrichment",
+    });
   });
 });

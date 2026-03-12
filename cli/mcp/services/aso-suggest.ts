@@ -74,27 +74,30 @@ function normalizeKeywords(keywords: string[]): string[] {
   return deduped;
 }
 
-function parseJsonArrayFromStdout(stdout: string): unknown[] | null {
+function parseJsonFromStdout(stdout: string): unknown | null {
   const trimmed = stdout.trim();
   if (!trimmed) {
     return null;
   }
   try {
-    const parsed = JSON.parse(trimmed);
-    return Array.isArray(parsed) ? parsed : null;
+    return JSON.parse(trimmed);
   } catch {
-    const start = trimmed.indexOf("[");
-    const end = trimmed.lastIndexOf("]");
-    if (start < 0 || end < start) {
-      return null;
-    }
-    try {
-      const parsed = JSON.parse(trimmed.slice(start, end + 1));
-      return Array.isArray(parsed) ? parsed : null;
-    } catch {
-      return null;
-    }
+    return null;
   }
+}
+
+function extractItemsPayload(raw: unknown): unknown[] | null {
+  if (!raw || typeof raw !== "object") {
+    return null;
+  }
+  const parsed = raw as {
+    items?: unknown;
+    failedKeywords?: unknown;
+  };
+  if (!Array.isArray(parsed.items) || !Array.isArray(parsed.failedKeywords)) {
+    return null;
+  }
+  return parsed.items;
 }
 
 function asNumber(value: unknown): number | null {
@@ -163,10 +166,11 @@ export async function handleAsoSuggest(args: AsoSuggestArgs) {
     return toMcpToolResult(commandResult);
   }
 
-  const parsedItems = parseJsonArrayFromStdout(commandResult.stdout);
+  const parsedJson = parseJsonFromStdout(commandResult.stdout);
+  const parsedItems = extractItemsPayload(parsedJson);
   if (parsedItems == null) {
     return buildFailureResult(
-      "ASO command succeeded but response format was not valid JSON array."
+      "ASO command succeeded but response format was not valid `{ items, failedKeywords }` payload."
     );
   }
 

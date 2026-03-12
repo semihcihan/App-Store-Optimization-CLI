@@ -60,6 +60,7 @@ describe("AsoPopularityService", () => {
     it("sanitizes keywords and maps response back to original casing", async () => {
       mockRequestPopularitiesWithKwsRetry.mockResolvedValue({
         statusCode: 200,
+        attempts: 1,
         data: {
           status: "success",
           data: [
@@ -88,6 +89,7 @@ describe("AsoPopularityService", () => {
     it("skips items with null popularity", async () => {
       mockRequestPopularitiesWithKwsRetry.mockResolvedValue({
         statusCode: 200,
+        attempts: 1,
         data: {
           status: "success",
           data: [
@@ -110,6 +112,7 @@ describe("AsoPopularityService", () => {
     it("throws ContextualError on non-200 response", async () => {
       mockRequestPopularitiesWithKwsRetry.mockResolvedValue({
         statusCode: 500,
+        attempts: 1,
         data: { status: "error" },
       });
 
@@ -130,6 +133,7 @@ describe("AsoPopularityService", () => {
     it("throws ContextualError when status is not success", async () => {
       mockRequestPopularitiesWithKwsRetry.mockResolvedValue({
         statusCode: 200,
+        attempts: 1,
         data: { status: "error", error: { errors: [{ messageCode: "ERR" }] } },
       });
 
@@ -143,6 +147,7 @@ describe("AsoPopularityService", () => {
       jest.mocked(asoAuthService.reAuthenticate).mockResolvedValue("new-cookie");
       mockRequestPopularitiesWithKwsRetry.mockResolvedValue({
         statusCode: 200,
+        attempts: 1,
         data: { status: "success", data: [{ name: "x", popularity: 1 }] },
       });
 
@@ -173,10 +178,12 @@ describe("AsoPopularityService", () => {
       mockRequestPopularitiesWithKwsRetry
         .mockResolvedValueOnce({
           statusCode: 401,
+          attempts: 1,
           data: {},
         })
         .mockResolvedValueOnce({
           statusCode: 200,
+          attempts: 1,
           data: { status: "success", data: [{ name: "y", popularity: 2 }] },
         });
       jest.mocked(asoAuthService.reAuthenticate).mockResolvedValue(
@@ -194,10 +201,12 @@ describe("AsoPopularityService", () => {
       mockRequestPopularitiesWithKwsRetry
         .mockResolvedValueOnce({
           statusCode: 401,
+          attempts: 1,
           data: {},
         })
         .mockResolvedValueOnce({
           statusCode: 401,
+          attempts: 1,
           data: {},
         });
       jest.mocked(asoAuthService.reAuthenticate).mockResolvedValue(
@@ -215,6 +224,7 @@ describe("AsoPopularityService", () => {
     it("throws auth-required error without interactive recovery on auth failure response", async () => {
       mockRequestPopularitiesWithKwsRetry.mockResolvedValue({
         statusCode: 401,
+        attempts: 1,
         data: {},
       });
 
@@ -230,6 +240,7 @@ describe("AsoPopularityService", () => {
     it("throws contextual KWS error for no-org code after retries are exhausted", async () => {
       mockRequestPopularitiesWithKwsRetry.mockResolvedValue({
         statusCode: 403,
+        attempts: 1,
         data: {
           status: "error",
           error: {
@@ -245,15 +256,14 @@ describe("AsoPopularityService", () => {
 
       await expect(
         asoPopularityService.fetchKeywordPopularities(["z"])
-      ).rejects.toThrow(
-        "Popularity API forbidden: KWS_NO_ORG_CONTENT_PROVIDERS (No org content providers)"
-      );
+      ).rejects.toThrow("No org content providers");
       expect(asoAuthService.reAuthenticate).not.toHaveBeenCalled();
     });
 
     it("throws primary app id access error for no-user-owned-apps code without reauth", async () => {
       mockRequestPopularitiesWithKwsRetry.mockResolvedValue({
         statusCode: 403,
+        attempts: 1,
         data: {
           status: "error",
           error: {
@@ -278,6 +288,7 @@ describe("AsoPopularityService", () => {
     it("does not reauthenticate for text-only no-user-owned-apps 403", async () => {
       mockRequestPopularitiesWithKwsRetry.mockResolvedValue({
         statusCode: 403,
+        attempts: 1,
         data: {
           status: "error",
           error: {
@@ -297,6 +308,37 @@ describe("AsoPopularityService", () => {
       );
       expect(asoAuthService.reAuthenticate).not.toHaveBeenCalled();
       expect(mockRequestPopularitiesWithKwsRetry).toHaveBeenCalledTimes(1);
+    });
+
+    it("isolates failed keywords after terminal batch failure", async () => {
+      mockRequestPopularitiesWithKwsRetry
+        .mockResolvedValueOnce({
+          statusCode: 500,
+          attempts: 3,
+          data: { status: "error" },
+        })
+        .mockResolvedValueOnce({
+          statusCode: 200,
+          attempts: 1,
+          data: { status: "success", data: [{ name: "good", popularity: 25 }] },
+        })
+        .mockResolvedValueOnce({
+          statusCode: 500,
+          attempts: 3,
+          data: { status: "error" },
+        });
+
+      const result = await asoPopularityService.fetchKeywordPopularitiesWithFailures([
+        "good",
+        "bad",
+      ]);
+
+      expect(result.popularities).toEqual({ good: 25 });
+      expect(result.failedKeywords).toHaveLength(1);
+      expect(result.failedKeywords[0]).toMatchObject({
+        keyword: "bad",
+        stage: "popularity",
+      });
     });
   });
 });

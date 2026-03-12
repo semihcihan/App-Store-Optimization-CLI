@@ -19,6 +19,21 @@ export interface StoredAsoKeyword {
   popularityExpiresAt: string;
 }
 
+export interface StoredAsoKeywordFailure {
+  country: string;
+  normalizedKeyword: string;
+  keyword: string;
+  status: "failed";
+  stage: "popularity" | "enrichment";
+  reasonCode: string;
+  message: string;
+  statusCode: number | null;
+  retryable: boolean;
+  attempts: number;
+  requestId: string | null;
+  updatedAt: string;
+}
+
 export interface StoredAsoApp {
   appId: string;
   name: string;
