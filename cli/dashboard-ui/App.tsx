@@ -1201,9 +1201,22 @@ export function App() {
     );
   };
 
-  const showLoading = loadingText !== "";
+  const pendingAddKeywordCount = pendingAddContext?.keywords.length ?? 0;
+  const authCheckLoadingText =
+    pendingAddContext &&
+    !authModalOpen &&
+    !isAddingKeywords &&
+    (isStartingAuth ||
+      authStatus === "idle" ||
+      authStatus === "in_progress" ||
+      authStatus === "succeeded")
+      ? `Checking Apple session for ${pendingAddKeywordCount} keyword${pendingAddKeywordCount === 1 ? "" : "s"}...`
+      : "";
+  const effectiveLoadingText = loadingText || authCheckLoadingText;
+  const showLoading = effectiveLoadingText !== "";
   const isColdStart = isInitialLoad && !hasCachedData;
   const isAnyAppMutationInFlight = isAddingApp;
+  const isAddKeywordsBusy = isAddingKeywords || authCheckLoadingText !== "";
   const showError = !showLoading && errorText !== "";
   const showSuccess = !showLoading && !showError && successText !== "";
   const addButtonLabel = isCompactLayout ? "Add" : "Add Keywords";
@@ -1492,26 +1505,29 @@ export function App() {
               value={addInput}
               onChange={(e) => setAddInput(e.target.value)}
             />
-            <Button id="add-submit" type="submit" disabled={isAddingKeywords || isColdStart}>
-              <span className={`add-submit-label ${isAddingKeywords ? "is-loading" : ""}`}>{addButtonLabel}</span>
-              <span className={`button-loading-spinner ${isAddingKeywords ? "visible" : ""}`} aria-hidden="true" />
+            <Button id="add-submit" type="submit" disabled={isAddKeywordsBusy || isColdStart}>
+              <span className={`add-submit-label ${isAddKeywordsBusy ? "is-loading" : ""}`}>{addButtonLabel}</span>
+              <span className={`button-loading-spinner ${isAddKeywordsBusy ? "visible" : ""}`} aria-hidden="true" />
             </Button>
-            <Button
-              id="retry-failed-submit"
-              type="button"
-              variant="outline"
-              disabled={isRetryingFailedKeywords || failedKeywordCount === 0 || isColdStart}
-              onClick={() => {
-                void onRetryFailedKeywords();
-              }}
-            >
-              {isRetryingFailedKeywords
-                ? "Retrying Failed..."
-                : `Retry Failed (${failedKeywordCount})`}
-            </Button>
+            {failedKeywordCount > 0 ? (
+              <Button
+                id="retry-failed-submit"
+                className="retry-failed-button"
+                type="button"
+                variant="ghost"
+                disabled={isRetryingFailedKeywords || isColdStart}
+                onClick={() => {
+                  void onRetryFailedKeywords();
+                }}
+              >
+                {isRetryingFailedKeywords
+                  ? "Retrying Failed..."
+                  : `Retry Failed (${failedKeywordCount})`}
+              </Button>
+            ) : null}
             <div className="status-slot" aria-live="polite">
               <p id="loading-text" className={`loading-text ${showLoading ? "visible" : ""}`}>
-                {loadingText}
+                {effectiveLoadingText}
               </p>
               <p id="add-error" className={`error ${showError ? "visible" : ""}`}>
                 {errorText}

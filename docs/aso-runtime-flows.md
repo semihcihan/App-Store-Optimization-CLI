@@ -57,6 +57,7 @@ Runtime flow contracts across CLI commands, local dashboard API, and ASO service
 2. Rerun the same keyword pipeline in non-interactive auth mode.
 3. Return `{ retriedCount, succeededCount, failedCount }`.
 4. Clear failed status for keywords that succeeded.
+5. Dashboard UI shows the retry action only when current keyword rows include failed entries.
 
 ## Flow C: Dashboard Reauthentication
 1. Add-keyword flow returns `AUTH_REQUIRED` or `AUTH_IN_PROGRESS` when auth state blocks stage 1.
@@ -64,6 +65,7 @@ Runtime flow contracts across CLI commands, local dashboard API, and ASO service
 3. Server runs single-flight `asoAuthService.reAuthenticate()`.
 4. Client polls `GET /api/aso/auth/status` until terminal state.
 5. On success, client retries pending add-keyword action.
+6. While reauth is auto-starting or in progress for a pending add-keyword action, the dashboard keeps the add action in a loading state (`Checking Apple session...`) so the button never appears idle.
 
 ## Flow D: Startup Background Refresh
 1. Start once at dashboard boot.

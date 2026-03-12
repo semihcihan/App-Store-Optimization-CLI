@@ -233,6 +233,35 @@ describe("dashboard app interactions", () => {
     );
   });
 
+  it("hides retry button when there are no failed keywords", async () => {
+    const fetchMock = buildFetchMock({
+      initialApps: [
+        { id: DEFAULT_RESEARCH_APP_ID, name: "Research" },
+        { id: "111", name: "Owned App" },
+      ],
+      keywordsByAppId: {
+        "111": [
+          {
+            keyword: "healthy-term",
+            popularity: 55,
+            difficultyScore: 45,
+            appCount: 90,
+            keywordStatus: "ok",
+            positions: [{ appId: "111", previousPosition: 9, currentPosition: 7 }],
+            updatedAt: "2026-03-10T10:00:00.000Z",
+          },
+        ],
+      },
+    });
+    global.fetch = fetchMock as typeof fetch;
+    localStorage.setItem("aso-dashboard:selected-app-id", "111");
+
+    render(<App />);
+
+    await screen.findByText("healthy-term");
+    expect(screen.queryByRole("button", { name: /Retry Failed/i })).toBeNull();
+  });
+
   it("opens top apps dialog and supports context delete", async () => {
     let deletedBody: any = null;
     const confirmSpy = jest.spyOn(window, "confirm").mockReturnValue(true);

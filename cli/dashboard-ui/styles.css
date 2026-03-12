@@ -443,6 +443,22 @@ body {
   align-items: center;
 }
 
+.retry-failed-button {
+  grid-column: 1 / -1;
+  justify-self: center;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: color-mix(in oklab, var(--primary) 85%, white);
+}
+
+.retry-failed-button:hover:not(:disabled) {
+  background: transparent;
+  filter: none;
+  transform: none;
+  text-decoration: underline;
+}
+
 .status-slot {
   grid-column: 1 / -1;
   position: relative;

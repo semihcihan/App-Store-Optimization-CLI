@@ -122,6 +122,11 @@ describe("dashboard auth modal UI flow", () => {
     fireEvent.change(input, { target: { value: "term" } });
     fireEvent.click(screen.getByRole("button", { name: "Add Keywords" }));
 
+    expect(
+      await screen.findByText("Checking Apple session for 1 keyword...")
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Add Keywords" })).toBeDisabled();
+
     await waitFor(() =>
       expect(fetchMock).toHaveBeenCalledWith(
         "/api/aso/auth/start",
