@@ -627,7 +627,7 @@ export function App() {
 
   useEffect(() => {
     if (showRankingColumns) return;
-    if (sortBy !== "rank" && sortBy !== "change" && sortBy !== "updatedAt") return;
+    if (sortBy !== "rank" && sortBy !== "change") return;
     setSortBy("keyword");
     setSortDir(DEFAULT_SORT_DIRECTION_BY_KEY.keyword);
   }, [showRankingColumns, sortBy]);
@@ -1665,15 +1665,15 @@ export function App() {
                       >
                         {renderSortLabel("Change")}
                       </th>
-                      <th
-                        className={`sortable ${sortBy === "updatedAt" ? "active" : ""}`}
-                        data-sort-key="updatedAt"
-                        onClick={() => onSortHeader("updatedAt")}
-                      >
-                        {renderSortLabel("Updated")}
-                      </th>
                     </>
                   ) : null}
+                  <th
+                    className={`sortable ${sortBy === "updatedAt" ? "active" : ""}`}
+                    data-sort-key="updatedAt"
+                    onClick={() => onSortHeader("updatedAt")}
+                  >
+                    {renderSortLabel("Updated")}
+                  </th>
                 </tr>
               </thead>
               <tbody id="keywords-tbody">
@@ -1724,11 +1724,11 @@ export function App() {
                               <span className="delta down">-{Math.abs(change)}</span>
                             )}
                           </td>
-                          <td className="updated-value">
-                            {formatDate(row.updatedAt, displayLocale)}
-                          </td>
                         </>
                       ) : null}
+                      <td className="updated-value">
+                        {formatDate(row.updatedAt, displayLocale)}
+                      </td>
                     </tr>
                   );
                 })}

@@ -96,7 +96,7 @@ describe("dashboard keyword columns", () => {
     localStorage.clear();
   });
 
-  it("hides rank, change, and updated columns for research apps", async () => {
+  it("hides rank and change columns but shows updated column for research apps", async () => {
     const fetchMock = buildFetchMock({
       apps: [{ id: DEFAULT_RESEARCH_APP_ID, name: "Research" }],
       keywordsByAppId: {
@@ -120,7 +120,7 @@ describe("dashboard keyword columns", () => {
 
     expect(screen.queryByRole("columnheader", { name: "Rank" })).not.toBeInTheDocument();
     expect(screen.queryByRole("columnheader", { name: "Change" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("columnheader", { name: "Updated" })).not.toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "Updated" })).toBeInTheDocument();
   });
 
   it("shows rank, change, and updated columns for owned apps", async () => {
