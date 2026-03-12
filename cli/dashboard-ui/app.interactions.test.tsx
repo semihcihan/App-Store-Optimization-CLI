@@ -205,7 +205,7 @@ describe("dashboard app interactions", () => {
           {
             keyword: "failed-term",
             popularity: 55,
-            difficultyScore: 45,
+            difficultyScore: null,
             appCount: 90,
             keywordStatus: "failed",
             positions: [{ appId: "111", previousPosition: 9, currentPosition: 7 }],
@@ -222,14 +222,18 @@ describe("dashboard app interactions", () => {
 
     render(<App />);
 
-    await screen.findByText("failed-term");
+    const failedKeywordCell = await screen.findByText("failed-term");
+    const failedRow = failedKeywordCell.closest("tr");
+    expect(failedRow).not.toBeNull();
+    const cells = within(failedRow as HTMLElement).getAllByRole("cell");
+    expect(cells[2]).toHaveTextContent("-");
     fireEvent.click(screen.getByRole("button", { name: "Retry Failed (1)" }));
 
     await waitFor(() =>
       expect(retryBody).toEqual({ appId: "111", country: "US" })
     );
     await screen.findByText(
-      "Retried 1 failed keywords: 1 succeeded, 0 still failed."
+      "Retried 1 failed keyword: 1 succeeded."
     );
   });
 

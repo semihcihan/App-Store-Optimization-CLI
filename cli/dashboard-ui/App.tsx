@@ -51,7 +51,7 @@ type AppDoc = {
 };
 type KeywordItem = {
   keyword: string;
-  popularity: number;
+  popularity: number | null;
   difficultyScore: number | null;
   appCount: number | null;
   updatedAt?: string;
@@ -81,6 +81,7 @@ type Row = {
   updatedAt?: string;
   previousPosition: number | null;
   currentPosition: number | null;
+  keywordStatus: "ok" | "pending" | "failed";
 };
 type TopAppRow = AppDoc & {
   rank: number;
@@ -322,20 +323,21 @@ export function App() {
     if (requestId !== keywordLoadRequestIdRef.current) return;
     const rows = data.map((item) => {
       const p = (item.positions ?? []).find((x) => x.appId === appId);
+      const keywordStatus =
+        item.keywordStatus ?? (item.difficultyScore == null ? "pending" : "ok");
       return {
         keyword: item.keyword,
-        popularity: item.popularity,
+        popularity: item.popularity ?? 0,
         difficultyScore: item.difficultyScore,
         appCount: item.appCount,
         updatedAt: item.updatedAt,
         previousPosition: p?.previousPosition ?? null,
         currentPosition: p?.currentPosition ?? null,
+        keywordStatus,
       } satisfies Row;
     });
     setKeywords(rows);
-    setFailedKeywordCount(
-      data.filter((item) => item.keywordStatus === "failed").length
-    );
+    setFailedKeywordCount(rows.filter((row) => row.keywordStatus === "failed").length);
     const keep = new Set(rows.map((r) => r.keyword));
     setSelectedKeywords((prev) => {
       const next = new Set(Array.from(prev).filter((kw) => keep.has(kw)));
@@ -545,7 +547,7 @@ export function App() {
   }, []);
 
   const hasPendingDifficulty = useMemo(
-    () => keywords.some((row) => row.difficultyScore == null),
+    () => keywords.some((row) => row.keywordStatus === "pending"),
     [keywords]
   );
 
@@ -886,9 +888,16 @@ export function App() {
         country: DEFAULT_ASO_COUNTRY,
       });
       await loadKeywords(selectedAppId);
-      setSuccessText(
-        `Retried ${result.retriedCount} failed keywords: ${result.succeededCount} succeeded, ${result.failedCount} still failed.`
-      );
+      const retriedLabel = `Retried ${result.retriedCount} failed keyword${result.retriedCount === 1 ? "" : "s"}`;
+      if (result.failedCount === 0) {
+        setSuccessText(`${retriedLabel}: ${result.succeededCount} succeeded.`);
+      } else if (result.succeededCount === 0) {
+        setSuccessText(`${retriedLabel}: none succeeded, ${result.failedCount} still failed.`);
+      } else {
+        setSuccessText(
+          `${retriedLabel}: ${result.succeededCount} succeeded, ${result.failedCount} still failed.`
+        );
+      }
     } catch (error) {
       setErrorText(toActionableErrorMessage(error, "Failed to retry failed keywords"));
     } finally {
@@ -1721,9 +1730,13 @@ export function App() {
                           </Button>
                         </div>
                       </td>
-                      <td className="num col-middle">{row.popularity ?? "-"}</td>
+                      <td className="num col-middle">{row.popularity > 0 ? row.popularity : "-"}</td>
                       <td className="num col-middle">
-                        {row.difficultyScore == null ? "Calculating..." : Math.round(row.difficultyScore)}
+                        {row.keywordStatus === "failed"
+                          ? "-"
+                          : row.difficultyScore == null
+                            ? "Calculating..."
+                            : Math.round(row.difficultyScore)}
                       </td>
                       <td className="num col-middle">{row.appCount ?? "-"}</td>
                       {showRankingColumns ? (

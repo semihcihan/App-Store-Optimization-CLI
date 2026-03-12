@@ -29,7 +29,7 @@ Runtime flow contracts across CLI commands, local dashboard API, and ASO service
 4. Persist popularity-only local rows for keywords awaiting full enrich.
 5. Enrich required keywords (`/aso/enrich`) and persist enriched keywords + competitor app docs.
 6. Refresh order-only keywords and persist updated `orderedAppIds` + `appCount` without refetching popularity.
-7. In interactive CLI mode (without `--stdout`), associate returned keywords with the default research app (`research`) in `app_keywords`.
+7. In interactive CLI mode (without `--stdout`), associate requested keywords with the default research app (`research`) in `app_keywords` so failures remain visible for retry.
 
 ### Flow A1: CLI Keyword Fetch in `--stdout` Mode
 1. Run Flow A with interactive auth recovery disabled.
@@ -48,7 +48,8 @@ Runtime flow contracts across CLI commands, local dashboard API, and ASO service
 4. Create new app-keyword associations.
 5. Return `201` immediately with `{ cachedCount, pendingCount, failedCount }`.
 6. Persist any popularity-stage failures in `aso_keyword_failures`.
-7. Run background keyword work for misses:
+7. `GET /api/aso/keywords` (app-scoped) keeps app-associated failed keywords visible with `keywordStatus="failed"` even when no `aso_keywords` row exists yet (for example, popularity-stage failures).
+8. Run background keyword work for misses:
    - full enrichment for `pendingItems`
    - order-only refresh for `orderRefreshKeywords`
 

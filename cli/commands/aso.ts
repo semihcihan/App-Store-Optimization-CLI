@@ -28,6 +28,10 @@ function isAuthReauthRequiredError(error: unknown): boolean {
   );
 }
 
+function isAllKeywordsFailedError(error: unknown): boolean {
+  return error instanceof Error && error.message.startsWith("All keywords failed");
+}
+
 async function fetchKeywordsForStdout(
   country: string,
   keywords: string[]
@@ -56,7 +60,7 @@ async function fetchKeywordsForStdout(
 const asoCommand: CommandModule = {
   command: "$0 [subcommand] [terms]",
   describe:
-    "Open ASO dashboard (default), fetch ASO keyword metrics (`aso keywords`), reauthenticate (`aso auth`), or reset saved ASO auth state (`aso reset-credentials`). Accepted `aso keywords` results are saved to the default research app.",
+    "Open ASO dashboard (default), fetch ASO keyword metrics (`aso keywords`), reauthenticate (`aso auth`), or reset saved ASO auth state (`aso reset-credentials`). Interactive `aso keywords` runs save requested keywords to the default research app.",
   builder: (yargs) =>
     yargs
       .positional("subcommand", {
@@ -135,16 +139,27 @@ const asoCommand: CommandModule = {
 
     await resolveAsoAdamId({ adamId: primaryAppId, allowPrompt: !stdout });
 
-    const result = stdout
-      ? await fetchKeywordsForStdout(country, keywords)
-      : await fetchAndPersistKeywords(country, keywords);
+    let result: Awaited<ReturnType<typeof fetchAndPersistKeywords>>;
+    try {
+      result = stdout
+        ? await fetchKeywordsForStdout(country, keywords)
+        : await fetchAndPersistKeywords(country, keywords);
+    } catch (error) {
+      if (!stdout && isAllKeywordsFailedError(error)) {
+        const savedCount = saveKeywordsToDefaultResearchApp(keywords, country);
+        logger.info(
+          `Saved ${savedCount} requested keyword(s) to the default research app (${country}).`
+        );
+      }
+      throw error;
+    }
     if (!stdout) {
       const savedCount = saveKeywordsToDefaultResearchApp(
-        result.items.map((item) => item.keyword),
+        keywords,
         country
       );
       logger.info(
-        `Saved ${savedCount} accepted keyword(s) to the default research app (${country}).`
+        `Saved ${savedCount} requested keyword(s) to the default research app (${country}).`
       );
     }
     console.log(JSON.stringify(result, null, 2));

@@ -129,9 +129,33 @@ describe("aso command", () => {
       "US"
     );
     expect(mockLogger.info).toHaveBeenCalledWith(
-      "Saved 1 accepted keyword(s) to the default research app (US)."
+      "Saved 1 requested keyword(s) to the default research app (US)."
     );
     expect(startDashboard).not.toHaveBeenCalled();
+  });
+
+  it("saves requested keywords when command ends with all-keywords-failed error", async () => {
+    jest.mocked(parseKeywords).mockReturnValue(["failed-term"]);
+    jest
+      .mocked(fetchAndPersistKeywords)
+      .mockRejectedValue(new Error("All keywords failed (1): failed-term:FAILED(500)"));
+    jest.mocked(saveKeywordsToDefaultResearchApp).mockReturnValue(1);
+
+    await expect(
+      asoCommand.handler?.({
+        subcommand: "keywords",
+        country: "US",
+        terms: "failed-term",
+      } as any)
+    ).rejects.toThrow("All keywords failed");
+
+    expect(saveKeywordsToDefaultResearchApp).toHaveBeenCalledWith(
+      ["failed-term"],
+      "US"
+    );
+    expect(mockLogger.info).toHaveBeenCalledWith(
+      "Saved 1 requested keyword(s) to the default research app (US)."
+    );
   });
 
   it("saves provided primary app id and reuses it for this run", async () => {

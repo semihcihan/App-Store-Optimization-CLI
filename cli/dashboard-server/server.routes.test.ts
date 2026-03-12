@@ -42,6 +42,7 @@ jest.mock("../db/aso-keywords", () => ({
   listKeywords: jest.fn(() => []),
   getKeyword: jest.fn(() => null),
   getKeywordFailures: jest.fn(() => []),
+  upsertKeywords: jest.fn(),
 }));
 
 jest.mock("../db/aso-apps", () => ({
@@ -55,6 +56,7 @@ jest.mock("../db/aso-keyword-failures", () => ({
   listKeywordFailuresForApp: jest.fn(() => []),
   getKeywordFailures: jest.fn(() => []),
   deleteKeywordFailures: jest.fn(() => 0),
+  upsertKeywordFailures: jest.fn(),
 }));
 
 jest.mock("../services/keywords/aso-keyword-service", () => ({
@@ -458,6 +460,57 @@ describe("dashboard server routes", () => {
           },
         ],
         failure: expect.objectContaining({
+          reasonCode: "FAILED",
+        }),
+      }),
+    ]);
+  });
+
+  it("returns app-associated failed keywords even when keyword cache row is missing", async () => {
+    mockListKeywords.mockReturnValue([]);
+    mockListAllAppKeywords.mockReturnValue([
+      {
+        appId: "app-2",
+        keyword: "lost-term",
+        country: "US",
+        previousPosition: 3,
+      },
+    ] as any);
+    mockGetKeywordFailures.mockReturnValue([
+      {
+        normalizedKeyword: "lost-term",
+        stage: "popularity",
+        reasonCode: "FAILED",
+        message: "upstream failed",
+        statusCode: 500,
+        retryable: true,
+        attempts: 1,
+        requestId: "req-2",
+        updatedAt: "2026-03-12T00:00:00.000Z",
+      },
+    ] as any);
+
+    const response = await request({
+      method: "GET",
+      path: "/api/aso/keywords?country=US&appId=app-2",
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json?.data).toEqual([
+      expect.objectContaining({
+        keyword: "lost-term",
+        popularity: null,
+        difficultyScore: null,
+        keywordStatus: "failed",
+        positions: [
+          {
+            appId: "app-2",
+            previousPosition: 3,
+            currentPosition: null,
+          },
+        ],
+        failure: expect.objectContaining({
+          stage: "popularity",
           reasonCode: "FAILED",
         }),
       }),

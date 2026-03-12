@@ -1027,6 +1027,9 @@ function handleApiAsoKeywordsGet(
   const appKeywords = listAllAppKeywords(country);
   const byApp = new Map<string, string[]>();
   const byKeyword = new Map<string, typeof appKeywords>();
+  const keywordByNormalized = new Map(
+    keywords.map((keyword) => [keyword.normalizedKeyword, keyword] as const)
+  );
   for (const ak of appKeywords) {
     const appKeywordsForApp = byApp.get(ak.appId);
     if (appKeywordsForApp) {
@@ -1043,50 +1046,81 @@ function handleApiAsoKeywordsGet(
     }
   }
   let filtered = keywords;
+  let missingAssociatedKeywords: string[] = [];
   if (appId != null && appId !== "") {
     const kws = byApp.get(appId) ?? [];
     const set = new Set(kws.map((k) => k.trim().toLowerCase()));
     filtered = keywords.filter((k) => set.has(k.normalizedKeyword));
+    missingAssociatedKeywords = Array.from(set).filter(
+      (normalizedKeyword) => !keywordByNormalized.has(normalizedKeyword)
+    );
   }
   const keywordFailures = getKeywordFailures(
     country,
-    filtered.map((item) => item.keyword)
+    [
+      ...filtered.map((item) => item.keyword),
+      ...missingAssociatedKeywords,
+    ]
   );
   const failureByKeyword = new Map(
     keywordFailures.map((failure) => [failure.normalizedKeyword, failure] as const)
   );
-  const withMeta = filtered.map((k) => {
-    const assocs = byKeyword.get(k.normalizedKeyword) ?? [];
-    const positions = assocs.map((a) => ({
-      appId: a.appId,
-      previousPosition: a.previousPosition,
-      currentPosition: (() => {
-        const idx = k.orderedAppIds.indexOf(a.appId);
-        return idx >= 0 ? idx + 1 : null;
-      })(),
-    }));
-    return {
-      ...k,
-      keywordStatus: failureByKeyword.has(k.normalizedKeyword)
-        ? "failed"
-        : k.difficultyScore == null
-          ? "pending"
-          : "ok",
-      failure: failureByKeyword.get(k.normalizedKeyword)
-        ? {
-            stage: failureByKeyword.get(k.normalizedKeyword)?.stage,
-            reasonCode: failureByKeyword.get(k.normalizedKeyword)?.reasonCode,
-            message: failureByKeyword.get(k.normalizedKeyword)?.message,
-            statusCode: failureByKeyword.get(k.normalizedKeyword)?.statusCode,
-            retryable: failureByKeyword.get(k.normalizedKeyword)?.retryable,
-            attempts: failureByKeyword.get(k.normalizedKeyword)?.attempts,
-            requestId: failureByKeyword.get(k.normalizedKeyword)?.requestId,
-            updatedAt: failureByKeyword.get(k.normalizedKeyword)?.updatedAt,
-          }
-        : null,
-      positions,
-    };
-  });
+  const failedPlaceholders = missingAssociatedKeywords
+    .map((normalizedKeyword) => {
+      const failure = failureByKeyword.get(normalizedKeyword);
+      if (!failure) return null;
+      return {
+        keyword: normalizedKeyword,
+        normalizedKeyword,
+        country,
+        popularity: null,
+        difficultyScore: null,
+        minDifficultyScore: null,
+        appCount: null,
+        keywordIncluded: 0,
+        orderedAppIds: [] as string[],
+        createdAt: failure.updatedAt,
+        updatedAt: failure.updatedAt,
+        orderExpiresAt: failure.updatedAt,
+        popularityExpiresAt: failure.updatedAt,
+      };
+    })
+    .filter((item): item is NonNullable<typeof item> => item != null);
+  const withMeta = [...filtered, ...failedPlaceholders]
+    .sort((a, b) => a.keyword.localeCompare(b.keyword, undefined, { sensitivity: "base" }))
+    .map((k) => {
+      const failure = failureByKeyword.get(k.normalizedKeyword) ?? null;
+      const assocs = byKeyword.get(k.normalizedKeyword) ?? [];
+      const positions = assocs.map((a) => ({
+        appId: a.appId,
+        previousPosition: a.previousPosition,
+        currentPosition: (() => {
+          const idx = k.orderedAppIds.indexOf(a.appId);
+          return idx >= 0 ? idx + 1 : null;
+        })(),
+      }));
+      return {
+        ...k,
+        keywordStatus: failure
+          ? "failed"
+          : k.difficultyScore == null
+            ? "pending"
+            : "ok",
+        failure: failure
+          ? {
+              stage: failure.stage,
+              reasonCode: failure.reasonCode,
+              message: failure.message,
+              statusCode: failure.statusCode,
+              retryable: failure.retryable,
+              attempts: failure.attempts,
+              requestId: failure.requestId,
+              updatedAt: failure.updatedAt,
+            }
+          : null,
+        positions,
+      };
+    });
   logger.debug("[aso-dashboard] response", {
     method: "GET",
     path: "/api/aso/keywords",
