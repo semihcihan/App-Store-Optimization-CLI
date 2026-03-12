@@ -1,6 +1,7 @@
 import { computeAppExpiryIsoForApp } from "./aso-keyword-utils";
 import type { AsoCacheRepository, AsoAppDoc } from "./aso-types";
 import { asoAppleGet } from "./aso-apple-client";
+import { logger } from "../../../utils/logger";
 
 type AppStoreProductVersionHistoryItem = {
   releaseDate?: string;
@@ -86,10 +87,26 @@ function parseAppDocFromPayload(
     Array.isArray(versionHistory) && versionHistory.length > 0
       ? versionHistory[0]?.releaseDate ?? null
       : null;
+  const releaseDate =
+    typeof product.releaseDate === "string" ? product.releaseDate : null;
   const subtitle =
     typeof product.subtitle === "string" && product.subtitle.trim() !== ""
       ? product.subtitle
       : undefined;
+
+  if (!releaseDate || !currentVersionReleaseDate) {
+    logger.debug("[aso-app-lookup] missing app date fields", {
+      appId,
+      country,
+      hasReleaseDate: Boolean(releaseDate),
+      hasCurrentVersionReleaseDate: Boolean(currentVersionReleaseDate),
+      versionHistoryCount: Array.isArray(versionHistory) ? versionHistory.length : 0,
+      productHasReleaseDateField: Object.prototype.hasOwnProperty.call(
+        product,
+        "releaseDate"
+      ),
+    });
+  }
 
   return {
     appId,
@@ -98,7 +115,7 @@ function parseAppDocFromPayload(
     subtitle,
     averageUserRating: readNumber(userRating?.value),
     userRatingCount: readNumber(userRating?.ratingCount),
-    releaseDate: typeof product.releaseDate === "string" ? product.releaseDate : null,
+    releaseDate,
     currentVersionReleaseDate,
     iconArtwork:
       typeof artwork?.url === "string"
@@ -110,23 +127,40 @@ function parseAppDocFromPayload(
 }
 
 async function fetchAppDocById(country: string, appId: string): Promise<AsoAppDoc | null> {
-  const response = await asoAppleGet(
-    "https://apps.apple.com/app/id" + encodeURIComponent(appId),
-    {
-      operation: "appstore.app-lookup",
-      headers: {
-        "X-Apple-Store-Front": getStoreFrontHeader(country),
-        Host: "apps.apple.com",
-        "User-Agent":
-          "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.1.1 Safari/605.1.15",
-        Accept: "application/json,text/plain,*/*",
-      },
-      timeout: 30000,
-    }
-  );
+  let response;
+  try {
+    response = await asoAppleGet(
+      "https://apps.apple.com/app/id" + encodeURIComponent(appId),
+      {
+        operation: "appstore.app-lookup",
+        headers: {
+          "X-Apple-Store-Front": getStoreFrontHeader(country),
+          Host: "apps.apple.com",
+          "User-Agent":
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.1.1 Safari/605.1.15",
+          Accept: "application/json,text/plain,*/*",
+        },
+        timeout: 30000,
+      }
+    );
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    logger.debug("[aso-app-lookup] request failed after retries", {
+      appId,
+      country: country.toUpperCase(),
+      message,
+    });
+    throw error;
+  }
 
   const payload = parseAppStorePayload(response.data);
-  if (!payload) return null;
+  if (!payload) {
+    logger.debug("[aso-app-lookup] unparseable payload", {
+      appId,
+      country: country.toUpperCase(),
+    });
+    return null;
+  }
   return parseAppDocFromPayload(payload, appId, country.toUpperCase());
 }
 
@@ -188,7 +222,10 @@ export async function getAsoAppDocs(params: {
     });
     const fetched = normalizeCountryOnAppDocs(country, fetchedRaw).map((doc) => ({
       ...doc,
-      expiresAt: doc.expiresAt ?? computeAppExpiryIsoForApp(),
+      expiresAt:
+        doc.releaseDate && doc.currentVersionReleaseDate
+          ? doc.expiresAt ?? computeAppExpiryIsoForApp()
+          : undefined,
     }));
     for (const doc of fetched) {
       resultById.set(doc.appId, doc);

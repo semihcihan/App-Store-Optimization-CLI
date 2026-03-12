@@ -378,9 +378,21 @@ async function lookupDetailsForAppIds(params: {
         currentVersionReleaseDate: doc.currentVersionReleaseDate ?? null,
         userRatingCount: parseRatingCount(doc.userRatingCount),
       });
+      if (!doc.releaseDate || !doc.currentVersionReleaseDate) {
+        logger.debug("[aso-enrichment] lookup returned app with missing dates", {
+          appId: doc.appId,
+          country: params.country.toUpperCase(),
+          hasReleaseDate: Boolean(doc.releaseDate),
+          hasCurrentVersionReleaseDate: Boolean(doc.currentVersionReleaseDate),
+        });
+      }
     }
-  } catch {
-    // leave missing
+  } catch (error) {
+    logger.debug("[aso-enrichment] lookup details fetch failed", {
+      appIds: params.appIds,
+      country: params.country.toUpperCase(),
+      message: error instanceof Error ? error.message : String(error),
+    });
   }
   return map;
 }
@@ -503,9 +515,9 @@ export async function enrichKeyword(
   }
 
   const appCount = orderedAppIds.length;
+  const firstFiveIds = orderedAppIds.slice(0, DIFFICULTY_DETAIL_LIMIT);
 
   if (usedSearchPage && appDocs.length > 0) {
-    const firstFiveIds = orderedAppIds.slice(0, DIFFICULTY_DETAIL_LIMIT);
     const cachedDocs = options?.getAppDocs
       ? normalizeCountryOnAppDocs(country, await options.getAppDocs(firstFiveIds))
       : [];
@@ -515,7 +527,12 @@ export async function enrichKeyword(
     const now = Date.now();
     const idsThatNeedLookup = firstFiveIds.filter((id) => {
       const c = cachedByAppId.get(id);
-      return !c || Date.parse(c.expiresAt ?? "0") <= now;
+      return (
+        !c ||
+        Date.parse(c.expiresAt ?? "0") <= now ||
+        !c.releaseDate ||
+        !c.currentVersionReleaseDate
+      );
     });
     const lookupDetailsByAppId =
       idsThatNeedLookup.length > 0
@@ -536,7 +553,11 @@ export async function enrichKeyword(
         const searchDoc = appDocs.find((d) => d.appId === id);
         if (!searchDoc) return null;
         const cached = cachedByAppId.get(id);
-        const needLookup = !cached || Date.parse(cached.expiresAt ?? "0") <= now;
+        const needLookup =
+          !cached ||
+          Date.parse(cached.expiresAt ?? "0") <= now ||
+          !cached.releaseDate ||
+          !cached.currentVersionReleaseDate;
         if (cached && !needLookup) {
           const merged = mergeSearchFieldsIntoAppDoc(cached, searchDoc);
           return { ...merged, expiresAt: cached.expiresAt };
@@ -548,6 +569,19 @@ export async function enrichKeyword(
           merged.currentVersionReleaseDate =
             details.currentVersionReleaseDate ?? undefined;
           merged.userRatingCount = parseRatingCount(details.userRatingCount);
+          if (!details.releaseDate || !details.currentVersionReleaseDate) {
+            logger.debug("[aso-enrichment] merged lookup details missing dates", {
+              appId: id,
+              country,
+              hasReleaseDate: Boolean(details.releaseDate),
+              hasCurrentVersionReleaseDate: Boolean(details.currentVersionReleaseDate),
+            });
+          }
+        } else {
+          logger.debug("[aso-enrichment] no lookup details for app", {
+            appId: id,
+            country,
+          });
         }
         merged.expiresAt = computeAppExpiryIsoForApp();
         return merged;
@@ -559,11 +593,12 @@ export async function enrichKeyword(
   }
 
   for (const doc of appDocs) {
-    if (!doc.expiresAt) doc.expiresAt = computeAppExpiryIsoForApp();
+    if (!doc.expiresAt && firstFiveIds.includes(doc.appId)) {
+      doc.expiresAt = computeAppExpiryIsoForApp();
+    }
   }
   appDocs = normalizeCountryOnAppDocs(country, appDocs);
 
-  const firstFiveIds = orderedAppIds.slice(0, DIFFICULTY_DETAIL_LIMIT);
   const docsForDifficulty = firstFiveIds
     .map((id) => appDocs.find((d) => d.appId === id))
     .filter((d): d is AsoAppDoc => d != null);
@@ -576,6 +611,13 @@ export async function enrichKeyword(
     docsForDifficulty.length !== DIFFICULTY_DETAIL_LIMIT ||
     appCount < DIFFICULTY_DETAIL_LIMIT
   ) {
+    logger.debug("[aso-enrichment] returning fallback difficulty due to insufficient docs", {
+      keyword: params.keyword,
+      country,
+      appCount,
+      docsForDifficultyCount: docsForDifficulty.length,
+      requiredDocsCount: DIFFICULTY_DETAIL_LIMIT,
+    });
     return {
       keyword: params.keyword,
       normalizedKeyword,

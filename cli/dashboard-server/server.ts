@@ -1087,6 +1087,10 @@ function mergeHydratedCompetitorDoc(
   existing: AsoApiAppDoc | undefined,
   incoming: AsoApiAppDoc
 ): AsoApiAppDoc {
+  const releaseDate = incoming.releaseDate ?? existing?.releaseDate ?? null;
+  const currentVersionReleaseDate =
+    incoming.currentVersionReleaseDate ?? existing?.currentVersionReleaseDate ?? null;
+  const hasCompleteDates = Boolean(releaseDate && currentVersionReleaseDate);
   return {
     appId: incoming.appId,
     country: incoming.country || existing?.country || "US",
@@ -1097,12 +1101,11 @@ function mergeHydratedCompetitorDoc(
         : existing?.subtitle,
     averageUserRating: incoming.averageUserRating,
     userRatingCount: incoming.userRatingCount,
-    releaseDate: incoming.releaseDate ?? existing?.releaseDate ?? null,
-    currentVersionReleaseDate:
-      incoming.currentVersionReleaseDate ?? existing?.currentVersionReleaseDate ?? null,
+    releaseDate,
+    currentVersionReleaseDate,
     icon: incoming.icon ?? existing?.icon,
     iconArtwork: incoming.iconArtwork ?? existing?.iconArtwork,
-    expiresAt: incoming.expiresAt ?? existing?.expiresAt,
+    expiresAt: hasCompleteDates ? incoming.expiresAt ?? existing?.expiresAt : undefined,
   };
 }
 

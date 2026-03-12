@@ -2,6 +2,7 @@ import { LocalAsoCacheRepository } from "./aso-cache-local";
 import {
   closeDbForTests,
   getKeyword,
+  getCompetitorAppDocs,
   upsertKeywords,
   upsertCompetitorAppDocs,
 } from "../../../db";
@@ -201,6 +202,35 @@ describe("aso-cache-local", () => {
         name: "Fresh App",
       }),
     ]);
+  });
+
+  it("does not auto-set expiresAt for app docs without explicit expiry", async () => {
+    const repository = new LocalAsoCacheRepository();
+
+    await repository.upsertMany({
+      country: "US",
+      items: [],
+      appDocs: [
+        {
+          appId: "partial",
+          country: "US",
+          name: "Partial App",
+          averageUserRating: 4.1,
+          userRatingCount: 22,
+          releaseDate: null,
+          currentVersionReleaseDate: null,
+        },
+      ],
+    });
+
+    const stored = getCompetitorAppDocs("US", ["partial"]);
+    expect(stored[0]?.expiresAt).toBeUndefined();
+
+    const docs = await repository.getAppDocs({
+      country: "US",
+      appIds: ["partial"],
+    });
+    expect(docs).toEqual([]);
   });
 
   it("writes keyword rows to sqlite via upsertMany", async () => {

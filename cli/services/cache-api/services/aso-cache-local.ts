@@ -1,7 +1,6 @@
 import {
   computeOrderExpiryIso,
   computePopularityExpiryIso,
-  computeAppExpiryIsoForApp,
   normalizeKeyword,
   sanitizeKeywords,
 } from "./aso-keyword-utils";
@@ -130,7 +129,7 @@ export class LocalAsoCacheRepository implements AsoCacheRepository {
           iconArtwork: app.iconArtwork as
             | { url?: string; [key: string]: unknown }
             | undefined,
-          expiresAt: app.expiresAt ?? computeAppExpiryIsoForApp(),
+          expiresAt: app.expiresAt,
         }))
       );
     }

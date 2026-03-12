@@ -9,16 +9,26 @@ export function chunkArray<T>(items: T[], size: number): T[][] {
 }
 
 export function isFreshAsoAppDoc(
-  doc: { expiresAt?: string },
+  doc: {
+    expiresAt?: string;
+    releaseDate?: string | null;
+    currentVersionReleaseDate?: string | null;
+  },
   nowMs: number = Date.now()
 ): boolean {
   const ts = Date.parse(doc.expiresAt ?? "0");
-  return Number.isFinite(ts) && ts > nowMs;
+  if (!Number.isFinite(ts) || ts <= nowMs) return false;
+  return Boolean(doc.releaseDate && doc.currentVersionReleaseDate);
 }
 
 export function getMissingOrExpiredAppIds(
   orderedIds: string[],
-  docs: Array<{ appId: string; expiresAt?: string }>,
+  docs: Array<{
+    appId: string;
+    expiresAt?: string;
+    releaseDate?: string | null;
+    currentVersionReleaseDate?: string | null;
+  }>,
   nowMs: number = Date.now()
 ): string[] {
   if (orderedIds.length === 0) return [];

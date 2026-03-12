@@ -533,6 +533,66 @@ describe("dashboard server routes", () => {
     expect(mockUpsertCompetitorAppDocs).toHaveBeenCalled();
   });
 
+  it("rehydrates top apps when cached docs are fresh but missing dates", async () => {
+    mockGetKeyword.mockReturnValue({
+      keyword: "term",
+      orderedAppIds: ["a1"],
+    } as any);
+    mockGetCompetitorAppDocs
+      .mockReturnValueOnce([
+        {
+          appId: "a1",
+          name: "Cached A1",
+          averageUserRating: 4.2,
+          userRatingCount: 200,
+          releaseDate: null,
+          currentVersionReleaseDate: null,
+          expiresAt: "2099-01-01T00:00:00.000Z",
+        },
+      ] as any)
+      .mockReturnValue([
+        {
+          appId: "a1",
+          name: "Hydrated A1",
+          averageUserRating: 4.6,
+          userRatingCount: 320,
+          releaseDate: "2024-01-01",
+          currentVersionReleaseDate: "2026-01-01",
+          expiresAt: "2099-12-31T00:00:00.000Z",
+        },
+      ] as any);
+    mockGetAsoAppDocsLocal.mockResolvedValue([
+      {
+        appId: "a1",
+        country: "US",
+        name: "Hydrated A1",
+        averageUserRating: 4.6,
+        userRatingCount: 320,
+        releaseDate: "2024-01-01",
+        currentVersionReleaseDate: "2026-01-01",
+        expiresAt: "2099-12-31T00:00:00.000Z",
+      },
+    ] as any);
+
+    const response = await request({
+      method: "GET",
+      path: "/api/aso/top-apps?country=US&keyword=term&limit=1",
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(mockGetAsoAppDocsLocal).toHaveBeenCalledWith("US", ["a1"]);
+    expect(mockUpsertCompetitorAppDocs).toHaveBeenCalledWith(
+      "US",
+      expect.arrayContaining([
+        expect.objectContaining({
+          appId: "a1",
+          releaseDate: "2024-01-01",
+          currentVersionReleaseDate: "2026-01-01",
+        }),
+      ])
+    );
+  });
+
   it("serves owned apps endpoint and delete keyword endpoint", async () => {
     const emptyApps = await request({
       method: "GET",

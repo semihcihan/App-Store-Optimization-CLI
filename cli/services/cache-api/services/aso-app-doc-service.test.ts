@@ -144,6 +144,58 @@ describe("aso-app-doc-service", () => {
     ]);
   });
 
+  it("does not set expiresAt when fetched app doc is missing date fields", async () => {
+    const repository = createRepository({
+      getAppDocs: (jest.fn(async () => []) as unknown) as AsoCacheRepository["getAppDocs"],
+    });
+    mockedAxios.get.mockResolvedValue({
+      data: {
+        storePlatformData: {
+          "product-dv": {
+            results: {
+              "3": {
+                id: "3",
+                name: "Fetched Missing Dates",
+                subtitle: "No dates payload",
+                userRating: { value: 4.1, ratingCount: 20 },
+              },
+            },
+          },
+        },
+        pageData: {
+          versionHistory: [],
+        },
+      },
+    } as never);
+
+    const result = await getAsoAppDocs({
+      country: "US",
+      appIds: ["3"],
+      repository,
+    });
+
+    expect(repository.upsertMany).toHaveBeenCalledWith({
+      country: "US",
+      items: [],
+      appDocs: [
+        expect.objectContaining({
+          appId: "3",
+          expiresAt: undefined,
+          releaseDate: null,
+          currentVersionReleaseDate: null,
+        }),
+      ],
+    });
+    expect(result).toEqual([
+      expect.objectContaining({
+        appId: "3",
+        expiresAt: undefined,
+        releaseDate: null,
+        currentVersionReleaseDate: null,
+      }),
+    ]);
+  });
+
   it("returns empty when repository does not support app docs", async () => {
     const repository = createRepository();
 

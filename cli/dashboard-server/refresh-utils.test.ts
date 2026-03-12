@@ -17,13 +17,36 @@ describe("refresh-utils", () => {
     expect(chunkArray([1, 2], 0)).toEqual([[1], [2]]);
   });
 
-  it("detects fresh and stale app docs by expiresAt", () => {
+  it("detects fresh and stale app docs by expiresAt and date completeness", () => {
     const now = Date.parse("2026-03-07T00:00:00.000Z");
     expect(
-      isFreshAsoAppDoc({ expiresAt: "2026-03-08T00:00:00.000Z" }, now)
+      isFreshAsoAppDoc(
+        {
+          expiresAt: "2026-03-08T00:00:00.000Z",
+          releaseDate: "2024-01-01",
+          currentVersionReleaseDate: "2026-01-01",
+        },
+        now
+      )
     ).toBe(true);
     expect(
-      isFreshAsoAppDoc({ expiresAt: "2026-03-06T00:00:00.000Z" }, now)
+      isFreshAsoAppDoc(
+        {
+          expiresAt: "2026-03-06T00:00:00.000Z",
+          releaseDate: "2024-01-01",
+          currentVersionReleaseDate: "2026-01-01",
+        },
+        now
+      )
+    ).toBe(false);
+    expect(
+      isFreshAsoAppDoc(
+        {
+          expiresAt: "2026-03-08T00:00:00.000Z",
+          releaseDate: "2024-01-01",
+        },
+        now
+      )
     ).toBe(false);
     expect(isFreshAsoAppDoc({}, now)).toBe(false);
   });
@@ -33,8 +56,24 @@ describe("refresh-utils", () => {
     const missing = getMissingOrExpiredAppIds(
       ["a", "b", "c", "d"],
       [
-        { appId: "a", expiresAt: "2026-03-08T00:00:00.000Z" },
-        { appId: "b", expiresAt: "2026-03-06T00:00:00.000Z" },
+        {
+          appId: "a",
+          expiresAt: "2026-03-08T00:00:00.000Z",
+          releaseDate: "2024-01-01",
+          currentVersionReleaseDate: "2026-01-01",
+        },
+        {
+          appId: "b",
+          expiresAt: "2026-03-06T00:00:00.000Z",
+          releaseDate: "2024-01-01",
+          currentVersionReleaseDate: "2026-01-01",
+        },
+        {
+          appId: "c",
+          expiresAt: "2026-03-08T00:00:00.000Z",
+          releaseDate: "2024-01-01",
+          currentVersionReleaseDate: null,
+        },
       ],
       now
     );

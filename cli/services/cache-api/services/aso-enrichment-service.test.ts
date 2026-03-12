@@ -23,6 +23,19 @@ const mockedAsoAppleGet = jest.mocked(asoAppleGet);
 const mockedFetchAppStoreLookupAppDocs = jest.mocked(fetchAppStoreLookupAppDocs);
 
 function buildSearchHtml(): string {
+  return buildSearchHtmlForIds(["1", "2", "3", "4", "5"]);
+}
+
+function buildSearchHtmlForIds(ids: string[]): string {
+  const items = ids.map((id, index) => ({
+    lockup: {
+      adamId: id,
+      title: `App ${id}`,
+      subtitle: `Sub ${id}`,
+      rating: Math.max(1, 4.9 - index * 0.1),
+      ratingCount: `${(index + 1) * 1000}`,
+    },
+  }));
   return `<html><body><script id="serialized-server-data">${JSON.stringify({
     data: [
       {
@@ -30,53 +43,7 @@ function buildSearchHtml(): string {
           shelves: [
             {
               contentType: "searchResult",
-              items: [
-                {
-                  lockup: {
-                    adamId: "1",
-                    title: "App 1",
-                    subtitle: "Sub 1",
-                    rating: 4.7,
-                    ratingCount: "130K",
-                  },
-                },
-                {
-                  lockup: {
-                    adamId: "2",
-                    title: "App 2",
-                    subtitle: "Sub 2",
-                    rating: 4.6,
-                    ratingCount: "12K",
-                  },
-                },
-                {
-                  lockup: {
-                    adamId: "3",
-                    title: "App 3",
-                    subtitle: "Sub 3",
-                    rating: 4.5,
-                    ratingCount: "3.5K",
-                  },
-                },
-                {
-                  lockup: {
-                    adamId: "4",
-                    title: "App 4",
-                    subtitle: "Sub 4",
-                    rating: 4.4,
-                    ratingCount: "890",
-                  },
-                },
-                {
-                  lockup: {
-                    adamId: "5",
-                    title: "App 5",
-                    subtitle: "Sub 5",
-                    rating: 4.3,
-                    ratingCount: "1.2K",
-                  },
-                },
-              ],
+              items,
             },
           ],
           nextPage: {
@@ -172,6 +139,170 @@ describe("aso-enrichment-service", () => {
         country: "US",
         userRatingCount: 12100,
       })
+    );
+  });
+
+  it("refetches lookup details when cached top app is missing dates", async () => {
+    mockedAsoAppleGet.mockResolvedValue({
+      data: buildSearchHtmlForIds(["1", "2", "3", "4", "5"]),
+    } as never);
+
+    mockedFetchAppStoreLookupAppDocs.mockResolvedValue([
+      {
+        appId: "1",
+        country: "US",
+        name: "Lookup 1",
+        averageUserRating: 4.8,
+        userRatingCount: 1111,
+        releaseDate: "2024-01-01T00:00:00.000Z",
+        currentVersionReleaseDate: "2025-01-01T00:00:00.000Z",
+      },
+    ]);
+
+    const result = await enrichKeyword(
+      {
+        keyword: "word game",
+        country: "US",
+        popularity: 66,
+      },
+      {
+        getAppDocs: async () => [
+          {
+            appId: "1",
+            country: "US",
+            name: "Cached 1",
+            averageUserRating: 4.7,
+            userRatingCount: 1000,
+            expiresAt: "2099-01-01T00:00:00.000Z",
+            releaseDate: null,
+            currentVersionReleaseDate: null,
+          },
+          {
+            appId: "2",
+            country: "US",
+            name: "Cached 2",
+            averageUserRating: 4.6,
+            userRatingCount: 2000,
+            expiresAt: "2099-01-01T00:00:00.000Z",
+            releaseDate: "2024-01-01T00:00:00.000Z",
+            currentVersionReleaseDate: "2025-01-01T00:00:00.000Z",
+          },
+          {
+            appId: "3",
+            country: "US",
+            name: "Cached 3",
+            averageUserRating: 4.5,
+            userRatingCount: 3000,
+            expiresAt: "2099-01-01T00:00:00.000Z",
+            releaseDate: "2024-01-01T00:00:00.000Z",
+            currentVersionReleaseDate: "2025-01-01T00:00:00.000Z",
+          },
+          {
+            appId: "4",
+            country: "US",
+            name: "Cached 4",
+            averageUserRating: 4.4,
+            userRatingCount: 4000,
+            expiresAt: "2099-01-01T00:00:00.000Z",
+            releaseDate: "2024-01-01T00:00:00.000Z",
+            currentVersionReleaseDate: "2025-01-01T00:00:00.000Z",
+          },
+          {
+            appId: "5",
+            country: "US",
+            name: "Cached 5",
+            averageUserRating: 4.3,
+            userRatingCount: 5000,
+            expiresAt: "2099-01-01T00:00:00.000Z",
+            releaseDate: "2024-01-01T00:00:00.000Z",
+            currentVersionReleaseDate: "2025-01-01T00:00:00.000Z",
+          },
+        ],
+      }
+    );
+
+    expect(mockedFetchAppStoreLookupAppDocs).toHaveBeenCalledWith(
+      expect.objectContaining({
+        country: "US",
+        appIds: ["1"],
+      })
+    );
+    expect(result.appDocs.find((doc) => doc.appId === "1")).toEqual(
+      expect.objectContaining({
+        appId: "1",
+        releaseDate: "2024-01-01T00:00:00.000Z",
+        currentVersionReleaseDate: "2025-01-01T00:00:00.000Z",
+      })
+    );
+  });
+
+  it("does not set expiresAt for non-top apps without app-specific lookup", async () => {
+    mockedAsoAppleGet.mockResolvedValue({
+      data: buildSearchHtmlForIds(["1", "2", "3", "4", "5", "6"]),
+    } as never);
+
+    mockedFetchAppStoreLookupAppDocs.mockResolvedValue([
+      {
+        appId: "1",
+        country: "US",
+        name: "Lookup 1",
+        averageUserRating: 4.8,
+        userRatingCount: 1111,
+        releaseDate: "2024-01-01T00:00:00.000Z",
+        currentVersionReleaseDate: "2025-01-01T00:00:00.000Z",
+      },
+      {
+        appId: "2",
+        country: "US",
+        name: "Lookup 2",
+        averageUserRating: 4.7,
+        userRatingCount: 2222,
+        releaseDate: "2024-01-01T00:00:00.000Z",
+        currentVersionReleaseDate: "2025-01-01T00:00:00.000Z",
+      },
+      {
+        appId: "3",
+        country: "US",
+        name: "Lookup 3",
+        averageUserRating: 4.6,
+        userRatingCount: 3333,
+        releaseDate: "2024-01-01T00:00:00.000Z",
+        currentVersionReleaseDate: "2025-01-01T00:00:00.000Z",
+      },
+      {
+        appId: "4",
+        country: "US",
+        name: "Lookup 4",
+        averageUserRating: 4.5,
+        userRatingCount: 4444,
+        releaseDate: "2024-01-01T00:00:00.000Z",
+        currentVersionReleaseDate: "2025-01-01T00:00:00.000Z",
+      },
+      {
+        appId: "5",
+        country: "US",
+        name: "Lookup 5",
+        averageUserRating: 4.4,
+        userRatingCount: 5555,
+        releaseDate: "2024-01-01T00:00:00.000Z",
+        currentVersionReleaseDate: "2025-01-01T00:00:00.000Z",
+      },
+    ]);
+
+    const result = await enrichKeyword(
+      {
+        keyword: "word game",
+        country: "US",
+        popularity: 66,
+      },
+      {
+        getAppDocs: async () => [],
+      }
+    );
+
+    expect(result.appDocs.find((doc) => doc.appId === "6")?.expiresAt).toBeUndefined();
+    expect(result.appDocs.find((doc) => doc.appId === "1")?.expiresAt).toBe(
+      "2099-01-01T00:00:00.000Z"
     );
   });
 });
