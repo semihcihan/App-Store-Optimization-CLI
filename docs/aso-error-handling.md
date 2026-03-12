@@ -46,6 +46,7 @@ Define failure boundaries, retry rules, and recovery behavior across CLI, dashbo
 
 ## Observability
 - Apple HTTP calls carry trace context.
+- Bugsnag Apple metadata includes the latest `10` redacted Apple HTTP calls plus up to `3` latest non-success calls when they have already rotated out of that `10`-call window.
 - Dashboard server reports failures with structured metadata (path, phase, counts).
 - Startup refresh state (`status`, counters, timestamps, lastError) is exposed via API.
 - CLI ASO retry/fallback diagnostics (auth, popularity, and enrichment fallback traces) are logged at `debug`; user-facing flows should surface terminal outcomes and actionable prompts/errors instead of intermediate warning noise.

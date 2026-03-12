@@ -25,17 +25,33 @@ type AppleHttpTrace = {
   };
 };
 
-const TRACE_LIMIT = 3;
-const traceByProvider = new Map<AppleTraceProvider, AppleHttpTrace[]>();
-const tracedClients = new WeakSet<AxiosInstance>();
+type AppleHttpTraceStoreEntry = AppleHttpTrace & {
+  traceId: number;
+  nonSuccess: boolean;
+};
+
+const RECENT_TRACE_LIMIT = 10;
+const RECENT_FAILED_TRACE_LIMIT = 3;
+const recentTraceStore: AppleHttpTraceStoreEntry[] = [];
+const recentFailedTraceStore: AppleHttpTraceStoreEntry[] = [];
+let nextTraceId = 1;
+let tracedClients = new WeakSet<AxiosInstance>();
 
 const SENSITIVE_KEY_INCLUDES = [
   "cookie",
   "authorization",
   "password",
+  "passcode",
+  "passwd",
   "securitycode",
   "accountname",
+  "token",
+  "secret",
+  "apikey",
+  "api-key",
+  "session",
   "x-apple-id-session-id",
+  "x-apple-session-token",
 ];
 
 const SENSITIVE_KEY_EXACT = new Set(["scnt", "m1", "m2", "c", "a"]);
@@ -89,20 +105,66 @@ function sanitize(value: unknown, parentKey = ""): unknown {
 function toRequestSnapshot(config?: AxiosRequestConfig): AppleHttpTrace["request"] {
   return {
     method: String(config?.method || "get").toUpperCase(),
-    url: String(config?.url || ""),
+    url: sanitizeUrl(String(config?.url || "")),
     params: sanitize(config?.params),
     headers: sanitize(config?.headers),
     body: sanitize(config?.data),
   };
 }
 
-function pushTrace(provider: AppleTraceProvider, trace: AppleHttpTrace): void {
-  const existing = traceByProvider.get(provider) || [];
-  existing.push(trace);
-  if (existing.length > TRACE_LIMIT) {
-    existing.splice(0, existing.length - TRACE_LIMIT);
+function sanitizeUrl(rawUrl: string): string {
+  if (!rawUrl) return rawUrl;
+  const isAbsolute = /^[a-zA-Z][a-zA-Z\d+\-.]*:/.test(rawUrl);
+  try {
+    const parsed = new URL(rawUrl, "https://apple.local");
+    for (const key of Array.from(parsed.searchParams.keys())) {
+      if (!isSensitiveKey(key)) continue;
+      const values = parsed.searchParams.getAll(key);
+      parsed.searchParams.delete(key);
+      for (const value of values) {
+        parsed.searchParams.append(key, redactString(value));
+      }
+    }
+    if (!isAbsolute) {
+      return `${parsed.pathname}${parsed.search}${parsed.hash}`;
+    }
+    return parsed.toString();
+  } catch {
+    return rawUrl;
   }
-  traceByProvider.set(provider, existing);
+}
+
+function toMetadataTrace(
+  entry: AppleHttpTraceStoreEntry
+): AppleHttpTrace {
+  const { traceId: _traceId, nonSuccess: _nonSuccess, ...trace } = entry;
+  return trace;
+}
+
+function pushBounded<T>(target: T[], entry: T, limit: number): void {
+  target.push(entry);
+  if (target.length > limit) {
+    target.splice(0, target.length - limit);
+  }
+}
+
+function isNonSuccessTrace(trace: AppleHttpTrace): boolean {
+  if (trace.error) return true;
+  const status = trace.response?.status;
+  return typeof status === "number" && (status < 200 || status >= 300);
+}
+
+function pushTrace(trace: AppleHttpTrace): void {
+  const entry: AppleHttpTraceStoreEntry = {
+    ...trace,
+    traceId: nextTraceId,
+    nonSuccess: isNonSuccessTrace(trace),
+  };
+  nextTraceId += 1;
+  pushBounded(recentTraceStore, entry, RECENT_TRACE_LIMIT);
+  if (entry.nonSuccess) {
+    pushBounded(recentFailedTraceStore, entry, RECENT_FAILED_TRACE_LIMIT);
+  }
 }
 
 export function attachAppleHttpTracing(
@@ -124,7 +186,7 @@ export function attachAppleHttpTracing(
   client.interceptors.response.use(
     (response) => {
       const startedAt = Number((response.config as any).__appleTraceStartedAt || 0);
-      pushTrace(provider, {
+      pushTrace({
         timestamp: new Date().toISOString(),
         provider,
         request: toRequestSnapshot(response.config),
@@ -140,7 +202,7 @@ export function attachAppleHttpTracing(
     (error) => {
       if (axios.isAxiosError(error)) {
         const startedAt = Number((error.config as any)?.__appleTraceStartedAt || 0);
-        pushTrace(provider, {
+        pushTrace({
           timestamp: new Date().toISOString(),
           provider,
           request: toRequestSnapshot(error.config),
@@ -156,7 +218,7 @@ export function attachAppleHttpTracing(
           },
         });
       } else {
-        pushTrace(provider, {
+        pushTrace({
           timestamp: new Date().toISOString(),
           provider,
           request: {
@@ -181,18 +243,27 @@ export function withAppleHttpTraceContext(
     context?: Record<string, unknown>;
   }
 ): Error {
-  const recentHttpTraces = (traceByProvider.get(params.provider) || []).map(
-    (entry) => ({
-      ...entry,
-    })
-  );
+  const recentHttpTraces = recentTraceStore.map(toMetadataTrace);
+  const recentTraceIds = new Set(recentTraceStore.map((entry) => entry.traceId));
+  const recentFailedHttpTraces = recentFailedTraceStore.map(toMetadataTrace);
+  const extraRecentFailedHttpTraces = recentFailedTraceStore
+    .filter((entry) => !recentTraceIds.has(entry.traceId))
+    .map(toMetadataTrace);
 
   return withBugsnagMetadata(error, {
     appleApi: {
       provider: params.provider,
       operation: params.operation,
       context: sanitize(params.context || {}),
-      recentHttpTraces,
+      recentHttpTraces: [...recentHttpTraces, ...extraRecentFailedHttpTraces],
+      recentFailedHttpTraces,
     },
   });
+}
+
+export function resetAppleHttpTracingForTests(): void {
+  recentTraceStore.length = 0;
+  recentFailedTraceStore.length = 0;
+  nextTraceId = 1;
+  tracedClients = new WeakSet<AxiosInstance>();
 }
