@@ -154,4 +154,141 @@ describe("dashboard keyword columns", () => {
     expect(screen.getByRole("columnheader", { name: "Change" })).toBeInTheDocument();
     expect(screen.getByRole("columnheader", { name: "Updated" })).toBeInTheDocument();
   });
+
+  it("uses global persisted sort when dashboard opens", async () => {
+    localStorage.setItem("aso-dashboard:selected-app-id", "123456789");
+    localStorage.setItem(
+      "aso-dashboard:keyword-sort",
+      JSON.stringify({ key: "popularity", dir: "asc" })
+    );
+
+    const fetchMock = buildFetchMock({
+      apps: [
+        { id: DEFAULT_RESEARCH_APP_ID, name: "Research" },
+        { id: "123456789", name: "Owned App" },
+      ],
+      keywordsByAppId: {
+        "123456789": [
+          {
+            keyword: "high-pop",
+            popularity: 80,
+            difficultyScore: 31,
+            appCount: 71,
+            updatedAt: "2026-03-10T10:00:00.000Z",
+            positions: [{ appId: "123456789", previousPosition: 8, currentPosition: 4 }],
+          },
+          {
+            keyword: "low-pop",
+            popularity: 10,
+            difficultyScore: 25,
+            appCount: 64,
+            updatedAt: "2026-03-10T11:00:00.000Z",
+            positions: [{ appId: "123456789", previousPosition: 10, currentPosition: 7 }],
+          },
+        ],
+      },
+    });
+    global.fetch = fetchMock as typeof fetch;
+
+    render(<App />);
+    await screen.findByText("high-pop");
+    await screen.findByText("low-pop");
+
+    const rows = Array.from(document.querySelectorAll("#keywords-tbody tr"));
+    expect(rows[0]).toHaveAttribute("data-keyword", "low-pop");
+    expect(screen.getByRole("columnheader", { name: "Popularity" })).toHaveAttribute(
+      "aria-sort",
+      "ascending"
+    );
+  });
+
+  it("falls back to updated desc when stored sort key is invalid", async () => {
+    localStorage.setItem("aso-dashboard:selected-app-id", "123456789");
+    localStorage.setItem(
+      "aso-dashboard:keyword-sort",
+      JSON.stringify({ key: "invalid", dir: "asc" })
+    );
+
+    const fetchMock = buildFetchMock({
+      apps: [
+        { id: DEFAULT_RESEARCH_APP_ID, name: "Research" },
+        { id: "123456789", name: "Owned App" },
+      ],
+      keywordsByAppId: {
+        "123456789": [
+          {
+            keyword: "older",
+            popularity: 20,
+            difficultyScore: 33,
+            appCount: 72,
+            updatedAt: "2026-03-10T09:00:00.000Z",
+            positions: [{ appId: "123456789", previousPosition: 9, currentPosition: 6 }],
+          },
+          {
+            keyword: "newer",
+            popularity: 30,
+            difficultyScore: 27,
+            appCount: 67,
+            updatedAt: "2026-03-10T12:00:00.000Z",
+            positions: [{ appId: "123456789", previousPosition: 11, currentPosition: 8 }],
+          },
+        ],
+      },
+    });
+    global.fetch = fetchMock as typeof fetch;
+
+    render(<App />);
+    await screen.findByText("older");
+    await screen.findByText("newer");
+
+    const rows = Array.from(document.querySelectorAll("#keywords-tbody tr"));
+    expect(rows[0]).toHaveAttribute("data-keyword", "newer");
+    expect(screen.getByRole("columnheader", { name: "Updated" })).toHaveAttribute(
+      "aria-sort",
+      "descending"
+    );
+  });
+
+  it("falls back to updated desc when stored sort column is unavailable", async () => {
+    localStorage.setItem(
+      "aso-dashboard:keyword-sort",
+      JSON.stringify({ key: "rank", dir: "asc" })
+    );
+
+    const fetchMock = buildFetchMock({
+      apps: [{ id: DEFAULT_RESEARCH_APP_ID, name: "Research" }],
+      keywordsByAppId: {
+        [DEFAULT_RESEARCH_APP_ID]: [
+          {
+            keyword: "older",
+            popularity: 40,
+            difficultyScore: 22,
+            appCount: 101,
+            updatedAt: "2026-03-10T08:00:00.000Z",
+            positions: [],
+          },
+          {
+            keyword: "newer",
+            popularity: 45,
+            difficultyScore: 27,
+            appCount: 120,
+            updatedAt: "2026-03-10T15:00:00.000Z",
+            positions: [],
+          },
+        ],
+      },
+    });
+    global.fetch = fetchMock as typeof fetch;
+
+    render(<App />);
+    await screen.findByText("older");
+    await screen.findByText("newer");
+
+    const rows = Array.from(document.querySelectorAll("#keywords-tbody tr"));
+    expect(rows[0]).toHaveAttribute("data-keyword", "newer");
+    expect(screen.getByRole("columnheader", { name: "Updated" })).toHaveAttribute(
+      "aria-sort",
+      "descending"
+    );
+  });
 });

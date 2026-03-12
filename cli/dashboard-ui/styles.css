@@ -611,21 +611,17 @@ th.sortable {
 
 th.sortable.active {
   color: color-mix(in oklab, var(--foreground) 88%, var(--primary));
+  background: color-mix(in oklab, var(--primary) 20%, var(--card));
+  box-shadow: inset 0 -2px 0 color-mix(in oklab, var(--primary) 72%, transparent);
 }
 
 .sort-label {
   display: inline-flex;
   align-items: center;
-  gap: 0.35rem;
 }
 
-.sort-indicator {
-  width: 1ch;
-  opacity: 0;
-}
-
-.sort-indicator.visible {
-  opacity: 1;
+.sort-label.active {
+  font-weight: 700;
 }
 
 .column-filter-header {
@@ -644,6 +640,8 @@ th.sortable.active {
 
 .keyword-filter-th.active {
   color: color-mix(in oklab, var(--foreground) 88%, var(--primary));
+  background: color-mix(in oklab, var(--primary) 20%, var(--card));
+  box-shadow: inset 0 -2px 0 color-mix(in oklab, var(--primary) 72%, transparent);
 }
 
 .keyword-header .column-sort-button {

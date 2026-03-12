@@ -96,6 +96,20 @@ const DEFAULT_SORT_DIRECTION_BY_KEY: Record<SortKey, SortDir> = {
   change: "asc",
   updatedAt: "desc",
 };
+const SORT_STORAGE_KEY = "aso-dashboard:keyword-sort";
+const DEFAULT_SORT_STATE: { key: SortKey; dir: SortDir } = {
+  key: "updatedAt",
+  dir: "desc",
+};
+const SORT_LABEL_BY_KEY: Record<SortKey, string> = {
+  keyword: "Keyword",
+  popularity: "Popularity",
+  difficulty: "Difficulty",
+  appCount: "App Count",
+  rank: "Rank",
+  change: "Change",
+  updatedAt: "Updated",
+};
 
 const POPULARITY_OPTIONS = [0, 5, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100];
 const DIFFICULTY_OPTIONS = [0, 5, 10, 20, 30, 40, 50, 70, 100];
@@ -110,6 +124,38 @@ const SELECTED_APP_STORAGE_KEY = "aso-dashboard:selected-app-id";
 const MOBILE_BREAKPOINT = "(max-width: 980px)";
 const STATUS_MESSAGE_TIMEOUT_MS = 4000;
 const STARTUP_REFRESH_STATUS_POLL_INTERVAL_SECONDS = 10;
+
+function isSortKey(value: unknown): value is SortKey {
+  return (
+    value === "keyword" ||
+    value === "popularity" ||
+    value === "difficulty" ||
+    value === "appCount" ||
+    value === "rank" ||
+    value === "change" ||
+    value === "updatedAt"
+  );
+}
+
+function isSortDir(value: unknown): value is SortDir {
+  return value === "asc" || value === "desc";
+}
+
+function getStoredSortState(): { key: SortKey; dir: SortDir } {
+  if (typeof window === "undefined") return DEFAULT_SORT_STATE;
+  try {
+    const raw = localStorage.getItem(SORT_STORAGE_KEY);
+    if (!raw) return DEFAULT_SORT_STATE;
+    const parsed: unknown = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") return DEFAULT_SORT_STATE;
+    const maybeKey = (parsed as { key?: unknown }).key;
+    const maybeDir = (parsed as { dir?: unknown }).dir;
+    if (!isSortKey(maybeKey) || !isSortDir(maybeDir)) return DEFAULT_SORT_STATE;
+    return { key: maybeKey, dir: maybeDir };
+  } catch {
+    return DEFAULT_SORT_STATE;
+  }
+}
 
 type DashboardAuthStatus = "idle" | "in_progress" | "failed" | "succeeded";
 
@@ -221,8 +267,8 @@ export function App() {
   const [minPopularity, setMinPopularity] = useState(DEFAULT_MIN_POPULARITY);
   const [minRank, setMinRank] = useState(DEFAULT_MIN_RANK);
   const [maxRank, setMaxRank] = useState(DEFAULT_MAX_RANK);
-  const [sortBy, setSortBy] = useState<SortKey>("rank");
-  const [sortDir, setSortDir] = useState<SortDir>("asc");
+  const [sortBy, setSortBy] = useState<SortKey>(() => getStoredSortState().key);
+  const [sortDir, setSortDir] = useState<SortDir>(() => getStoredSortState().dir);
   const [openFilterMenu, setOpenFilterMenu] = useState<FilterMenuKey | null>(null);
   const [keywordActionMenu, setKeywordActionMenu] = useState<KeywordActionMenuState | null>(null);
 
@@ -400,6 +446,15 @@ export function App() {
       // no-op
     }
   }, [selectedAppId]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      localStorage.setItem(SORT_STORAGE_KEY, JSON.stringify({ key: sortBy, dir: sortDir }));
+    } catch {
+      // no-op
+    }
+  }, [sortBy, sortDir]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -630,8 +685,8 @@ export function App() {
   useEffect(() => {
     if (showRankingColumns) return;
     if (sortBy !== "rank" && sortBy !== "change") return;
-    setSortBy("keyword");
-    setSortDir(DEFAULT_SORT_DIRECTION_BY_KEY.keyword);
+    setSortBy(DEFAULT_SORT_STATE.key);
+    setSortDir(DEFAULT_SORT_STATE.dir);
   }, [showRankingColumns, sortBy]);
 
   const onSelectRow = (rowKeyword: string, rowIndex: number, event: React.MouseEvent<HTMLTableRowElement>) => {
@@ -1051,10 +1106,11 @@ export function App() {
     setSortDir(DEFAULT_SORT_DIRECTION_BY_KEY[key]);
   };
 
-  const renderSortLabel = (label: string) => {
+  const renderSortLabel = (key: SortKey) => {
+    const isActive = sortBy === key;
     return (
-      <span className="sort-label">
-        <span>{label}</span>
+      <span className={`sort-label ${isActive ? "active" : ""}`}>
+        <span>{SORT_LABEL_BY_KEY[key]}</span>
       </span>
     );
   };
@@ -1259,7 +1315,6 @@ export function App() {
     maxDifficulty !== DEFAULT_MAX_DIFFICULTY ||
     minPopularity !== DEFAULT_MIN_POPULARITY ||
     hasRankFiltersApplied;
-
   return (
     <div id="app-shell" className={`app-shell ${sidebarCollapsed ? "sidebar-collapsed" : ""}`}>
       <aside className="sidebar ui-card" aria-label="Apps">
@@ -1598,6 +1653,7 @@ export function App() {
                   <th
                     className={`col-keyword keyword-filter-th ${sortBy === "keyword" ? "active" : ""}`}
                     data-sort-key="keyword"
+                    aria-sort={sortBy === "keyword" ? (sortDir === "asc" ? "ascending" : "descending") : "none"}
                   >
                     <div className="keyword-header">
                       <button
@@ -1608,7 +1664,7 @@ export function App() {
                           onSortHeader("keyword");
                         }}
                       >
-                        {renderSortLabel("Keyword")}
+                        {renderSortLabel("keyword")}
                       </button>
                       <Input
                         id="keyword-filter"
@@ -1623,6 +1679,7 @@ export function App() {
                   <th
                     className={`num col-middle sortable ${sortBy === "popularity" ? "active" : ""}`}
                     data-sort-key="popularity"
+                    aria-sort={sortBy === "popularity" ? (sortDir === "asc" ? "ascending" : "descending") : "none"}
                   >
                     <div className="column-filter-header">
                       <button
@@ -1633,7 +1690,7 @@ export function App() {
                           onSortHeader("popularity");
                         }}
                       >
-                        {renderSortLabel("Popularity")}
+                        {renderSortLabel("popularity")}
                       </button>
                       {renderFilterDropdown("popularity", "Popularity")}
                     </div>
@@ -1641,6 +1698,7 @@ export function App() {
                   <th
                     className={`num col-middle sortable ${sortBy === "difficulty" ? "active" : ""}`}
                     data-sort-key="difficulty"
+                    aria-sort={sortBy === "difficulty" ? (sortDir === "asc" ? "ascending" : "descending") : "none"}
                   >
                     <div className="column-filter-header">
                       <button
@@ -1651,7 +1709,7 @@ export function App() {
                           onSortHeader("difficulty");
                         }}
                       >
-                        {renderSortLabel("Difficulty")}
+                        {renderSortLabel("difficulty")}
                       </button>
                       {renderFilterDropdown("difficulty", "Difficulty")}
                     </div>
@@ -1659,15 +1717,17 @@ export function App() {
                   <th
                     className={`num col-middle sortable ${sortBy === "appCount" ? "active" : ""}`}
                     data-sort-key="appCount"
+                    aria-sort={sortBy === "appCount" ? (sortDir === "asc" ? "ascending" : "descending") : "none"}
                     onClick={() => onSortHeader("appCount")}
                   >
-                    {renderSortLabel("App Count")}
+                    {renderSortLabel("appCount")}
                   </th>
                   {showRankingColumns ? (
                     <>
                       <th
                         className={`num col-middle sortable ${sortBy === "rank" ? "active" : ""}`}
                         data-sort-key="rank"
+                        aria-sort={sortBy === "rank" ? (sortDir === "asc" ? "ascending" : "descending") : "none"}
                       >
                         <div className="column-filter-header">
                           <button
@@ -1678,7 +1738,7 @@ export function App() {
                               onSortHeader("rank");
                             }}
                           >
-                            {renderSortLabel("Rank")}
+                            {renderSortLabel("rank")}
                           </button>
                           {renderFilterDropdown("rank", "Rank")}
                         </div>
@@ -1686,18 +1746,20 @@ export function App() {
                       <th
                         className={`col-middle sortable ${sortBy === "change" ? "active" : ""}`}
                         data-sort-key="change"
+                        aria-sort={sortBy === "change" ? (sortDir === "asc" ? "ascending" : "descending") : "none"}
                         onClick={() => onSortHeader("change")}
                       >
-                        {renderSortLabel("Change")}
+                        {renderSortLabel("change")}
                       </th>
                     </>
                   ) : null}
                   <th
                     className={`sortable ${sortBy === "updatedAt" ? "active" : ""}`}
                     data-sort-key="updatedAt"
+                    aria-sort={sortBy === "updatedAt" ? (sortDir === "asc" ? "ascending" : "descending") : "none"}
                     onClick={() => onSortHeader("updatedAt")}
                   >
-                    {renderSortLabel("Updated")}
+                    {renderSortLabel("updatedAt")}
                   </th>
                 </tr>
               </thead>

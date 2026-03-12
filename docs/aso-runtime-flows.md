@@ -91,6 +91,7 @@ Runtime flow contracts across CLI commands, local dashboard API, and ASO service
 - Keyword limit is `100`.
 - Dashboard keyword reads pre-index app-keyword associations by keyword to avoid repeated scans per row.
 - In dashboard research workspace, `Rank` and `Change` columns remain hidden; `Updated` stays visible.
+- Dashboard keyword sort is global (`localStorage`) across apps. On startup, restore the last valid sort; fallback to `Updated` descending (newest first) when missing/invalid or when the selected sort column is unavailable in the current workspace.
 - App-doc backend requests are chunked to max `50` IDs.
 - In ASO research, a `keyword` is a search term candidate and may be a long-tail phrase, not only a single word.
 - In App Store metadata fields, keywords are comma-separated terms under a `100`-character limit.
