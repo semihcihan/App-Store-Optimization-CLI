@@ -1,7 +1,7 @@
 import {
   initializeBugsnag,
   notifyBugsnagError,
-} from "../services/telemetry/bugsnag-shared";
+} from "../shared/telemetry/bugsnag-shared";
 import { isDashboardDevelopment } from "./runtime-config";
 
 export function initializeDashboardBugsnag(): void {

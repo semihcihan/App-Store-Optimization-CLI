@@ -4,7 +4,7 @@ import { getAppById, upsertApps } from "../../db/apps";
 import {
   DEFAULT_RESEARCH_APP_ID,
   DEFAULT_RESEARCH_APP_NAME,
-} from "./aso-research";
+} from "../../shared/aso-research";
 import { saveKeywordsToDefaultResearchApp } from "./aso-research-keyword-service";
 
 jest.mock("../../db/app-keywords", () => ({

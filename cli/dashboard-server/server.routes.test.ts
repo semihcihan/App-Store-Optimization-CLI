@@ -22,7 +22,7 @@ import { asoAuthService } from "../services/auth/aso-auth-service";
 import { fetchAndPersistKeywordPopularityStage } from "../services/keywords/aso-keyword-service";
 import { isAsoAuthReauthRequiredError } from "../services/keywords/aso-popularity-service";
 import { createServerRequestHandler } from "./server";
-import { DEFAULT_RESEARCH_APP_ID } from "../services/keywords/aso-research";
+import { DEFAULT_RESEARCH_APP_ID } from "../shared/aso-research";
 
 jest.mock("../db/apps", () => ({
   getAppById: jest.fn(() => null),
@@ -289,6 +289,22 @@ describe("dashboard server routes", () => {
       body: { type: "research", name: "  " },
     });
     expect(missingResearchName.statusCode).toBe(400);
+  });
+
+  it("rejects oversized JSON payloads", async () => {
+    const hugeName = "a".repeat(1024 * 1024 + 10);
+    const response = await request({
+      method: "POST",
+      path: "/api/apps",
+      body: { type: "research", name: hugeName },
+    });
+
+    expect(response.statusCode).toBe(413);
+    expect(response.json).toEqual({
+      success: false,
+      errorCode: "PAYLOAD_TOO_LARGE",
+      error: "Request payload is too large.",
+    });
   });
 
   it("creates research app with slug collision suffix", async () => {
@@ -584,6 +600,16 @@ describe("dashboard server routes", () => {
     expect(hydrated.json?.data.keyword).toBe("term");
     expect(hydrated.json?.data.appDocs).toHaveLength(2);
     expect(mockUpsertCompetitorAppDocs).toHaveBeenCalled();
+  });
+
+  it("handles percent-containing top-app keywords without throwing", async () => {
+    const response = await request({
+      method: "GET",
+      path: "/api/aso/top-apps?country=US&keyword=%25",
+    });
+
+    expect(response.statusCode).toBe(404);
+    expect(response.json?.errorCode).toBe("NOT_FOUND");
   });
 
   it("rehydrates top apps when cached docs are fresh but missing dates", async () => {

@@ -23,6 +23,16 @@ Research ASO keywords, inspect competition, and manage results from one local-fi
 npm install -g aso-cli
 ```
 
+## Runtime Requirement
+
+- Runtime: Node.js `>=18.0.0`.
+- Local development/build: Node.js `>=20.19.0` (Vite toolchain requirement).
+- If you use `nvm`, run:
+
+```bash
+nvm use 20
+```
+
 ## Apple Search Ads Setup
 
 ASO commands require Apple Search Ads setup.

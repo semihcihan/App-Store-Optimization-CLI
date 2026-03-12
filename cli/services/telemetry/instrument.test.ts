@@ -10,7 +10,7 @@ describe("telemetry instrument", () => {
   it("initializes bugsnag in development mode", async () => {
     process.env.NODE_ENV = "development";
     const initializeBugsnag = jest.fn();
-    jest.doMock("./bugsnag-shared", () => ({ initializeBugsnag }));
+    jest.doMock("../../shared/telemetry/bugsnag-shared", () => ({ initializeBugsnag }));
 
     await import("./instrument");
 
@@ -24,7 +24,7 @@ describe("telemetry instrument", () => {
   it("initializes bugsnag in production mode", async () => {
     process.env.NODE_ENV = "production";
     const initializeBugsnag = jest.fn();
-    jest.doMock("./bugsnag-shared", () => ({ initializeBugsnag }));
+    jest.doMock("../../shared/telemetry/bugsnag-shared", () => ({ initializeBugsnag }));
 
     await import("./instrument");
 

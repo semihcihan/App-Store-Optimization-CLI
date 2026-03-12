@@ -38,7 +38,7 @@ import { getAsoAppDocsLocal } from "../services/keywords/aso-local-cache-service
 import {
   DEFAULT_RESEARCH_APP_ID,
   DEFAULT_RESEARCH_APP_NAME,
-} from "../services/keywords/aso-research";
+} from "../shared/aso-research";
 import {
   createStartupRefreshManager,
   type StartupRefreshState,
@@ -54,6 +54,7 @@ const DEFAULT_APP_DOCS_HYDRATION_COUNTRY = "US";
 const DASHBOARD_PUBLIC_DIR = path.resolve(__dirname, "dashboard-public");
 const DASHBOARD_RUNTIME_CONFIG_PATH = "/runtime-config.js";
 const ASO_APP_DOCS_MAX_BATCH_SIZE = 50;
+const MAX_REQUEST_BODY_BYTES = 1024 * 1024;
 const STATIC_CONTENT_TYPES: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
   ".css": "text/css; charset=utf-8",
@@ -84,6 +85,7 @@ type AsoApiAppDoc = {
 
 type DashboardErrorCode =
   | "INVALID_REQUEST"
+  | "PAYLOAD_TOO_LARGE"
   | "MISSING_APPLE_CREDENTIALS"
   | "AUTH_REQUIRED"
   | "AUTH_IN_PROGRESS"
@@ -214,6 +216,7 @@ function toUserSafeError(error: unknown, fallback: string): UserSafeError {
 
 function statusForDashboardErrorCode(errorCode: DashboardErrorCode): number {
   if (errorCode === "INVALID_REQUEST") return 400;
+  if (errorCode === "PAYLOAD_TOO_LARGE") return 413;
   if (errorCode === "AUTH_REQUIRED") return 401;
   if (errorCode === "AUTHORIZATION_FAILED") return 403;
   if (errorCode === "NOT_FOUND") return 404;
@@ -497,25 +500,69 @@ function resolveStaticPath(pathname: string): string | null {
   return path.join(DASHBOARD_PUBLIC_DIR, relativePath);
 }
 
+class RequestBodyTooLargeError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "RequestBodyTooLargeError";
+  }
+}
+
 function getRequestBody(req: http.IncomingMessage): Promise<string> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
-    req.on("data", (chunk) => chunks.push(chunk));
+    let totalBytes = 0;
+    let settled = false;
+    req.on("data", (chunk) => {
+      if (settled) return;
+      const chunkBuffer = Buffer.isBuffer(chunk)
+        ? chunk
+        : Buffer.from(String(chunk));
+      totalBytes += chunkBuffer.length;
+      if (totalBytes > MAX_REQUEST_BODY_BYTES) {
+        settled = true;
+        reject(
+          new RequestBodyTooLargeError(
+            `Request payload exceeds ${MAX_REQUEST_BODY_BYTES} bytes`
+          )
+        );
+        req.destroy();
+        return;
+      }
+      chunks.push(chunkBuffer);
+    });
     req.on("end", () => resolve(Buffer.concat(chunks).toString("utf8")));
     req.on("error", reject);
   });
+}
+
+async function parseJsonBody<T>(
+  req: http.IncomingMessage,
+  res: http.ServerResponse
+): Promise<T | null> {
+  try {
+    const raw = await getRequestBody(req);
+    return JSON.parse(raw) as T;
+  } catch (error) {
+    if (error instanceof RequestBodyTooLargeError) {
+      sendApiError(
+        res,
+        413,
+        "PAYLOAD_TOO_LARGE",
+        "Request payload is too large."
+      );
+      return null;
+    }
+    sendApiError(res, 400, "INVALID_REQUEST", "Invalid request payload.");
+    return null;
+  }
 }
 
 async function handleApiAppsPost(
   req: http.IncomingMessage,
   res: http.ServerResponse
 ): Promise<void> {
-  let body: ManualAppAddRequest;
-  try {
-    const raw = await getRequestBody(req);
-    body = JSON.parse(raw) as ManualAppAddRequest;
-  } catch {
-    sendApiError(res, 400, "INVALID_REQUEST", "Invalid request payload.");
+  const body = await parseJsonBody<ManualAppAddRequest>(req, res);
+  if (!body) {
     return;
   }
 
@@ -634,12 +681,12 @@ async function handleApiAsoKeywordsPost(
   req: http.IncomingMessage,
   res: http.ServerResponse
 ): Promise<void> {
-  let body: { appId?: string; keywords?: string[]; country?: string };
-  try {
-    const raw = await getRequestBody(req);
-    body = JSON.parse(raw) as typeof body;
-  } catch {
-    sendApiError(res, 400, "INVALID_REQUEST", "Invalid request payload.");
+  const body = await parseJsonBody<{
+    appId?: string;
+    keywords?: string[];
+    country?: string;
+  }>(req, res);
+  if (!body) {
     return;
   }
   const appId = body.appId ?? DEFAULT_RESEARCH_APP_ID;
@@ -862,12 +909,12 @@ async function handleApiAsoKeywordsDelete(
   req: http.IncomingMessage,
   res: http.ServerResponse
 ): Promise<void> {
-  let body: { appId?: string; keywords?: string[]; country?: string };
-  try {
-    const raw = await getRequestBody(req);
-    body = JSON.parse(raw) as typeof body;
-  } catch {
-    sendApiError(res, 400, "INVALID_REQUEST", "Invalid request payload.");
+  const body = await parseJsonBody<{
+    appId?: string;
+    keywords?: string[];
+    country?: string;
+  }>(req, res);
+  if (!body) {
     return;
   }
   const appId = body.appId ?? DEFAULT_RESEARCH_APP_ID;
@@ -926,12 +973,8 @@ async function handleApiAsoKeywordsRetryFailedPost(
   req: http.IncomingMessage,
   res: http.ServerResponse
 ): Promise<void> {
-  let body: { appId?: string; country?: string };
-  try {
-    const raw = await getRequestBody(req);
-    body = JSON.parse(raw) as typeof body;
-  } catch {
-    sendApiError(res, 400, "INVALID_REQUEST", "Invalid request payload.");
+  const body = await parseJsonBody<{ appId?: string; country?: string }>(req, res);
+  if (!body) {
     return;
   }
   const appId = body.appId ?? DEFAULT_RESEARCH_APP_ID;
@@ -1170,7 +1213,7 @@ async function handleApiAsoTopAppsGet(
   const limit = Number.isFinite(requestedLimit) && requestedLimit > 0
     ? Math.min(requestedLimit, 50)
     : 10;
-  const decoded = decodeURIComponent(keyword);
+  const decoded = keyword.trim();
   logger.debug("[aso-dashboard] request", {
     method: "GET",
     path: "/api/aso/top-apps",
@@ -1328,109 +1371,132 @@ export function createServerRequestHandler(): http.RequestListener {
   return async (req, res) => {
     const url = req.url ?? "/";
     const [pathname] = url.split("?");
-    const query = parseQuery(url);
+    try {
+      const query = parseQuery(url);
 
-    if (req.method === "GET" && pathname === "/") {
-      sendStaticFile(res, path.join(DASHBOARD_PUBLIC_DIR, "index.html"));
-      return;
-    }
-
-    if (req.method === "GET" && pathname === "/health") {
-      sendJson(res, 200, { success: true });
-      return;
-    }
-
-    if (req.method === "GET" && pathname === DASHBOARD_RUNTIME_CONFIG_PATH) {
-      sendDashboardRuntimeConfig(res);
-      return;
-    }
-
-    if (req.method === "GET" && pathname === "/api/apps") {
-      ensureDefaultResearchAppExists();
-      const appLastAddedAt = getAppLastKeywordAddedAtMap("US");
-      const apps = listApps()
-        .map((app) => ({
-          ...app,
-          lastKeywordAddedAt: appLastAddedAt.get(app.id) ?? null,
-        }))
-        .sort((a, b) => {
-          const ad = a.lastKeywordAddedAt ?? "";
-          const bd = b.lastKeywordAddedAt ?? "";
-          if (ad && bd && ad !== bd) return bd.localeCompare(ad);
-          if (ad && !bd) return -1;
-          if (!ad && bd) return 1;
-          return a.name.localeCompare(b.name);
-        });
-      sendJson(res, 200, { success: true, data: apps });
-      return;
-    }
-
-    if (req.method === "POST" && pathname === "/api/apps") {
-      await runAsForegroundMutation(() => handleApiAppsPost(req, res));
-      return;
-    }
-
-    if (req.method === "GET" && pathname === "/api/aso/auth/status") {
-      handleApiAsoAuthStatusGet(res);
-      return;
-    }
-
-    if (req.method === "GET" && pathname === "/api/aso/refresh-status") {
-      handleApiAsoRefreshStatusGet(res);
-      return;
-    }
-
-    if (req.method === "POST" && pathname === "/api/aso/auth/start") {
-      runAsForegroundMutationSync(() => {
-        handleApiAsoAuthStartPost(res);
-      });
-      return;
-    }
-
-    if (req.method === "GET" && pathname === "/api/aso/keywords") {
-      handleApiAsoKeywordsGet(res, query);
-      return;
-    }
-
-    if (req.method === "GET" && pathname === "/api/aso/top-apps") {
-      await handleApiAsoTopAppsGet(res, query);
-      return;
-    }
-
-    if (req.method === "POST" && pathname === "/api/aso/keywords") {
-      await runAsForegroundMutation(() => handleApiAsoKeywordsPost(req, res));
-      return;
-    }
-
-    if (req.method === "POST" && pathname === "/api/aso/keywords/retry-failed") {
-      await runAsForegroundMutation(() =>
-        handleApiAsoKeywordsRetryFailedPost(req, res)
-      );
-      return;
-    }
-
-    if (req.method === "DELETE" && pathname === "/api/aso/keywords") {
-      await runAsForegroundMutation(() => handleApiAsoKeywordsDelete(req, res));
-      return;
-    }
-
-    if (req.method === "GET" && pathname === "/api/aso/apps") {
-      await handleApiAsoAppsGet(res, query);
-      return;
-    }
-
-    if (req.method === "GET" && pathname && !pathname.startsWith("/api/")) {
-      const staticPath = resolveStaticPath(pathname);
-      if (staticPath && fs.existsSync(staticPath) && fs.statSync(staticPath).isFile()) {
-        sendStaticFile(res, staticPath);
+      if (req.method === "GET" && pathname === "/") {
+        sendStaticFile(res, path.join(DASHBOARD_PUBLIC_DIR, "index.html"));
         return;
       }
-      sendStaticFile(res, path.join(DASHBOARD_PUBLIC_DIR, "index.html"));
-      return;
-    }
 
-    res.writeHead(404, { "Content-Type": "text/plain" });
-    res.end("Not found");
+      if (req.method === "GET" && pathname === "/health") {
+        sendJson(res, 200, { success: true });
+        return;
+      }
+
+      if (req.method === "GET" && pathname === DASHBOARD_RUNTIME_CONFIG_PATH) {
+        sendDashboardRuntimeConfig(res);
+        return;
+      }
+
+      if (req.method === "GET" && pathname === "/api/apps") {
+        ensureDefaultResearchAppExists();
+        const appLastAddedAt = getAppLastKeywordAddedAtMap("US");
+        const apps = listApps()
+          .map((app) => ({
+            ...app,
+            lastKeywordAddedAt: appLastAddedAt.get(app.id) ?? null,
+          }))
+          .sort((a, b) => {
+            const ad = a.lastKeywordAddedAt ?? "";
+            const bd = b.lastKeywordAddedAt ?? "";
+            if (ad && bd && ad !== bd) return bd.localeCompare(ad);
+            if (ad && !bd) return -1;
+            if (!ad && bd) return 1;
+            return a.name.localeCompare(b.name);
+          });
+        sendJson(res, 200, { success: true, data: apps });
+        return;
+      }
+
+      if (req.method === "POST" && pathname === "/api/apps") {
+        await runAsForegroundMutation(() => handleApiAppsPost(req, res));
+        return;
+      }
+
+      if (req.method === "GET" && pathname === "/api/aso/auth/status") {
+        handleApiAsoAuthStatusGet(res);
+        return;
+      }
+
+      if (req.method === "GET" && pathname === "/api/aso/refresh-status") {
+        handleApiAsoRefreshStatusGet(res);
+        return;
+      }
+
+      if (req.method === "POST" && pathname === "/api/aso/auth/start") {
+        runAsForegroundMutationSync(() => {
+          handleApiAsoAuthStartPost(res);
+        });
+        return;
+      }
+
+      if (req.method === "GET" && pathname === "/api/aso/keywords") {
+        handleApiAsoKeywordsGet(res, query);
+        return;
+      }
+
+      if (req.method === "GET" && pathname === "/api/aso/top-apps") {
+        await handleApiAsoTopAppsGet(res, query);
+        return;
+      }
+
+      if (req.method === "POST" && pathname === "/api/aso/keywords") {
+        await runAsForegroundMutation(() => handleApiAsoKeywordsPost(req, res));
+        return;
+      }
+
+      if (req.method === "POST" && pathname === "/api/aso/keywords/retry-failed") {
+        await runAsForegroundMutation(() =>
+          handleApiAsoKeywordsRetryFailedPost(req, res)
+        );
+        return;
+      }
+
+      if (req.method === "DELETE" && pathname === "/api/aso/keywords") {
+        await runAsForegroundMutation(() => handleApiAsoKeywordsDelete(req, res));
+        return;
+      }
+
+      if (req.method === "GET" && pathname === "/api/aso/apps") {
+        await handleApiAsoAppsGet(res, query);
+        return;
+      }
+
+      if (req.method === "GET" && pathname && !pathname.startsWith("/api/")) {
+        const staticPath = resolveStaticPath(pathname);
+        if (
+          staticPath &&
+          fs.existsSync(staticPath) &&
+          fs.statSync(staticPath).isFile()
+        ) {
+          sendStaticFile(res, staticPath);
+          return;
+        }
+        sendStaticFile(res, path.join(DASHBOARD_PUBLIC_DIR, "index.html"));
+        return;
+      }
+
+      res.writeHead(404, { "Content-Type": "text/plain" });
+      res.end("Not found");
+    } catch (error) {
+      reportDashboardError(error, {
+        method: req.method,
+        path: pathname,
+      });
+      if (res.writableEnded) return;
+      if (pathname.startsWith("/api/")) {
+        sendApiError(
+          res,
+          500,
+          "INTERNAL_ERROR",
+          "Internal server error."
+        );
+        return;
+      }
+      res.writeHead(500, { "Content-Type": "text/plain; charset=utf-8" });
+      res.end("Internal server error.");
+    }
   };
 }
 

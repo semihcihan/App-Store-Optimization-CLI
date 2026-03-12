@@ -6,6 +6,9 @@ import {
   asoSuggestInputSchema,
   handleAsoSuggest,
 } from "./services/aso-suggest";
+import { assertSupportedNodeVersion } from "../services/runtime/node-version-guard";
+
+assertSupportedNodeVersion();
 
 const server = new McpServer(
   {

@@ -1,8 +1,8 @@
-import { notifyBugsnagError } from "./bugsnag-shared";
+import { notifyBugsnagError } from "../../shared/telemetry/bugsnag-shared";
 import { getErrorBugsnagMetadata } from "./bugsnag-metadata";
 import { reportBugsnagError } from "./error-reporter";
 
-jest.mock("./bugsnag-shared", () => ({
+jest.mock("../../shared/telemetry/bugsnag-shared", () => ({
   notifyBugsnagError: jest.fn(),
   initializeBugsnag: jest.fn(),
 }));

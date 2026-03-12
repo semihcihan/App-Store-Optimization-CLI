@@ -1,7 +1,7 @@
 import {
   DEFAULT_RESEARCH_APP_ID,
   DEFAULT_RESEARCH_APP_NAME,
-} from "./aso-research";
+} from "../../shared/aso-research";
 import { createAppKeywords } from "../../db/app-keywords";
 import { getAppById, upsertApps } from "../../db/apps";
 

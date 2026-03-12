@@ -3,7 +3,7 @@ import { Badge, Button, Card, Input } from "./ui-react";
 import {
   DEFAULT_RESEARCH_APP_ID,
   isResearchAppId,
-} from "../services/keywords/aso-research";
+} from "../shared/aso-research";
 import {
   APP_STORE_ICON_IMAGE_URL,
   DEFAULT_ASO_COUNTRY,

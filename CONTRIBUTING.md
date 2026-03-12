@@ -3,9 +3,14 @@
 ## Local setup
 
 ```bash
+nvm use
 npm install
 npm run build
 ```
+
+Runtime requirement:
+- Runtime: Node.js `>=18.0.0`
+- Local development/build: Node.js `>=20.19.0` (enforced by script checks)
 
 ## Development workflow
 

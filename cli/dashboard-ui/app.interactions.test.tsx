@@ -3,7 +3,7 @@
 import "@testing-library/jest-dom";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { App } from "./App";
-import { DEFAULT_RESEARCH_APP_ID } from "../services/keywords/aso-research";
+import { DEFAULT_RESEARCH_APP_ID } from "../shared/aso-research";
 
 type AppRow = { id: string; name: string };
 

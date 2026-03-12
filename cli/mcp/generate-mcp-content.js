@@ -17,6 +17,11 @@ function generateTsFromMd(mdFileName, exportName) {
   const content = fs.readFileSync(mdPath, "utf8");
   const tsContent = `export const ${exportName} = ${JSON.stringify(content)};\n`;
   const tsPath = path.join(generatedDir, `${exportName}.ts`);
+  const existing = fs.existsSync(tsPath) ? fs.readFileSync(tsPath, "utf8") : null;
+  if (existing === tsContent) {
+    console.log(`Up-to-date ${tsPath}`);
+    return;
+  }
   fs.writeFileSync(tsPath, tsContent);
   console.log(`Generated ${tsPath}`);
 }

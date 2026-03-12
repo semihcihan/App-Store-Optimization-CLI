@@ -9,6 +9,9 @@ import path from "path";
 import asoCmd from "./commands/aso";
 import { checkVersionUpdateSync } from "./services/runtime/version-check-service";
 import { reportBugsnagError } from "./services/telemetry/error-reporter";
+import { assertSupportedNodeVersion } from "./services/runtime/node-version-guard";
+
+assertSupportedNodeVersion();
 
 const isDebugEnabled = process.env.NODE_ENV == "development";
 

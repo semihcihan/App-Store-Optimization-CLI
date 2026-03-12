@@ -15,7 +15,7 @@ describe("bugsnag-shared", () => {
   });
 
   it("converts unknown values to Error instances", async () => {
-    const { toError } = await import("./bugsnag-shared");
+    const { toError } = await import("../../shared/telemetry/bugsnag-shared");
     const existing = new Error("existing");
 
     expect(toError(existing)).toBe(existing);
@@ -24,7 +24,7 @@ describe("bugsnag-shared", () => {
   });
 
   it("does not start Bugsnag in development mode", async () => {
-    const { initializeBugsnag } = await import("./bugsnag-shared");
+    const { initializeBugsnag } = await import("../../shared/telemetry/bugsnag-shared");
     const Bugsnag = getBugsnagMock();
 
     initializeBugsnag({ isDevelopment: true, appVersion: "1.2.3" });
@@ -33,7 +33,7 @@ describe("bugsnag-shared", () => {
   });
 
   it("starts Bugsnag once in production mode with defaults", async () => {
-    const { initializeBugsnag } = await import("./bugsnag-shared");
+    const { initializeBugsnag } = await import("../../shared/telemetry/bugsnag-shared");
     const Bugsnag = getBugsnagMock();
 
     initializeBugsnag({ isDevelopment: false, appVersion: "1.2.3" });
@@ -52,7 +52,7 @@ describe("bugsnag-shared", () => {
 
   it("notifies errors only after startup and attaches metadata", async () => {
     const { initializeBugsnag, notifyBugsnagError } = await import(
-      "./bugsnag-shared"
+      "../../shared/telemetry/bugsnag-shared"
     );
     const Bugsnag = getBugsnagMock();
     const addMetadata = jest.fn();

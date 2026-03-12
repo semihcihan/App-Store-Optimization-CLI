@@ -3,6 +3,10 @@
 ## Scope
 Runtime flow contracts across CLI commands, local dashboard API, and ASO services.
 
+## Runtime Requirement
+- Runtime: Node.js `>=18.0.0`.
+- Local development/build: Node.js `>=20.19.0`.
+
 ## Operational Prerequisite
 - Apple Search Ads setup is required only for ASO command flows (`aso ...`).
 - Required setup items:
@@ -89,6 +93,7 @@ Runtime flow contracts across CLI commands, local dashboard API, and ASO service
 ## Guardrails
 - Country must be `US`.
 - Keyword limit is `100`.
+- Dashboard JSON request payloads are capped at `1 MiB`.
 - Dashboard keyword reads pre-index app-keyword associations by keyword to avoid repeated scans per row.
 - In dashboard research workspace, `Rank` and `Change` columns remain hidden; `Updated` stays visible.
 - Dashboard keyword sort is global (`localStorage`) across apps. On startup, restore the last valid sort; fallback to `Updated` descending (newest first) when missing/invalid or when the selected sort column is unavailable in the current workspace.

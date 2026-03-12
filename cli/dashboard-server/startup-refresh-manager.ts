@@ -1,5 +1,5 @@
 import type { StoredAppKeyword, StoredAsoKeyword } from "../db";
-import { isResearchAppId } from "../services/keywords/aso-research";
+import { isResearchAppId } from "../shared/aso-research";
 import { normalizeKeyword } from "../services/cache-api/services/aso-keyword-utils";
 import {
   isCompleteStoredAsoKeyword,

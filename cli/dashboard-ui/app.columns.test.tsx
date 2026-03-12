@@ -3,7 +3,7 @@
 import "@testing-library/jest-dom";
 import { render, screen } from "@testing-library/react";
 import { App } from "./App";
-import { DEFAULT_RESEARCH_APP_ID } from "../services/keywords/aso-research";
+import { DEFAULT_RESEARCH_APP_ID } from "../shared/aso-research";
 
 type MockPayload = {
   status: number;

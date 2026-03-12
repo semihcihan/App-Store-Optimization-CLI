@@ -1,5 +1,5 @@
 import "./instrument";
-import { notifyBugsnagError } from "./bugsnag-shared";
+import { notifyBugsnagError } from "../../shared/telemetry/bugsnag-shared";
 import { getErrorBugsnagMetadata } from "./bugsnag-metadata";
 
 export function reportBugsnagError(
