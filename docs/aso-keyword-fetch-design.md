@@ -99,7 +99,7 @@ Keyword-level difficulty:
 - Failure DB table: `aso_keyword_failures` keyed by `(country, normalized_keyword)` for current failed state.
 - Local DB stores `difficultyScore` and `minDifficultyScore` as rounded integers on write.
 - Interactive `aso keywords` runs (without `--stdout`) save requested keywords into `app_keywords` for the default research app (`research`) so failed terms stay visible in dashboard research workspace.
-- MCP `aso_evaluate_keywords` saves only accepted keywords into the same default research app association.
+- MCP `aso_evaluate_keywords` saves only accepted keywords into `app_keywords`: defaults to the research app association, or uses caller-provided `appId` when set.
 - Dashboard keyword reads include app-associated failures even when no `aso_keywords` cache row exists yet, marking those rows as failed for retry UX.
 - Cache API repository is SQLite-backed and reuses local DB tables for keyword/app-doc cache lookups.
 - No separate JSON cache file is used for ASO keyword/app-doc cache state.
@@ -125,6 +125,7 @@ Keyword-level difficulty:
 - Tool: `aso_evaluate_keywords`
 - Country: always `US` (country is not user-configurable at MCP level)
 - Input: required `keywords` array (strings). Each item can be a single-word or long-tail phrase. Comma-separated entries are normalized and split.
+- Input: optional `appId` string. When provided, accepted keywords are associated to that local app id instead of the default research app.
 - Max request size: `100` provided keywords (enforced by MCP handler)
 - Output is a JSON array of accepted keywords only (no rejected list). Each row includes:
   - `keyword`: normalized keyword phrase.

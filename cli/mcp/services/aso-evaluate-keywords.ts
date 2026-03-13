@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { runAsoCommand, toMcpToolResult } from "../execute-aso-cli";
-import { saveKeywordsToDefaultResearchApp } from "../../services/keywords/aso-research-keyword-service";
+import { saveKeywordsToResearchApp } from "../../services/keywords/aso-research-keyword-service";
 import { reportBugsnagError } from "../../services/telemetry/error-reporter";
 import { ASO_MAX_KEYWORDS } from "../../shared/aso-keyword-limits";
 import { sanitizeKeywords } from "../../domain/keywords/policy";
@@ -34,6 +34,14 @@ export const asoEvaluateKeywordsInputSchema = z.object({
     ),
   minPopularity: z.number().min(ABSOLUTE_MIN_POPULARITY).optional(),
   maxDifficulty: z.number().optional(),
+  appId: z
+    .string()
+    .trim()
+    .min(1)
+    .optional()
+    .describe(
+      "Optional local app id to associate accepted keywords with. Defaults to the research app when omitted."
+    ),
 });
 
 export type AsoEvaluateKeywordsArgs = z.infer<typeof asoEvaluateKeywordsInputSchema>;
@@ -135,6 +143,7 @@ export async function handleAsoEvaluateKeywords(args: AsoEvaluateKeywordsArgs) {
     ABSOLUTE_MIN_POPULARITY
   );
   const maxDifficulty = args.maxDifficulty ?? DEFAULT_MAX_DIFFICULTY;
+  const appId = args.appId;
   const providedKeywords = splitKeywords(args.keywords);
   const keywords = normalizeKeywords(providedKeywords);
 
@@ -234,9 +243,10 @@ export async function handleAsoEvaluateKeywords(args: AsoEvaluateKeywordsArgs) {
 
   if (accepted.length > 0) {
     try {
-      saveKeywordsToDefaultResearchApp(
+      saveKeywordsToResearchApp(
         accepted.map((item) => item.keyword),
-        "US"
+        "US",
+        appId
       );
     } catch (error) {
       reportBugsnagError(error, {

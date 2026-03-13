@@ -9,7 +9,7 @@ jest.mock("../execute-aso-cli", () => ({
 }));
 
 jest.mock("../../services/keywords/aso-research-keyword-service", () => ({
-  saveKeywordsToDefaultResearchApp: jest.fn(),
+  saveKeywordsToResearchApp: jest.fn(),
 }));
 
 jest.mock("../../services/telemetry/error-reporter", () => ({
@@ -18,19 +18,17 @@ jest.mock("../../services/telemetry/error-reporter", () => ({
 
 import { runAsoCommand } from "../execute-aso-cli";
 import { handleAsoEvaluateKeywords } from "./aso-evaluate-keywords";
-import { saveKeywordsToDefaultResearchApp } from "../../services/keywords/aso-research-keyword-service";
+import { saveKeywordsToResearchApp } from "../../services/keywords/aso-research-keyword-service";
 import { reportBugsnagError } from "../../services/telemetry/error-reporter";
 
 describe("aso_evaluate_keywords service", () => {
   const mockRunAsoCommand = jest.mocked(runAsoCommand);
-  const mockSaveKeywordsToDefaultResearchApp = jest.mocked(
-    saveKeywordsToDefaultResearchApp
-  );
+  const mockSaveKeywordsToResearchApp = jest.mocked(saveKeywordsToResearchApp);
   const mockReportBugsnagError = jest.mocked(reportBugsnagError);
 
   beforeEach(() => {
     jest.clearAllMocks();
-    mockSaveKeywordsToDefaultResearchApp.mockReturnValue(0);
+    mockSaveKeywordsToResearchApp.mockReturnValue(0);
   });
 
   it("runs `aso keywords <terms> --stdout` for MCP keyword evaluation", async () => {
@@ -131,9 +129,32 @@ describe("aso_evaluate_keywords service", () => {
         minDifficultyScore: 51.43,
       },
     ]);
-    expect(mockSaveKeywordsToDefaultResearchApp).toHaveBeenCalledWith(
+    expect(mockSaveKeywordsToResearchApp).toHaveBeenCalledWith(
       ["romantic"],
-      "US"
+      "US",
+      undefined
+    );
+  });
+
+  it("saves accepted keywords to the provided app id when specified", async () => {
+    mockRunAsoCommand.mockResolvedValue({
+      stdout: JSON.stringify({
+        items: [{ keyword: "sleep", popularity: 30, difficulty: 20 }],
+        failedKeywords: [],
+      }),
+      stderr: "",
+      exitCode: 0,
+    });
+
+    await handleAsoEvaluateKeywords({
+      keywords: ["sleep"],
+      appId: "123456789",
+    });
+
+    expect(mockSaveKeywordsToResearchApp).toHaveBeenCalledWith(
+      ["sleep"],
+      "US",
+      "123456789"
     );
   });
 
@@ -195,7 +216,7 @@ describe("aso_evaluate_keywords service", () => {
       stderr: "",
       exitCode: 0,
     });
-    mockSaveKeywordsToDefaultResearchApp.mockImplementation(() => {
+    mockSaveKeywordsToResearchApp.mockImplementation(() => {
       throw new Error("persist failed");
     });
 
