@@ -966,7 +966,10 @@ export function App() {
     const applied = getFilterLabel(key);
     const isOpen = openFilterMenu === key;
     return (
-      <div className={`filter-dropdown ${isOpen ? "open" : ""}`}>
+      <div
+        className={`filter-dropdown ${isOpen ? "open" : ""}`}
+        onClick={(event) => event.stopPropagation()}
+      >
         <button
           type="button"
           className={`filter-trigger ${applied ? "active" : ""}`}
@@ -1377,6 +1380,7 @@ export function App() {
                     className={`num col-middle sortable ${sortBy === "popularity" ? "active" : ""}`}
                     data-sort-key="popularity"
                     aria-sort={sortBy === "popularity" ? (sortDir === "asc" ? "ascending" : "descending") : "none"}
+                    onClick={() => onSortHeader("popularity")}
                   >
                     <div className="column-filter-header">
                       <button
@@ -1396,6 +1400,7 @@ export function App() {
                     className={`num col-middle sortable ${sortBy === "difficulty" ? "active" : ""}`}
                     data-sort-key="difficulty"
                     aria-sort={sortBy === "difficulty" ? (sortDir === "asc" ? "ascending" : "descending") : "none"}
+                    onClick={() => onSortHeader("difficulty")}
                   >
                     <div className="column-filter-header">
                       <button
@@ -1425,6 +1430,7 @@ export function App() {
                         className={`num col-middle sortable ${sortBy === "rank" ? "active" : ""}`}
                         data-sort-key="rank"
                         aria-sort={sortBy === "rank" ? (sortDir === "asc" ? "ascending" : "descending") : "none"}
+                        onClick={() => onSortHeader("rank")}
                       >
                         <div className="column-filter-header">
                           <button
