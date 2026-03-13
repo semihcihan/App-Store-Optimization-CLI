@@ -248,6 +248,105 @@ describe("dashboard app behaviors", () => {
     expect(await screen.findByText("Failed to copy keywords")).toBeInTheDocument();
   });
 
+  it("copies selected keywords with Cmd/Ctrl+C", async () => {
+    localStorage.setItem("aso-dashboard:selected-app-id", "111");
+    const fetchMock = buildFetchMock({
+      apps: [
+        { id: DEFAULT_RESEARCH_APP_ID, name: "Research" },
+        { id: "111", name: "Owned App" },
+      ],
+      keywordsByAppId: {
+        "111": [
+          {
+            keyword: "shortcut-copy",
+            popularity: 30,
+            difficultyScore: 20,
+            appCount: 70,
+            positions: [{ appId: "111", previousPosition: 5, currentPosition: 4 }],
+            updatedAt: "2026-03-12T08:00:00.000Z",
+          },
+        ],
+      },
+    });
+    global.fetch = fetchMock as typeof fetch;
+
+    render(<App />);
+
+    const row = (await screen.findByText("shortcut-copy")).closest("tr") as HTMLElement;
+    fireEvent.click(row);
+    const setData = jest.fn();
+    fireEvent.copy(document, {
+      clipboardData: { setData },
+    });
+
+    await waitFor(() => expect(setData).toHaveBeenCalledWith("text/plain", "shortcut-copy"));
+    expect(
+      await screen.findByText("Copied 1 keyword as comma-separated text.")
+    ).toBeInTheDocument();
+  });
+
+  it("pastes clipboard text into add-keywords input with Cmd/Ctrl+V outside text fields", async () => {
+    localStorage.setItem("aso-dashboard:selected-app-id", "111");
+    const fetchMock = buildFetchMock({
+      apps: [
+        { id: DEFAULT_RESEARCH_APP_ID, name: "Research" },
+        { id: "111", name: "Owned App" },
+      ],
+      keywordsByAppId: {
+        "111": [],
+      },
+    });
+    global.fetch = fetchMock as typeof fetch;
+
+    render(<App />);
+
+    await screen.findByText("No keywords yet for this app.");
+    const getData = jest.fn(() => "alpha, beta");
+    fireEvent.paste(document, {
+      clipboardData: { getData },
+    });
+
+    const input = screen.getByPlaceholderText("Add keywords (comma-separated)") as HTMLInputElement;
+    await waitFor(() => expect(getData).toHaveBeenCalledWith("text"));
+    await waitFor(() => expect(input.value).toBe("alpha, beta"));
+  });
+
+  it("deletes selected keywords with Delete key after confirmation", async () => {
+    localStorage.setItem("aso-dashboard:selected-app-id", "111");
+    const confirmSpy = jest.spyOn(window, "confirm").mockReturnValue(true);
+    const fetchMock = buildFetchMock({
+      apps: [
+        { id: DEFAULT_RESEARCH_APP_ID, name: "Research" },
+        { id: "111", name: "Owned App" },
+      ],
+      keywordsByAppId: {
+        "111": [
+          {
+            keyword: "delete-shortcut",
+            popularity: 30,
+            difficultyScore: 20,
+            appCount: 70,
+            positions: [{ appId: "111", previousPosition: 5, currentPosition: 4 }],
+            updatedAt: "2026-03-12T08:00:00.000Z",
+          },
+        ],
+      },
+    });
+    global.fetch = fetchMock as typeof fetch;
+
+    render(<App />);
+
+    const row = (await screen.findByText("delete-shortcut")).closest("tr") as HTMLElement;
+    fireEvent.click(row);
+    fireEvent.keyDown(document, { key: "Delete" });
+
+    await waitFor(() =>
+      expect(confirmSpy).toHaveBeenCalledWith('Delete "delete-shortcut" from Owned App?')
+    );
+    expect(await screen.findByText("Deleted 1 keyword.")).toBeInTheDocument();
+    confirmSpy.mockRestore();
+  });
+
   it("applies popularity filter and resets all filters", async () => {
     localStorage.setItem("aso-dashboard:selected-app-id", "111");
     const fetchMock = buildFetchMock({

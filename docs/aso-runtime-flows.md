@@ -117,6 +117,7 @@ Runtime flow contracts across CLI commands, local dashboard API, and ASO service
 - Dashboard keyword reads pre-index app-keyword associations by keyword to avoid repeated scans per row.
 - In dashboard research workspace, `Rank` and `Change` columns remain hidden; `Updated` stays visible.
 - Dashboard keyword sort is global (`localStorage`) across apps. On startup, restore the last valid sort; fallback to `Updated` descending (newest first) when missing/invalid or when the selected sort column is unavailable in the current workspace.
+- Dashboard keyword table shortcuts: `Cmd/Ctrl+A` selects all visible keywords, `Cmd/Ctrl+C` copies selected visible keywords as comma-separated text, `Cmd/Ctrl+V` pastes clipboard text into the add-keywords input when focus is outside editable fields, and `Delete`/`Backspace` opens the delete confirmation for selected visible keywords when focus is outside editable fields.
 - App-doc backend requests are chunked to max `50` IDs.
 - In ASO research, a `keyword` is a search term candidate and may be a long-tail phrase, not only a single word.
 - In App Store metadata fields, keywords are comma-separated terms under a `100`-character limit.

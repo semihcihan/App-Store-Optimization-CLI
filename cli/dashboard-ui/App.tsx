@@ -226,6 +226,7 @@ export function App() {
     useState<StartupRefreshStatusPayload | null>(null);
   const [displayLocale] = useState(() => getBrowserLocale());
   const isInitializedRef = useRef(false);
+  const addKeywordsInputRef = useRef<HTMLInputElement | null>(null);
   const keywordLoadRequestIdRef = useRef(0);
   const selectedAppIdRef = useRef(selectedAppId);
   const autoRetryInFlightRef = useRef(false);
@@ -625,6 +626,90 @@ export function App() {
       setErrorText(toActionableErrorMessage(error, "Failed to copy keywords"));
     }
   }, []);
+
+  useEffect(() => {
+    const isEditableTarget = (target: EventTarget | null): boolean => {
+      if (!(target instanceof HTMLElement)) return false;
+      const element = target;
+      const tag = element.tagName?.toLowerCase();
+      if (tag === "input" || tag === "textarea" || tag === "select") return true;
+      if (element.isContentEditable) return true;
+      return element.closest("[contenteditable='true']") != null;
+    };
+    const getVisibleSelectedKeywords = (): string[] =>
+      filteredRows
+        .map((row) => row.keyword)
+        .filter((keyword) => selectedKeywords.has(keyword));
+
+    const onCopy = (event: ClipboardEvent) => {
+      if (isEditableTarget(event.target)) return;
+      const selected = getVisibleSelectedKeywords();
+      if (selected.length === 0) return;
+      const payload = selected.join(",");
+      event.preventDefault();
+      if (event.clipboardData) {
+        event.clipboardData.setData("text/plain", payload);
+        setErrorText("");
+        setSuccessText(
+          `Copied ${selected.length} keyword${selected.length === 1 ? "" : "s"} as comma-separated text.`
+        );
+        return;
+      }
+      void onContextCopy(selected);
+    };
+
+    const onPaste = (event: ClipboardEvent) => {
+      if (isEditableTarget(event.target)) return;
+      const pasted = event.clipboardData?.getData("text")?.trim() ?? "";
+      if (!pasted) return;
+      event.preventDefault();
+      setAddInput((prev) => {
+        const existing = prev.trim();
+        if (!existing) return pasted;
+        return existing.endsWith(",") ? `${existing} ${pasted}` : `${existing}, ${pasted}`;
+      });
+      addKeywordsInputRef.current?.focus();
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented) return;
+      if (event.metaKey || event.ctrlKey || event.altKey) return;
+      if (event.repeat) return;
+      const isDeleteKey =
+        event.key === "Delete" ||
+        event.key === "Del" ||
+        event.key === "Backspace" ||
+        event.code === "Delete" ||
+        event.code === "Backspace" ||
+        event.keyCode === 46 ||
+        event.keyCode === 8;
+      if (!isDeleteKey) return;
+      const selected = getVisibleSelectedKeywords();
+      if (selected.length === 0) return;
+      if (isEditableTarget(event.target)) {
+        const active = event.target as HTMLInputElement | HTMLTextAreaElement;
+        const tag = active?.tagName?.toLowerCase();
+        if (tag === "input" || tag === "textarea") {
+          const value = typeof active.value === "string" ? active.value : "";
+          const hasTextSelection =
+            typeof active.selectionStart === "number" &&
+            typeof active.selectionEnd === "number" &&
+            active.selectionEnd > active.selectionStart;
+          if (value.length > 0 || hasTextSelection) return;
+        }
+      }
+      event.preventDefault();
+      void onContextDelete(selected);
+    };
+
+    document.addEventListener("copy", onCopy);
+    document.addEventListener("paste", onPaste);
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => {
+      document.removeEventListener("copy", onCopy);
+      document.removeEventListener("paste", onPaste);
+      window.removeEventListener("keydown", onKeyDown, true);
+    };
+  }, [filteredRows, onContextCopy, onContextDelete, selectedKeywords]);
 
   const getContextSelection = useCallback(
     (rowKeyword: string): string[] => {
@@ -1328,6 +1413,7 @@ export function App() {
         <Card className="add-card">
           <form id="add-form" className="add-form" onSubmit={onAddKeywords}>
             <Input
+              ref={addKeywordsInputRef}
               id="add-keywords"
               type="text"
               placeholder="Add keywords (comma-separated)"
@@ -1596,9 +1682,6 @@ export function App() {
               {emptyStateText}
             </p>
           ) : null}
-          <p className="table-hint">
-            Tip: Click to select, Shift-click for range, Cmd/Ctrl-click to toggle, Cmd/Ctrl+A to select all, right-click for actions.
-          </p>
         </Card>
       </main>
       {keywordActionMenu ? (
