@@ -1183,7 +1183,7 @@ export function App() {
               {sidebarCollapsed ? "»" : "«"}
             </Button>
           </div>
-          <p className="sidebar-subtitle">Keyword performance by app</p>
+          <p className="sidebar-subtitle"></p>
           <div className="sidebar-actions">
             <Button
               id="add-app-toggle"
