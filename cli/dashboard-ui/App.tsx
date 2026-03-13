@@ -32,12 +32,13 @@ import { useFiltersSort, type SortDir, type SortKey } from "./hooks/use-filters-
 import { useSelection } from "./hooks/use-selection";
 import { sanitizeKeywords } from "../domain/keywords/policy";
 import { useAuthFlow } from "./hooks/use-auth-flow";
+import { useAddAppSearch } from "./hooks/use-add-app-search";
 import { StatusBanners } from "./components/status-banners";
 import { AuthDialog } from "./components/auth-dialog";
 import { KeywordActionMenu } from "./components/keyword-action-menu";
+import { AddAppDialog } from "./components/add-app-dialog";
 
 type AppItem = { id: string; name: string; lastKeywordAddedAt?: string | null };
-type ManualAddType = "app" | "research";
 type AppDoc = {
   appId: string;
   name: string;
@@ -216,10 +217,7 @@ export function App() {
   const [successText, setSuccessText] = useState("");
   const [copiedAppId, setCopiedAppId] = useState<string | null>(null);
   const [addInput, setAddInput] = useState("");
-  const [addAppMode, setAddAppMode] = useState<ManualAddType>("app");
-  const [addAppInput, setAddAppInput] = useState("");
   const [isAddingApp, setIsAddingApp] = useState(false);
-  const [isAddAppPopoverOpen, setIsAddAppPopoverOpen] = useState(false);
   const [topAppsKeyword, setTopAppsKeyword] = useState<string | null>(null);
   const [topAppsRows, setTopAppsRows] = useState<TopAppRow[]>([]);
   const [topAppsLoading, setTopAppsLoading] = useState(false);
@@ -283,8 +281,28 @@ export function App() {
   } = useAuthFlow({
     isAddingKeywords,
   });
+  const {
+    isAddAppPopoverOpen,
+    addAppSearchTerm,
+    addAppSearchInputRef,
+    addAppSearchError,
+    isAddAppSearching,
+    selectedAddCandidates,
+    selectedAddCandidateList,
+    trimmedAddAppSearchTerm,
+    addAppCandidates,
+    setAddAppSearchTerm,
+    openAddAppPopover,
+    closeAddAppPopover,
+    toggleAddCandidateSelection,
+    removeSelectedCandidates,
+  } = useAddAppSearch();
   const researchApps = apps.filter((app) => isResearchAppId(app.id));
   const ownedApps = apps.filter((app) => !isResearchAppId(app.id));
+  const existingOwnedAppIds = useMemo(
+    () => new Set(ownedApps.map((app) => app.id)),
+    [ownedApps]
+  );
   const emptyStateText =
     keywords.length === 0
       ? "No keywords yet for this app."
@@ -759,13 +777,8 @@ export function App() {
 
   const onAddApp = async (event: React.FormEvent) => {
     event.preventDefault();
-    const value = addAppInput.trim();
-    if (!value) {
-      setErrorText(addAppMode === "app" ? "Please provide an app ID." : "Please provide a research name.");
-      return;
-    }
-    if (addAppMode === "app" && !/^\d+$/.test(value)) {
-      setErrorText("App ID must be numeric.");
+    if (selectedAddCandidateList.length === 0) {
+      setErrorText("Select at least one app or research name.");
       return;
     }
 
@@ -773,25 +786,74 @@ export function App() {
       setErrorText("");
       setSuccessText("");
       setIsAddingApp(true);
-      setLoadingText(addAppMode === "app" ? "Adding app..." : "Adding research app...");
-      const payload = addAppMode === "app"
-        ? { type: "app" as const, appId: value }
-        : { type: "research" as const, name: value };
-      const added = await apiWrite<AddedAppPayload>("POST", "/api/apps", payload);
+      setLoadingText(
+        `Adding ${selectedAddCandidateList.length} item${selectedAddCandidateList.length === 1 ? "" : "s"}...`
+      );
+      const addedIds: string[] = [];
+      const succeededKeys: string[] = [];
+      const failedErrors: unknown[] = [];
+
+      for (const candidate of selectedAddCandidateList) {
+        try {
+          if (candidate.type === "app") {
+            const appId = (candidate.appId ?? "").trim();
+            if (!/^\d+$/.test(appId)) {
+              throw new Error("App ID must be numeric.");
+            }
+            const added = await apiWrite<AddedAppPayload>("POST", "/api/apps", {
+              type: "app",
+              appId,
+            });
+            addedIds.push(added.id);
+            succeededKeys.push(candidate.key);
+            continue;
+          }
+
+          const name = (candidate.name ?? "").trim();
+          if (!name) {
+            throw new Error("Research name is required.");
+          }
+          const added = await apiWrite<AddedAppPayload>("POST", "/api/apps", {
+            type: "research",
+            name,
+          });
+          addedIds.push(added.id);
+          succeededKeys.push(candidate.key);
+        } catch (error) {
+          failedErrors.push(error);
+        }
+      }
+
       const list = await loadApps();
-      const addedId = added.id;
-      const selected = list.find((app) => app.id === addedId);
-      if (selected) {
-        setSelectedAppId(selected.id);
-        await loadKeywords(selected.id);
+      const selectedAddedId = [...addedIds].reverse().find((id) =>
+        list.some((app) => app.id === id)
+      );
+      if (selectedAddedId) {
+        setSelectedAppId(selectedAddedId);
+        await loadKeywords(selectedAddedId);
       } else {
         await loadKeywords(selectedAppIdRef.current);
       }
-      setAddAppInput("");
-      setIsAddAppPopoverOpen(false);
-      setSuccessText(addAppMode === "app" ? "App added." : "Research app added.");
+
+      if (failedErrors.length === 0) {
+        setSuccessText(`Added ${addedIds.length} item${addedIds.length === 1 ? "" : "s"}.`);
+        closeAddAppPopover();
+      } else {
+        removeSelectedCandidates(succeededKeys);
+        const failureText = toActionableErrorMessage(
+          failedErrors[0],
+          "Failed to add selected items"
+        );
+        if (addedIds.length > 0) {
+          setErrorText(
+            `Added ${addedIds.length} item${addedIds.length === 1 ? "" : "s"}, ${failedErrors.length} failed. ${failureText}`
+          );
+        } else {
+          setErrorText(failureText);
+        }
+      }
     } catch (error) {
-      setErrorText(toActionableErrorMessage(error, "Failed to add app"));
+      setErrorText(toActionableErrorMessage(error, "Failed to add selected items"));
     } finally {
       setIsAddingApp(false);
       setLoadingText("");
@@ -1043,7 +1105,7 @@ export function App() {
               type="button"
               aria-expanded={isAddAppPopoverOpen}
               aria-label="Add app"
-              onClick={() => setIsAddAppPopoverOpen(true)}
+              onClick={openAddAppPopover}
             >
               +
             </Button>
@@ -1675,58 +1737,24 @@ export function App() {
           </section>
         </div>
       ) : null}
-      {isAddAppPopoverOpen ? (
-        <div
-          className="dialog-backdrop"
-          onClick={() => setIsAddAppPopoverOpen(false)}
-          role="presentation"
-        >
-          <section
-            className="dialog-card ui-card add-app-dialog-card"
-            role="dialog"
-            aria-modal="true"
-            aria-label="Add app"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <header className="dialog-header">
-              <h2>Add App</h2>
-              <button
-                type="button"
-                className="dialog-close"
-                aria-label="Close"
-                onClick={() => setIsAddAppPopoverOpen(false)}
-              >
-                ×
-              </button>
-            </header>
-            <div className="dialog-content">
-              <form className="add-app-popup-form" onSubmit={onAddApp}>
-                <div className="add-app-controls">
-                  <select
-                    id="add-app-type"
-                    value={addAppMode}
-                    onChange={(event) => setAddAppMode(event.target.value as ManualAddType)}
-                    disabled={isAnyAppMutationInFlight || isColdStart}
-                  >
-                    <option value="app">App</option>
-                    <option value="research">Research</option>
-                  </select>
-                  <Input
-                    id="add-app-input"
-                    type="text"
-                    placeholder={addAppMode === "app" ? "App ID" : "Research name"}
-                    value={addAppInput}
-                    onChange={(event) => setAddAppInput(event.target.value)}
-                  />
-                  <Button id="add-app-submit" type="submit" disabled={isAnyAppMutationInFlight || isColdStart}>
-                    {isAddingApp ? "Adding..." : "Add"}
-                  </Button>
-                </div>
-              </form>
-            </div>
-          </section>
-        </div>
-      ) : null}
+      <AddAppDialog
+        open={isAddAppPopoverOpen}
+        onClose={closeAddAppPopover}
+        onSubmit={onAddApp}
+        searchTerm={addAppSearchTerm}
+        onSearchTermChange={setAddAppSearchTerm}
+        inputRef={addAppSearchInputRef}
+        candidates={addAppCandidates}
+        selectedCandidates={selectedAddCandidates}
+        onToggleCandidateSelection={toggleAddCandidateSelection}
+        selectedCount={selectedAddCandidateList.length}
+        isSearching={isAddAppSearching}
+        searchError={addAppSearchError}
+        trimmedSearchTerm={trimmedAddAppSearchTerm}
+        isBusy={isAnyAppMutationInFlight}
+        isColdStart={isColdStart}
+        isOwnedAppId={(appId) => existingOwnedAppIds.has(appId)}
+      />
       <AuthDialog
         open={authModalOpen}
         statusLabel={authStatusLabel}

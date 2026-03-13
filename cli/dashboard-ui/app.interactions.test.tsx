@@ -37,6 +37,7 @@ function buildFetchMock(params: {
   keywordsByAppId: Record<string, unknown[]>;
   appDocsById?: Record<string, unknown>;
   topAppsByKeyword?: Record<string, unknown>;
+  appSearchByTerm?: Record<string, { appDocs: unknown[] }>;
   onPostApps?: (payload: any) => void;
   onDeleteKeywords?: (payload: any) => void;
   onRetryFailed?: (payload: any) => void;
@@ -68,6 +69,19 @@ function buildFetchMock(params: {
         .map((id) => params.appDocsById?.[id])
         .filter((value): value is unknown => value !== undefined);
       return jsonResponse(200, { success: true, data: docs });
+    }
+
+    if (method === "GET" && url.startsWith("/api/aso/apps/search?")) {
+      const query = new URLSearchParams(url.split("?")[1] ?? "");
+      const term = decodeURIComponent(query.get("term") ?? "");
+      const payload = params.appSearchByTerm?.[term] ?? { appDocs: [] };
+      return jsonResponse(200, {
+        success: true,
+        data: {
+          term,
+          appDocs: payload.appDocs,
+        },
+      });
     }
 
     if (method === "GET" && url.startsWith("/api/aso/keywords?")) {
@@ -156,7 +170,7 @@ describe("dashboard app interactions", () => {
     localStorage.clear();
   });
 
-  it("adds an app from dialog and sends app payload", async () => {
+  it("adds selected apps from search and sends app payload", async () => {
     let postedPayload: any = null;
     const fetchMock = buildFetchMock({
       initialApps: [{ id: DEFAULT_RESEARCH_APP_ID, name: "Research" }],
@@ -171,6 +185,11 @@ describe("dashboard app interactions", () => {
       appDocsById: {
         "123": { appId: "123", name: "Owned App", averageUserRating: 4.8, userRatingCount: 12 },
       },
+      appSearchByTerm: {
+        "123": {
+          appDocs: [{ appId: "123", name: "Owned App" }],
+        },
+      },
       onPostApps: (payload) => {
         postedPayload = payload;
       },
@@ -183,13 +202,20 @@ describe("dashboard app interactions", () => {
     fireEvent.click(screen.getByRole("button", { name: "Add app" }));
     await screen.findByRole("dialog", { name: "Add app" });
 
-    fireEvent.change(screen.getByPlaceholderText("App ID"), {
+    fireEvent.change(
+      screen.getByPlaceholderText(
+        "Search apps, app IDs, or developer names. You can also add this text as research."
+      ),
+      {
       target: { value: "123" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Add" }));
+      }
+    );
+    const appResult = await screen.findByRole("button", { name: /Owned App/i });
+    fireEvent.click(appResult);
+    fireEvent.click(screen.getByRole("button", { name: "Add Selected (1)" }));
 
     await waitFor(() => expect(postedPayload).toEqual({ type: "app", appId: "123" }));
-    await screen.findByText("App added.");
+    await screen.findByText("Added 1 item.");
     expect(screen.getByText("Owned App")).toBeInTheDocument();
   });
 

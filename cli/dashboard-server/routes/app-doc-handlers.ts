@@ -7,7 +7,10 @@ import {
   upsertCompetitorAppDocs,
   upsertOwnedAppDocs,
 } from "../../db/aso-apps";
-import { getAsoAppDocsLocal } from "../../services/keywords/aso-local-cache-service";
+import {
+  getAsoAppDocsLocal,
+  refreshAsoKeywordOrderLocal,
+} from "../../services/keywords/aso-local-cache-service";
 import { chunkArray, getMissingOrExpiredAppIds } from "../refresh-utils";
 import {
   DEFAULT_ASO_COUNTRY,
@@ -16,6 +19,8 @@ import {
 import type { AsoApiAppDoc, AsoRouteDeps } from "./aso-route-types";
 
 const ASO_APP_DOCS_MAX_BATCH_SIZE = 50;
+const ASO_APP_SEARCH_DEFAULT_LIMIT = 20;
+const ASO_APP_SEARCH_MAX_LIMIT = 50;
 
 function mergeHydratedCompetitorDoc(
   existing: AsoApiAppDoc | undefined,
@@ -86,6 +91,93 @@ export async function fetchAsoAppDocsFromApi(
 }
 
 export function createAppDocHandlers(deps: AsoRouteDeps) {
+  async function handleApiAsoAppsSearchGet(
+    res: http.ServerResponse,
+    query: Record<string, string>
+  ): Promise<void> {
+    const country = normalizeCountry(query.country);
+    const term = (query.term ?? "").trim();
+    const requestedLimit = Number.parseInt(
+      query.limit ?? String(ASO_APP_SEARCH_DEFAULT_LIMIT),
+      10
+    );
+    const limit = Number.isFinite(requestedLimit) && requestedLimit > 0
+      ? Math.min(requestedLimit, ASO_APP_SEARCH_MAX_LIMIT)
+      : ASO_APP_SEARCH_DEFAULT_LIMIT;
+
+    logger.debug("[aso-dashboard] request", {
+      method: "GET",
+      path: "/api/aso/apps/search",
+      country,
+      term,
+      limit,
+    });
+
+    if (!term) {
+      deps.sendJson(res, 200, { success: true, data: { term: "", appDocs: [] } });
+      return;
+    }
+
+    const candidateIds: string[] = [];
+    if (/^\d+$/.test(term)) {
+      candidateIds.push(term);
+    }
+
+    try {
+      const orderData = await refreshAsoKeywordOrderLocal(country, term);
+      candidateIds.push(...orderData.orderedAppIds);
+    } catch (error) {
+      deps.reportDashboardError(error, {
+        method: "GET",
+        path: "/api/aso/apps/search",
+        country,
+        term,
+        context: "apps-search-order",
+      });
+    }
+
+    const ids = Array.from(new Set(candidateIds)).slice(0, limit);
+    if (ids.length === 0) {
+      deps.sendJson(res, 200, { success: true, data: { term, appDocs: [] } });
+      return;
+    }
+
+    try {
+      const docs = await fetchAsoAppDocsFromApi(country, ids);
+      const appDocs = docs.map((doc) => ({
+        appId: doc.appId,
+        name: doc.name,
+        icon: doc.icon,
+        iconArtwork: doc.iconArtwork,
+      }));
+      logger.debug("[aso-dashboard] response", {
+        method: "GET",
+        path: "/api/aso/apps/search",
+        status: 200,
+        term,
+        idsCount: ids.length,
+        appDocCount: appDocs.length,
+      });
+      deps.sendJson(res, 200, {
+        success: true,
+        data: {
+          term,
+          appDocs,
+        },
+      });
+    } catch (error) {
+      deps.reportDashboardError(error, {
+        method: "GET",
+        path: "/api/aso/apps/search",
+        country,
+        term,
+        idsCount: ids.length,
+        context: "apps-search-hydration",
+      });
+      deps.sendApiError(res, 500, "NETWORK_ERROR", "Failed to search apps.");
+    }
+  }
+
   async function handleApiAsoTopAppsGet(
     res: http.ServerResponse,
     query: Record<string, string>
@@ -255,6 +347,7 @@ export function createAppDocHandlers(deps: AsoRouteDeps) {
   }
 
   return {
+    handleApiAsoAppsSearchGet,
     handleApiAsoTopAppsGet,
     handleApiAsoAppsGet,
   };

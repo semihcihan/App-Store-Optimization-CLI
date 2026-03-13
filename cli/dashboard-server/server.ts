@@ -283,6 +283,11 @@ export function createServerRequestHandler(): http.RequestListener {
         return;
       }
 
+      if (req.method === "GET" && pathname === "/api/aso/apps/search") {
+        await asoRouteHandlers.handleApiAsoAppsSearchGet(res, query);
+        return;
+      }
+
       if (req.method === "POST" && pathname === "/api/aso/keywords") {
         await runAsForegroundMutation(() =>
           asoRouteHandlers.handleApiAsoKeywordsPost(req, res)

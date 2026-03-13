@@ -129,35 +129,135 @@ body {
 }
 
 .dialog-card.add-app-dialog-card {
-  width: min(340px, 88vw);
-}
-
-.add-app-controls {
-  display: grid;
-  grid-template-columns: 110px 1fr auto;
-  gap: 8px;
+  width: min(620px, 92vw);
 }
 
 .add-app-popup-form {
   margin-top: 2px;
-}
-
-#add-app-type {
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: color-mix(in oklab, var(--card) 88%, transparent);
-  color: var(--foreground);
-  font: inherit;
-  font-size: 0.82rem;
-  padding: 8px;
+  display: grid;
+  gap: 10px;
 }
 
 #add-app-input {
   min-width: 0;
 }
 
+#add-app-input::placeholder {
+  font-size: 0.8rem;
+}
+
+.add-app-search-list {
+  display: grid;
+  gap: 8px;
+  max-height: min(420px, 50vh);
+  overflow-y: auto;
+  padding: 2px;
+}
+
+.add-app-search-item {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 20px 44px minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+  padding: 8px 10px;
+  border: 1px solid color-mix(in oklab, var(--border) 90%, transparent);
+  border-radius: 10px;
+  background: color-mix(in oklab, var(--card) 90%, transparent);
+  color: var(--foreground);
+  text-align: left;
+  cursor: pointer;
+}
+
+.add-app-search-item:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.add-app-search-item:hover:not(:disabled) {
+  border-color: color-mix(in oklab, var(--primary) 36%, transparent);
+  background: color-mix(in oklab, var(--primary) 14%, transparent);
+}
+
+.add-app-search-item.selected {
+  border-color: color-mix(in oklab, var(--primary) 62%, transparent);
+  background: color-mix(in oklab, var(--primary) 22%, transparent);
+}
+
+.add-app-search-check {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1rem;
+  height: 1rem;
+  border-radius: 999px;
+  border: 1px solid color-mix(in oklab, var(--primary) 58%, transparent);
+  color: var(--primary);
+  font-size: 0.72rem;
+  line-height: 1;
+}
+
+.add-app-search-icon,
+.add-app-search-icon-fallback,
+.add-app-search-research {
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
+}
+
+.add-app-search-icon {
+  object-fit: cover;
+}
+
+.add-app-search-icon-fallback,
+.add-app-search-research {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid color-mix(in oklab, var(--border) 80%, transparent);
+  background: color-mix(in oklab, var(--muted) 72%, transparent);
+  color: var(--muted-foreground);
+  font-size: 0.95rem;
+  font-weight: 700;
+}
+
+.add-app-search-research {
+  border-color: color-mix(in oklab, var(--primary) 42%, transparent);
+  color: color-mix(in oklab, var(--primary) 72%, white);
+}
+
+.add-app-search-content {
+  min-width: 0;
+}
+
+.add-app-search-title {
+  display: block;
+  font-size: 0.87rem;
+  line-height: 1.2;
+}
+
+.add-app-search-meta {
+  display: block;
+  margin-top: 2px;
+  color: var(--muted-foreground);
+  font-size: 0.76rem;
+}
+
+.add-app-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.add-app-selection-summary {
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: 0.8rem;
+}
+
 #add-app-submit {
-  min-width: 64px;
+  min-width: 148px;
 }
 
 .apps-list {
@@ -2135,32 +2235,6 @@ td.updated-value {
   min-width: 2rem;
   height: 2rem;
   border-radius: var(--radius-sm);
-}
-
-.dialog-card.add-app-dialog-card {
-  width: min(360px, 92vw);
-}
-
-.add-app-controls {
-  grid-template-columns: 112px 1fr auto;
-  gap: 8px;
-}
-
-#add-app-type {
-  border: 1px solid var(--input);
-  border-radius: var(--radius-sm);
-  background: var(--bg-1);
-  color: var(--foreground);
-  font-size: 12px;
-  padding: 8px;
-}
-
-#add-app-input {
-  min-width: 0;
-}
-
-#add-app-submit {
-  min-width: 64px;
 }
 
 .app-shell.sidebar-collapsed .sidebar-subtitle,

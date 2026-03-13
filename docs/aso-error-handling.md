@@ -37,6 +37,10 @@ Define failure boundaries, retry rules, and recovery behavior across CLI, dashbo
 - Top-app and app-doc hydration:
   - Missing/expired docs trigger backend fetch.
   - On hydration failure, return available cached data when possible.
+- Dashboard app search (`GET /api/aso/apps/search`):
+  - Empty search terms return an empty list.
+  - If search-order lookup fails, numeric app-id input can still hydrate via direct lookup.
+  - If final hydration fails, return `NETWORK_ERROR`.
 - CLI keyword fetch:
   - Returns `{ items, failedKeywords }` for partial success.
   - Hard-fails only when all requested keywords fail.

@@ -16,7 +16,10 @@ import {
   upsertCompetitorAppDocs,
   upsertOwnedAppDocs,
 } from "../db/aso-apps";
-import { getAsoAppDocsLocal } from "../services/keywords/aso-local-cache-service";
+import {
+  getAsoAppDocsLocal,
+  refreshAsoKeywordOrderLocal,
+} from "../services/keywords/aso-local-cache-service";
 import { asoAuthService } from "../services/auth/aso-auth-service";
 import { keywordPipelineService } from "../services/keywords/keyword-pipeline-service";
 import { isAsoAuthReauthRequiredError } from "../services/keywords/aso-popularity-service";
@@ -99,6 +102,12 @@ jest.mock("../services/telemetry/error-reporter", () => ({
 
 jest.mock("../services/keywords/aso-local-cache-service", () => ({
   getAsoAppDocsLocal: jest.fn(async () => []),
+  refreshAsoKeywordOrderLocal: jest.fn(async () => ({
+    keyword: "",
+    normalizedKeyword: "",
+    appCount: 0,
+    orderedAppIds: [],
+  })),
 }));
 
 jest.mock("../utils/logger", () => ({
@@ -185,6 +194,7 @@ describe("dashboard server routes", () => {
   const mockGetOwnedAppDocs = jest.mocked(getOwnedAppDocs);
   const mockUpsertOwnedAppDocs = jest.mocked(upsertOwnedAppDocs);
   const mockGetAsoAppDocsLocal = jest.mocked(getAsoAppDocsLocal);
+  const mockRefreshAsoKeywordOrderLocal = jest.mocked(refreshAsoKeywordOrderLocal);
   const mockReAuthenticate = jest.mocked(asoAuthService.reAuthenticate);
   const mockFetchKeywordStage = jest.mocked(
     keywordPipelineService.runPopularityStage
@@ -205,6 +215,12 @@ describe("dashboard server routes", () => {
     mockGetCompetitorAppDocs.mockReturnValue([]);
     mockGetOwnedAppDocs.mockReturnValue([]);
     mockGetAsoAppDocsLocal.mockResolvedValue([]);
+    mockRefreshAsoKeywordOrderLocal.mockResolvedValue({
+      keyword: "",
+      normalizedKeyword: "",
+      appCount: 0,
+      orderedAppIds: [],
+    });
     mockReAuthenticate.mockResolvedValue("ok");
     mockFetchKeywordStage.mockResolvedValue({
       hits: [],
@@ -682,6 +698,81 @@ describe("dashboard server routes", () => {
         }),
       ])
     );
+  });
+
+  it("searches apps by term and supports numeric app-id lookup", async () => {
+    mockRefreshAsoKeywordOrderLocal.mockResolvedValue({
+      keyword: "focus",
+      normalizedKeyword: "focus",
+      appCount: 2,
+      orderedAppIds: ["a1", "a2"],
+    });
+    mockGetAsoAppDocsLocal.mockResolvedValueOnce([
+      {
+        appId: "a1",
+        country: "US",
+        name: "Focus One",
+        icon: { template: "https://example.com/a1/{w}x{h}.{f}" },
+      },
+      {
+        appId: "a2",
+        country: "US",
+        name: "Focus Two",
+        iconArtwork: { url: "https://example.com/a2.png" },
+      },
+    ] as any);
+
+    const searchByTerm = await request({
+      method: "GET",
+      path: "/api/aso/apps/search?country=US&term=focus&limit=2",
+    });
+
+    expect(searchByTerm.statusCode).toBe(200);
+    expect(searchByTerm.json?.data).toEqual({
+      term: "focus",
+      appDocs: [
+        {
+          appId: "a1",
+          name: "Focus One",
+          icon: { template: "https://example.com/a1/{w}x{h}.{f}" },
+        },
+        {
+          appId: "a2",
+          name: "Focus Two",
+          iconArtwork: { url: "https://example.com/a2.png" },
+        },
+      ],
+    });
+    expect(mockRefreshAsoKeywordOrderLocal).toHaveBeenCalledWith("US", "focus");
+
+    mockRefreshAsoKeywordOrderLocal.mockResolvedValueOnce({
+      keyword: "123",
+      normalizedKeyword: "123",
+      appCount: 0,
+      orderedAppIds: [],
+    });
+    mockGetAsoAppDocsLocal.mockResolvedValueOnce([
+      {
+        appId: "123",
+        country: "US",
+        name: "Lookup Result",
+      },
+    ] as any);
+
+    const searchById = await request({
+      method: "GET",
+      path: "/api/aso/apps/search?country=US&term=123",
+    });
+    expect(searchById.statusCode).toBe(200);
+    expect(searchById.json?.data).toEqual({
+      term: "123",
+      appDocs: [
+        {
+          appId: "123",
+          name: "Lookup Result",
+        },
+      ],
+    });
   });
 
   it("serves owned apps endpoint and delete keyword endpoint", async () => {

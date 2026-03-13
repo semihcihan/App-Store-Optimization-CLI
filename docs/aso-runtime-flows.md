@@ -21,7 +21,7 @@ Runtime flow contracts across CLI commands, local dashboard API, and ASO service
 - `aso auth`: run only Apple Search Ads reauthentication.
 - `aso reset-credentials`: clear saved ASO keychain credentials and local cookies.
 - MCP `aso_suggest`: accept explicit keywords (max 100), run `aso keywords "<comma-separated-keywords>" --stdout`, return scored suggestions.
-- Dashboard API mutations: app add, keyword add/delete, auth start.
+- Dashboard API mutations: app add (single-item POST; UI may batch multiple selections), keyword add/delete, auth start.
 
 ## Boundary Ownership
 - Domain policy (`cli/domain/keywords/*`, `cli/domain/errors/*`) is shared across CLI/server/UI for country guardrails, keyword normalization, limits, and dashboard-safe error/message mapping.
@@ -96,6 +96,14 @@ Runtime flow contracts across CLI commands, local dashboard API, and ASO service
 ## Flow E: App Doc Hydration
 - `GET /api/aso/top-apps`: read ordered IDs from keyword, return competitor docs, hydrate missing/expired docs.
 - `GET /api/aso/apps`: return owned docs for requested IDs, hydrate missing/expired docs (or all docs when `refresh=true`).
+- `GET /api/aso/apps/search`: resolve ordered IDs for a free-text term using the same App Store order-search pipeline used by keyword ordering, then hydrate docs for the top IDs.
+
+## Flow E2: Dashboard Add Apps
+1. User opens add-app dialog and types a search term.
+2. UI debounces search requests and calls `GET /api/aso/apps/search`.
+3. UI always prepends a research candidate row (`Research: <typed text>`) so the typed value can be added as a research app even when Apple search has no app hits.
+4. UI allows multi-select across search results and submits one `POST /api/apps` per selected entry (`type="app"` or `type="research"`).
+5. After submission, UI refreshes app list + app docs and selects the latest successfully added app when available.
 
 ## Rank Delta Contract
 - `app_keywords.previous_position` stores prior rank per `(app, keyword, country)`.
