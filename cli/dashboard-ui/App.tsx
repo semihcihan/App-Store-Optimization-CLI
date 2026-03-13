@@ -1017,7 +1017,10 @@ export function App() {
       <aside className="sidebar ui-card" aria-label="Apps">
         <div className="sidebar-header">
           <div className="sidebar-header-top">
-            <h1>ASO Dashboard</h1>
+            <div className="sidebar-brand">
+              <img src="/aso-sidebar-icon.png" alt="" className="sidebar-brand-icon" aria-hidden="true" />
+              <h1>ASO Dashboard</h1>
+            </div>
             <Button
               id="toggle-sidebar"
               className={isCompactLayout ? "hidden" : ""}

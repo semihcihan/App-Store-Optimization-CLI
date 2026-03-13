@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ASO App Icon</title>
+  <style>
+    @import url("https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700;800&display=swap");
+
+    :root {
+      color-scheme: light;
+      --icon-size: 1024px;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      background: transparent;
+      font-family:
+        "JetBrains Mono",
+        ui-sans-serif,
+        -apple-system,
+        BlinkMacSystemFont,
+        "Segoe UI",
+        sans-serif;
+    }
+
+    main {
+      width: var(--icon-size);
+      height: var(--icon-size);
+      border-radius: 22.5%;
+      position: relative;
+      overflow: hidden;
+      display: grid;
+      place-items: center;
+      background:
+        radial-gradient(circle at 18% 14%, rgba(178, 225, 255, 0.38) 0%, rgba(178, 225, 255, 0) 42%),
+        radial-gradient(circle at 82% 90%, rgba(160, 206, 255, 0.52) 0%, rgba(160, 206, 255, 0) 48%),
+        radial-gradient(circle at center, #8ecbff 0%, #75bfff 30%, #5caeff 58%, #3f95ef 82%, #2c78cf 100%);
+      box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.18),
+        inset 0 -30px 78px rgba(9, 14, 13, 0.16);
+    }
+
+    main::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(
+        180deg,
+        rgba(255, 255, 255, 0.14) 0%,
+        rgba(255, 255, 255, 0.06) 18%,
+        rgba(255, 255, 255, 0) 40%
+      );
+      pointer-events: none;
+    }
+
+    main::after {
+      content: "";
+      position: relative;
+      inset: 0;
+      box-shadow: inset 0 0 0 1px rgba(235, 255, 245, 0.32);
+      pointer-events: none;
+    }
+
+    .bg-layer,
+    .fg-layer {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+    }
+
+    .bg-layer {
+      z-index: 0;
+    }
+
+    .fg-layer {
+      z-index: 1;
+    }
+
+    .mark {
+      position: absolute;
+      inset: 0;
+      z-index: 2;
+      display: grid;
+      place-items: center;
+      pointer-events: none;
+    }
+
+    .wordmark {
+      position: relative;
+      margin: 0;
+      color: #163c72;
+      letter-spacing: -0.05em;
+      font-size: calc(var(--icon-size) * 0.34);
+      font-weight: 800;
+      line-height: 1;
+      transform: translateY(calc(var(--icon-size) * -0.002));
+      text-shadow: 0 1px 0 rgba(235, 247, 255, 0.7);
+    }
+  </style>
+</head>
+<body>
+  <main aria-label="ASO app icon">
+    <svg class="bg-layer" viewBox="0 0 1024 1024" aria-hidden="true">
+      <circle cx="180" cy="220" r="240" fill="#cde9ff" fill-opacity="0.4" />
+      <circle cx="850" cy="830" r="300" fill="#b8dbff" fill-opacity="0.36" />
+      <circle cx="760" cy="250" r="130" fill="#d9f0ff" fill-opacity="0.24" />
+      <rect x="-140" y="560" width="820" height="240" rx="108" transform="rotate(-17 270 680)" fill="#c8e4ff" fill-opacity="0.34" />
+      <rect x="430" y="90" width="590" height="190" rx="95" transform="rotate(17 725 185)" fill="#dcefff" fill-opacity="0.2" />
+    </svg>
+    <svg class="fg-layer" viewBox="0 0 1024 1024" aria-hidden="true">
+      <rect x="164" y="164" width="696" height="696" rx="236" fill="#eef8ff" fill-opacity="0.4" />
+      <rect x="214" y="214" width="596" height="596" rx="202" fill="#f3faff" fill-opacity="0.48" />
+      <circle cx="512" cy="512" r="348" fill="none" stroke="#e3f3ff" stroke-opacity="0.54" stroke-width="14" />
+    </svg>
+    <div class="mark" aria-hidden="true">
+      <p class="wordmark">ASO</p>
+    </div>
+  </main>
+</body>
+</html>

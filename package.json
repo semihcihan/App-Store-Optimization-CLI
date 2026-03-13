@@ -14,6 +14,7 @@
     "pretest": "npm run check:node",
     "pretypecheck": "npm run check:node",
     "generate-mcp-content": "node cli/mcp/generate-mcp-content.js",
+    "generate:app-icon": "node scripts/render-app-icon.js",
     "build": "node esbuild.config.js",
     "build:watch": "node esbuild.config.js --watch",
     "watch": "npm run build:watch",
@@ -53,7 +54,7 @@
   ],
   "license": "MIT",
   "engines": {
-    "node": ">=18.0.0",
+    "node": ">=20.18.1",
     "npm": ">=8.0.0"
   },
   "homepage": "https://github.com/semihcihan/App-Store-Optimization-CLI",
@@ -99,6 +100,7 @@
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
     "ts-jest": "^29.4.0",
+    "playwright": "^1.54.2",
     "typescript": "^5.8.3",
     "vite": "^7.1.4",
     "yaml": "^2.8.2"

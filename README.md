@@ -1,6 +1,10 @@
 <h1 align="center">App Store Optimization CLI</h1>
 
 <p align="center">
+  <img src="./assets/app-icon/aso-icon-readme.png" alt="ASO icon" width="132" />
+</p>
+
+<p align="center">
   <a href="https://www.npmjs.com/package/aso-cli"><img src="https://img.shields.io/npm/v/aso-cli" alt="npm version" /></a>
   <a href="./LICENSE"><img src="https://img.shields.io/badge/license-MIT-green.svg" alt="License: MIT" /></a>
   <a href="https://www.npmjs.com/package/aso-cli"><img src="https://img.shields.io/node/v/aso-cli" alt="Node.js" /></a>
@@ -23,15 +27,17 @@ Research ASO keywords, inspect competition, and manage results from one local-fi
 npm install -g aso-cli
 ```
 
-## Runtime Requirement
+## App Icon Assets
 
-- Runtime: Node.js `>=18.0.0`.
-- Local development/build: Node.js `>=20.19.0` (Vite toolchain requirement).
-- If you use `nvm`, run:
+Source file: [`assets/app-icon/app-icon.html`](./assets/app-icon/app-icon.html)
 
 ```bash
-nvm use 20
+npm run generate:app-icon
 ```
+
+## Runtime Requirement
+
+- Node.js `>=20.18.1`.
 
 ## Apple Search Ads Setup
 
@@ -75,14 +81,14 @@ aso
 
 ## Command Reference
 
-| Command | What it does |
-| --- | --- |
-| `aso` | Starts the local dashboard (default command) |
-| `aso keywords "k1,k2,k3"` | Fetches keyword popularity/difficulty and prints JSON |
+| Command                         | What it does                                            |
+| ------------------------------- | ------------------------------------------------------- |
+| `aso`                           | Starts the local dashboard (default command)            |
+| `aso keywords "k1,k2,k3"`       | Fetches keyword popularity/difficulty and prints JSON   |
 | `aso keywords "k1,k2" --stdout` | Machine-safe non-interactive mode for automation/agents |
-| `aso auth` | Reauthenticates Apple Search Ads session |
-| `aso reset-credentials` | Clears saved credentials/cookies |
-| `aso --primary-app-id <id>` | Sets primary App ID used for popularity requests |
+| `aso auth`                      | Reauthenticates Apple Search Ads session                |
+| `aso reset-credentials`         | Clears saved credentials/cookies                        |
+| `aso --primary-app-id <id>`     | Sets primary App ID used for popularity requests        |
 
 ### Supported flags
 
