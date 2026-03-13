@@ -17,11 +17,11 @@ jest.mock("../../services/telemetry/error-reporter", () => ({
 }));
 
 import { runAsoCommand } from "../execute-aso-cli";
-import { handleAsoSuggest } from "./aso-suggest";
+import { handleAsoEvaluateKeywords } from "./aso-evaluate-keywords";
 import { saveKeywordsToDefaultResearchApp } from "../../services/keywords/aso-research-keyword-service";
 import { reportBugsnagError } from "../../services/telemetry/error-reporter";
 
-describe("aso_suggest service", () => {
+describe("aso_evaluate_keywords service", () => {
   const mockRunAsoCommand = jest.mocked(runAsoCommand);
   const mockSaveKeywordsToDefaultResearchApp = jest.mocked(
     saveKeywordsToDefaultResearchApp
@@ -46,7 +46,7 @@ describe("aso_suggest service", () => {
       exitCode: 0,
     });
 
-    await handleAsoSuggest({
+    await handleAsoEvaluateKeywords({
       keywords: ["Foo", "Bar"],
     });
 
@@ -67,7 +67,7 @@ describe("aso_suggest service", () => {
       exitCode: 0,
     });
 
-    await handleAsoSuggest({
+    await handleAsoEvaluateKeywords({
       keywords: ["Foo, Bar"],
     });
 
@@ -79,7 +79,7 @@ describe("aso_suggest service", () => {
   });
 
   it("returns MCP error when more than 100 keywords are provided", async () => {
-    const result = await handleAsoSuggest({
+    const result = await handleAsoEvaluateKeywords({
       keywords: Array.from({ length: 101 }, (_, index) => `kw${index}`),
     });
 
@@ -116,7 +116,7 @@ describe("aso_suggest service", () => {
       exitCode: 0,
     });
 
-    const result = await handleAsoSuggest({
+    const result = await handleAsoEvaluateKeywords({
       keywords: ["romantic", "story game"],
       minPopularity: 15,
       maxDifficulty: 50,
@@ -144,7 +144,7 @@ describe("aso_suggest service", () => {
       exitCode: 0,
     });
 
-    const result = await handleAsoSuggest({
+    const result = await handleAsoEvaluateKeywords({
       keywords: ["foo"],
     });
 
@@ -155,7 +155,7 @@ describe("aso_suggest service", () => {
       expect.any(Error),
       expect.objectContaining({
         surface: "aso-mcp",
-        tool: "aso_suggest",
+        tool: "aso_evaluate_keywords",
         stage: "parse-envelope",
         exitCode: 0,
       })
@@ -169,7 +169,7 @@ describe("aso_suggest service", () => {
       exitCode: 0,
     });
 
-    const result = await handleAsoSuggest({
+    const result = await handleAsoEvaluateKeywords({
       keywords: ["foo"],
     });
 
@@ -179,7 +179,7 @@ describe("aso_suggest service", () => {
       expect.any(Error),
       expect.objectContaining({
         surface: "aso-mcp",
-        tool: "aso_suggest",
+        tool: "aso_evaluate_keywords",
         stage: "parse-json",
         exitCode: 0,
       })
@@ -200,7 +200,7 @@ describe("aso_suggest service", () => {
     });
 
     await expect(
-      handleAsoSuggest({
+      handleAsoEvaluateKeywords({
         keywords: ["foo"],
       })
     ).rejects.toThrow("persist failed");
@@ -208,7 +208,7 @@ describe("aso_suggest service", () => {
       expect.objectContaining({ message: "persist failed" }),
       expect.objectContaining({
         surface: "aso-mcp",
-        tool: "aso_suggest",
+        tool: "aso_evaluate_keywords",
         stage: "persist",
       })
     );

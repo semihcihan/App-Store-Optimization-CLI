@@ -17,7 +17,7 @@ type AsoToolKeywordItem = {
   minDifficultyScore?: unknown;
 };
 
-export const asoSuggestInputSchema = z.object({
+export const asoEvaluateKeywordsInputSchema = z.object({
   keywords: z
     .array(
       z
@@ -36,7 +36,7 @@ export const asoSuggestInputSchema = z.object({
   maxDifficulty: z.number().optional(),
 });
 
-export type AsoSuggestArgs = z.infer<typeof asoSuggestInputSchema>;
+export type AsoEvaluateKeywordsArgs = z.infer<typeof asoEvaluateKeywordsInputSchema>;
 
 function isMeaningfulToken(token: string): boolean {
   return token.length >= 2 && /[a-z0-9]/.test(token);
@@ -129,7 +129,7 @@ function buildFailureResult(message: string) {
   };
 }
 
-export async function handleAsoSuggest(args: AsoSuggestArgs) {
+export async function handleAsoEvaluateKeywords(args: AsoEvaluateKeywordsArgs) {
   const minPopularity = Math.max(
     args.minPopularity ?? DEFAULT_MIN_POPULARITY,
     ABSOLUTE_MIN_POPULARITY
@@ -157,7 +157,7 @@ export async function handleAsoSuggest(args: AsoSuggestArgs) {
   if (parsedJson == null) {
     reportBugsnagError(new Error("MCP expected JSON output from aso keywords"), {
       surface: "aso-mcp",
-      tool: "aso_suggest",
+      tool: "aso_evaluate_keywords",
       stage: "parse-json",
       command: "keywords",
       exitCode: commandResult.exitCode,
@@ -166,9 +166,9 @@ export async function handleAsoSuggest(args: AsoSuggestArgs) {
       telemetryHint: {
         classification: "actionable_bug",
         surface: "aso-mcp",
-        source: "mcp.aso-suggest.parse-json",
+        source: "mcp.aso-evaluate-keywords.parse-json",
         stage: "parse",
-        tool: "aso_suggest",
+        tool: "aso_evaluate_keywords",
       },
     });
     return buildFailureResult(
@@ -184,7 +184,7 @@ export async function handleAsoSuggest(args: AsoSuggestArgs) {
       ),
       {
         surface: "aso-mcp",
-        tool: "aso_suggest",
+        tool: "aso_evaluate_keywords",
         stage: "parse-envelope",
         command: "keywords",
         exitCode: commandResult.exitCode,
@@ -193,9 +193,9 @@ export async function handleAsoSuggest(args: AsoSuggestArgs) {
         telemetryHint: {
           classification: "actionable_bug",
           surface: "aso-mcp",
-          source: "mcp.aso-suggest.parse-envelope",
+          source: "mcp.aso-evaluate-keywords.parse-envelope",
           stage: "parse",
-          tool: "aso_suggest",
+          tool: "aso_evaluate_keywords",
         },
       }
     );
@@ -241,15 +241,15 @@ export async function handleAsoSuggest(args: AsoSuggestArgs) {
     } catch (error) {
       reportBugsnagError(error, {
         surface: "aso-mcp",
-        tool: "aso_suggest",
+        tool: "aso_evaluate_keywords",
         stage: "persist",
         acceptedCount: accepted.length,
         telemetryHint: {
           classification: "actionable_bug",
           surface: "aso-mcp",
-          source: "mcp.aso-suggest.persist",
+          source: "mcp.aso-evaluate-keywords.persist",
           stage: "persist",
-          tool: "aso_suggest",
+          tool: "aso_evaluate_keywords",
         },
       });
       throw error;

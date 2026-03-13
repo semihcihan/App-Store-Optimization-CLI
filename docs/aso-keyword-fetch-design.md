@@ -2,7 +2,7 @@
 
 ## Scope
 Design for `aso keywords` (including `--stdout`) and dashboard keyword-add flow: lookup, popularity, enrichment, and persistence.
-Also covers MCP keyword suggestion entrypoint (`aso_suggest`) that evaluates explicit keywords + CLI invocation.
+Also covers MCP keyword evaluation entrypoint (`aso_evaluate_keywords`) that evaluates explicit keywords + CLI invocation.
 
 ## Constraints
 - Storefront: `US` only.
@@ -99,7 +99,7 @@ Keyword-level difficulty:
 - Failure DB table: `aso_keyword_failures` keyed by `(country, normalized_keyword)` for current failed state.
 - Local DB stores `difficultyScore` and `minDifficultyScore` as rounded integers on write.
 - Interactive `aso keywords` runs (without `--stdout`) save requested keywords into `app_keywords` for the default research app (`research`) so failed terms stay visible in dashboard research workspace.
-- MCP `aso_suggest` saves only accepted keywords into the same default research app association.
+- MCP `aso_evaluate_keywords` saves only accepted keywords into the same default research app association.
 - Dashboard keyword reads include app-associated failures even when no `aso_keywords` cache row exists yet, marking those rows as failed for retry UX.
 - Cache API repository is SQLite-backed and reuses local DB tables for keyword/app-doc cache lookups.
 - No separate JSON cache file is used for ASO keyword/app-doc cache state.
@@ -122,7 +122,7 @@ Keyword-level difficulty:
 - `POST /api/aso/keywords/retry-failed`
 
 ## MCP Surface
-- Tool: `aso_suggest`
+- Tool: `aso_evaluate_keywords`
 - Country: always `US` (country is not user-configurable at MCP level)
 - Input: required `keywords` array (strings). Each item can be a single-word or long-tail phrase. Comma-separated entries are normalized and split.
 - Max request size: `100` provided keywords (enforced by MCP handler)

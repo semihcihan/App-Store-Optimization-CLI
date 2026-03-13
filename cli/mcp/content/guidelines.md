@@ -1,6 +1,6 @@
 ## ASO MCP Guidelines
 
-Use `aso_suggest` to evaluate explicit ASO keyword candidates (US storefront only).
+Use `aso_evaluate_keywords` to evaluate explicit ASO keyword candidates (US storefront only).
 
 ## Tool Input
 
@@ -26,4 +26,4 @@ If machine-safe execution fails because interactive Apple Search Ads auth is req
 aso auth
 ```
 
-Then retry `aso_suggest`.
+Then retry `aso_evaluate_keywords`.

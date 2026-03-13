@@ -20,7 +20,7 @@ Runtime flow contracts across CLI commands, local dashboard API, and ASO service
 - `aso keywords "..." --stdout`: machine-safe mode; attempts silent reauth and fails when interactive user input is required.
 - `aso auth`: run only Apple Search Ads reauthentication.
 - `aso reset-credentials`: clear saved ASO keychain credentials and local cookies.
-- MCP `aso_suggest`: accept explicit keywords (max 100), run `aso keywords "<comma-separated-keywords>" --stdout`, return scored suggestions.
+- MCP `aso_evaluate_keywords`: accept explicit keywords (max 100), run `aso keywords "<comma-separated-keywords>" --stdout`, return evaluated keyword results.
 - Dashboard API mutations: app add (single-item POST; UI may batch multiple selections), keyword add/delete, auth start.
 
 ## Boundary Ownership
@@ -121,7 +121,7 @@ Runtime flow contracts across CLI commands, local dashboard API, and ASO service
 - In ASO research, a `keyword` is a search term candidate and may be a long-tail phrase, not only a single word.
 - In App Store metadata fields, keywords are comma-separated terms under a `100`-character limit.
 
-## Flow F: MCP ASO Suggest (`aso_suggest`)
+## Flow F: MCP ASO Evaluate Keywords (`aso_evaluate_keywords`)
 1. Read required `keywords` input.
 2. Treat each input as a search term candidate (single-word or long-tail phrase), then split comma-separated entries, normalize (`trim + lowercase`), and dedupe valid candidates.
 3. Return an MCP error when provided keyword count is greater than `100`.

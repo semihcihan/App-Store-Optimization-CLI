@@ -3,9 +3,9 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { version } from "../../package.json";
 import {
-  asoSuggestInputSchema,
-  handleAsoSuggest,
-} from "./services/aso-suggest";
+  asoEvaluateKeywordsInputSchema,
+  handleAsoEvaluateKeywords,
+} from "./services/aso-evaluate-keywords";
 import { assertSupportedNodeVersion } from "../services/runtime/node-version-guard";
 import { reportBugsnagError } from "../services/telemetry/error-reporter";
 
@@ -17,24 +17,24 @@ const server = new McpServer(
     title: "ASO MCP Server",
     version,
     description:
-      "MCP server for ASO keyword suggestion and scoring through the standalone ASO CLI.",
+      "MCP server for ASO keyword evaluation and scoring through the standalone ASO CLI.",
     websiteUrl: "https://github.com/semihcihan/App-Store-Optimization-CLI",
   },
   {
     instructions:
-      "Use `aso_suggest` to evaluate explicit ASO keyword candidates. The tool returns only accepted keywords with compact scores.",
+      "Use `aso_evaluate_keywords` to evaluate explicit ASO keyword candidates. The tool returns only accepted keywords with compact scores.",
   }
 );
 
 server.registerTool(
-  "aso_suggest",
+  "aso_evaluate_keywords",
   {
-    title: "Suggest and evaluate ASO keywords",
+    title: "Evaluate ASO keywords",
     description:
       "Evaluates explicit ASO search terms (single-word or multi-word long-tail phrases) and returns only accepted keywords with compact metrics: keyword, popularity, difficulty, minDifficultyScore.",
-    inputSchema: asoSuggestInputSchema,
+    inputSchema: asoEvaluateKeywordsInputSchema,
   },
-  handleAsoSuggest
+  handleAsoEvaluateKeywords
 );
 
 async function main() {

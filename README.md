@@ -18,7 +18,7 @@ Research ASO keywords, inspect competition, and manage results from one local-fi
 - Fast, free keyword research and visibility tracking
 - Keyword scoring with popularity + difficulty in one command
 - Local dashboard for reviewing keyword/app data
-- MCP tool (`aso_suggest`) for agent workflows and automated keyword research
+- MCP tool (`aso_evaluate_keywords`) for agent workflows and automated keyword research
 - Local persistence and reusable auth session
 
 ## Install
@@ -110,7 +110,7 @@ aso
 
 ## MCP
 
-This package also installs `aso-mcp` with tool: `aso_suggest`.
+This package also installs `aso-mcp` with tool: `aso_evaluate_keywords`.
 
 Example MCP config:
 

@@ -48,7 +48,7 @@ export function runAsoCommand(args: string[]): Promise<AsoCommandResult> {
           surface: "aso-mcp",
           source: "mcp.execute-aso-cli.spawn",
           stage: "spawn",
-          tool: "aso_suggest",
+          tool: "aso_evaluate_keywords",
         },
       });
       reject(err);
@@ -81,7 +81,7 @@ export function runAsoCommand(args: string[]): Promise<AsoCommandResult> {
           surface: "aso-mcp",
           source: "mcp.execute-aso-cli.transport",
           stage: "transport",
-          tool: "aso_suggest",
+          tool: "aso_evaluate_keywords",
         },
       });
       resolve({ stdout, stderr: err.message, exitCode: 1 });

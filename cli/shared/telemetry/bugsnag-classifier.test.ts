@@ -149,7 +149,7 @@ describe("bugsnag-classifier", () => {
       {
         telemetryHint: {
           surface: "aso-mcp",
-          source: "mcp.aso-suggest.parse-envelope",
+          source: "mcp.aso-evaluate-keywords.parse-envelope",
           operation: "keywords-popularities-request",
           isTerminal: true,
         },
@@ -164,7 +164,7 @@ describe("bugsnag-classifier", () => {
     expect(metadata).toEqual(
       expect.objectContaining({
         surface: "aso-mcp",
-        source: "mcp.aso-suggest.parse-envelope",
+        source: "mcp.aso-evaluate-keywords.parse-envelope",
         operation: "keywords-popularities-request",
         isTerminal: true,
       })
