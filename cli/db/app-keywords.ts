@@ -1,11 +1,11 @@
 import type { StoredAppKeyword } from "./types";
 import { getDb } from "./store";
+import {
+  DEFAULT_ASO_COUNTRY,
+  normalizeKeyword,
+} from "../domain/keywords/policy";
 
-const COUNTRY = "US";
-
-function normalizeKeyword(kw: string): string {
-  return kw.trim().toLowerCase();
-}
+const COUNTRY = DEFAULT_ASO_COUNTRY;
 
 export function listByApp(appId: string, country: string = COUNTRY): StoredAppKeyword[] {
   const db = getDb();

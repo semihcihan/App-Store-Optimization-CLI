@@ -2,6 +2,7 @@ import { z } from "zod";
 import { runAsoCommand, toMcpToolResult } from "../execute-aso-cli";
 import { saveKeywordsToDefaultResearchApp } from "../../services/keywords/aso-research-keyword-service";
 import { ASO_MAX_KEYWORDS } from "../../shared/aso-keyword-limits";
+import { sanitizeKeywords } from "../../domain/keywords/policy";
 
 const DEFAULT_MIN_POPULARITY = 15;
 const DEFAULT_MAX_DIFFICULTY = 70;
@@ -52,26 +53,11 @@ function isKeywordCandidate(candidate: string): boolean {
 }
 
 function splitKeywords(rawKeywords: string[]): string[] {
-  return rawKeywords
-    .flatMap((keyword) => keyword.split(","))
-    .map((keyword) => keyword.trim().toLowerCase())
-    .filter((keyword) => keyword !== "");
+  return rawKeywords.flatMap((keyword) => keyword.split(","));
 }
 
 function normalizeKeywords(keywords: string[]): string[] {
-  const seen = new Set<string>();
-  const deduped: string[] = [];
-  for (const keyword of keywords) {
-    if (!isKeywordCandidate(keyword)) {
-      continue;
-    }
-    if (seen.has(keyword)) {
-      continue;
-    }
-    seen.add(keyword);
-    deduped.push(keyword);
-  }
-  return deduped;
+  return sanitizeKeywords(keywords).filter((keyword) => isKeywordCandidate(keyword));
 }
 
 function parseJsonFromStdout(stdout: string): unknown | null {

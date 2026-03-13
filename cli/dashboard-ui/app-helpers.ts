@@ -1,4 +1,10 @@
 import { notifyDashboardError } from "./bugsnag";
+import {
+  authFlowErrorMessage as authFlowErrorMessageFromDomain,
+  isAuthFlowErrorCode as isAuthFlowErrorCodeFromDomain,
+  toDashboardActionableErrorMessage,
+} from "../domain/errors/dashboard-errors";
+import { DEFAULT_ASO_COUNTRY as DOMAIN_DEFAULT_ASO_COUNTRY } from "../domain/keywords/policy";
 
 export type AppDoc = {
   appId: string;
@@ -35,7 +41,7 @@ export type TopAppRow = AppDoc & {
   rank: number;
 };
 
-export const DEFAULT_ASO_COUNTRY = "US";
+export const DEFAULT_ASO_COUNTRY = DOMAIN_DEFAULT_ASO_COUNTRY;
 
 const APP_STORE_LANGUAGE_BY_COUNTRY: Record<string, string> = {
   US: "en-us",
@@ -62,91 +68,18 @@ export function getDashboardApiErrorCode(error: unknown): string | null {
 }
 
 export function isAuthFlowErrorCode(code: string | null): boolean {
-  return (
-    code === "AUTH_REQUIRED" ||
-    code === "AUTH_IN_PROGRESS" ||
-    code === "TTY_REQUIRED"
-  );
+  return isAuthFlowErrorCodeFromDomain(code);
 }
 
 export function authFlowErrorMessage(code: string | null): string {
-  if (code === "AUTH_IN_PROGRESS") {
-    return "Reauthentication is already in progress. If prompted, complete it in terminal.";
-  }
-  if (code === "TTY_REQUIRED") {
-    return "Reauthentication requires an interactive terminal. Start dashboard from a terminal and retry.";
-  }
-  return "Apple Search Ads session expired. Reauthenticate to continue.";
+  return authFlowErrorMessageFromDomain(code);
 }
 
 export function toActionableErrorMessage(
   error: unknown,
   fallbackMessage: string
 ): string {
-  const rawMessage = error instanceof Error ? error.message : String(error ?? "");
-  const message = rawMessage.trim();
-  const lower = message.toLowerCase();
-  const status = error instanceof DashboardApiError ? error.status : null;
-  const errorCode = error instanceof DashboardApiError ? error.errorCode : null;
-  const isPrimaryAppIdAccessError =
-    lower.includes("primary app id") ||
-    lower.includes("no_user_owned_apps_found_code") ||
-    lower.includes("no user owned apps found");
-
-  if (errorCode === "MISSING_APPLE_CREDENTIALS") {
-    return "Apple Search Ads authentication is missing or expired. Run 'aso auth' in a terminal, then retry.";
-  }
-  if (errorCode === "AUTH_REQUIRED") {
-    return "Apple Search Ads session expired. Use Reauthenticate and retry.";
-  }
-  if (errorCode === "AUTH_IN_PROGRESS") {
-    return "Reauthentication is in progress. If prompted, complete it in terminal, then retry.";
-  }
-  if (errorCode === "TTY_REQUIRED") {
-    return "Reauthentication requires an interactive terminal. Start dashboard from terminal and retry.";
-  }
-  if (isPrimaryAppIdAccessError) {
-    return message || "Primary App ID is not accessible for this Apple Ads account.";
-  }
-  if (errorCode === "AUTHORIZATION_FAILED") {
-    return "Authorization failed. Verify your Apple account access and retry.";
-  }
-  if (errorCode === "RATE_LIMITED") {
-    return "Rate limited by upstream API. Wait a bit and retry.";
-  }
-  if (errorCode === "REQUEST_TIMEOUT") {
-    return "Request timed out. Retry in a moment.";
-  }
-  if (errorCode === "NETWORK_ERROR") {
-    return "Network issue while reaching the backend. Check your connection and retry.";
-  }
-  if (
-    status === 401 ||
-    status === 403 ||
-    lower.includes("unauthorized") ||
-    lower.includes("forbidden")
-  ) {
-    return "Authorization failed. Verify your Apple account access and retry.";
-  }
-  if (
-    status === 429 ||
-    lower.includes("too many requests") ||
-    lower.includes("rate limit")
-  ) {
-    return "Rate limited by upstream API. Wait a bit and retry.";
-  }
-  if (
-    lower.includes("request timed out") ||
-    lower.includes("timed out") ||
-    lower.includes("timeout")
-  ) {
-    return "Request timed out. Retry in a moment.";
-  }
-  if (lower.includes("failed to fetch") || lower.includes("networkerror")) {
-    return "Network issue while reaching the backend. Check your connection and retry.";
-  }
-
-  return fallbackMessage;
+  return toDashboardActionableErrorMessage(error, fallbackMessage);
 }
 
 export async function apiRequest<T>(

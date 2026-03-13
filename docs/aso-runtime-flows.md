@@ -23,6 +23,18 @@ Runtime flow contracts across CLI commands, local dashboard API, and ASO service
 - MCP `aso_suggest`: accept explicit keywords (max 100), run `aso keywords "<comma-separated-keywords>" --stdout`, return scored suggestions.
 - Dashboard API mutations: app add, keyword add/delete, auth start.
 
+## Boundary Ownership
+- Domain policy (`cli/domain/keywords/*`, `cli/domain/errors/*`) is shared across CLI/server/UI for country guardrails, keyword normalization, limits, and dashboard-safe error/message mapping.
+- `keywordPipelineService` (`cli/services/keywords/keyword-pipeline-service.ts`) is the only keyword orchestration entrypoint.
+- `keywordWriteRepository` (`cli/services/keywords/keyword-write-repository.ts`) is the only write-side owner for keyword cache rows, failure rows, competitor app docs, and previous-position updates.
+- Dashboard HTTP wiring is split by concern:
+  - bootstrap (`server.ts`)
+  - auth state (`auth-state.ts`)
+  - request/response helpers (`http-utils.ts`)
+  - apps handlers (`apps-handler.ts`)
+  - keyword/app-doc handlers (`routes/keyword-handlers.ts`, `routes/app-doc-handlers.ts`)
+  - static assets (`static-files.ts`)
+
 ## Flow A: CLI Keyword Fetch
 1. Normalize and validate keywords.
 2. Cache lookup (`/aso/cache-lookup`).

@@ -1,8 +1,5 @@
 import type { CommandModule } from "yargs";
-import {
-  parseKeywords,
-  fetchAndPersistKeywords,
-} from "../services/keywords/aso-keyword-service";
+import { keywordPipelineService } from "../services/keywords/keyword-pipeline-service";
 import { startDashboard } from "../dashboard-server";
 import { asoKeychainService } from "../services/auth/aso-keychain-service";
 import { asoCookieStoreService } from "../services/auth/aso-cookie-store-service";
@@ -14,8 +11,12 @@ import {
   ASO_MAX_KEYWORDS,
   ASO_MAX_KEYWORDS_PER_CALL_ERROR,
 } from "../shared/aso-keyword-limits";
+import {
+  DEFAULT_ASO_COUNTRY,
+  assertSupportedCountry,
+  normalizeCountry,
+} from "../domain/keywords/policy";
 
-const DEFAULT_COUNTRY = "US";
 const AUTH_REAUTH_REQUIRED_ERROR_CODE = "ASO_AUTH_REAUTH_REQUIRED";
 const STDOUT_INTERACTIVE_AUTH_REQUIRED_MESSAGE =
   "This run needs interactive Apple Search Ads reauthentication. Run 'aso auth' in a terminal, then retry this command with --stdout.";
@@ -35,9 +36,9 @@ function isAllKeywordsFailedError(error: unknown): boolean {
 async function fetchKeywordsForStdout(
   country: string,
   keywords: string[]
-): Promise<Awaited<ReturnType<typeof fetchAndPersistKeywords>>> {
+): Promise<Awaited<ReturnType<typeof keywordPipelineService.run>>> {
   try {
-    return await fetchAndPersistKeywords(country, keywords, {
+    return await keywordPipelineService.run(country, keywords, {
       allowInteractiveAuthRecovery: false,
     });
   } catch (error) {
@@ -52,7 +53,7 @@ async function fetchKeywordsForStdout(
     },
   });
 
-  return fetchAndPersistKeywords(country, keywords, {
+  return keywordPipelineService.run(country, keywords, {
     allowInteractiveAuthRecovery: false,
   });
 }
@@ -75,7 +76,7 @@ const asoCommand: CommandModule = {
       })
       .option("country", {
         type: "string",
-        default: DEFAULT_COUNTRY,
+        default: DEFAULT_ASO_COUNTRY,
         describe: "Storefront country code (currently US only)",
       })
       .option("stdout", {
@@ -107,10 +108,8 @@ const asoCommand: CommandModule = {
       return;
     }
 
-    const country = (argv.country as string).toUpperCase();
-    if (country !== DEFAULT_COUNTRY) {
-      throw new Error("Only US is supported for now");
-    }
+    const country = normalizeCountry(argv.country as string);
+    assertSupportedCountry(country);
 
     if (!subcommand) {
       if (stdout || argv.terms != null) {
@@ -127,7 +126,9 @@ const asoCommand: CommandModule = {
       throw new Error(`Unsupported ASO subcommand: ${subcommand}`);
     }
 
-    const keywords = parseKeywords(argv.terms as string | undefined);
+    const keywords = keywordPipelineService.parseKeywords(
+      argv.terms as string | undefined
+    );
     if (keywords.length === 0) {
       throw new Error(
         "`aso keywords` requires a comma-separated keyword argument."
@@ -139,11 +140,11 @@ const asoCommand: CommandModule = {
 
     await resolveAsoAdamId({ adamId: primaryAppId, allowPrompt: !stdout });
 
-    let result: Awaited<ReturnType<typeof fetchAndPersistKeywords>>;
+    let result: Awaited<ReturnType<typeof keywordPipelineService.run>>;
     try {
       result = stdout
         ? await fetchKeywordsForStdout(country, keywords)
-        : await fetchAndPersistKeywords(country, keywords);
+        : await keywordPipelineService.run(country, keywords);
     } catch (error) {
       if (!stdout && isAllKeywordsFailedError(error)) {
         const savedCount = saveKeywordsToDefaultResearchApp(keywords, country);

@@ -9,7 +9,6 @@ import {
   DEFAULT_ASO_COUNTRY,
   apiGet,
   apiWrite,
-  authFlowErrorMessage,
   buildAppStoreUrl,
   buildTopAppRows,
   copyTextToClipboard,
@@ -20,10 +19,8 @@ import {
   formatSignedNumber,
   getBrowserLocale,
   getChange,
-  getDashboardApiErrorCode,
   getIconUrl,
   getNumberDelta,
-  isAuthFlowErrorCode,
   roundTo,
   toActionableErrorMessage,
 } from "./app-helpers";
@@ -31,6 +28,13 @@ import {
   ASO_MAX_KEYWORDS,
   ASO_MAX_KEYWORDS_PER_REQUEST_ERROR,
 } from "../shared/aso-keyword-limits";
+import { useFiltersSort, type SortDir, type SortKey } from "./hooks/use-filters-sort";
+import { useSelection } from "./hooks/use-selection";
+import { sanitizeKeywords } from "../domain/keywords/policy";
+import { useAuthFlow } from "./hooks/use-auth-flow";
+import { StatusBanners } from "./components/status-banners";
+import { AuthDialog } from "./components/auth-dialog";
+import { KeywordActionMenu } from "./components/keyword-action-menu";
 
 type AppItem = { id: string; name: string; lastKeywordAddedAt?: string | null };
 type ManualAddType = "app" | "research";
@@ -64,8 +68,6 @@ type KeywordDetails = {
   appDocs: AppDoc[];
 };
 
-type SortKey = "keyword" | "popularity" | "difficulty" | "appCount" | "rank" | "change" | "updatedAt";
-type SortDir = "asc" | "desc";
 type FilterMenuKey = "popularity" | "difficulty" | "rank";
 type KeywordActionMenuState = {
   x: number;
@@ -96,11 +98,6 @@ const DEFAULT_SORT_DIRECTION_BY_KEY: Record<SortKey, SortDir> = {
   change: "asc",
   updatedAt: "desc",
 };
-const SORT_STORAGE_KEY = "aso-dashboard:keyword-sort";
-const DEFAULT_SORT_STATE: { key: SortKey; dir: SortDir } = {
-  key: "updatedAt",
-  dir: "desc",
-};
 const SORT_LABEL_BY_KEY: Record<SortKey, string> = {
   keyword: "Keyword",
   popularity: "Popularity",
@@ -125,48 +122,6 @@ const MOBILE_BREAKPOINT = "(max-width: 980px)";
 const STATUS_MESSAGE_TIMEOUT_MS = 4000;
 const STARTUP_REFRESH_STATUS_POLL_INTERVAL_SECONDS = 10;
 
-function isSortKey(value: unknown): value is SortKey {
-  return (
-    value === "keyword" ||
-    value === "popularity" ||
-    value === "difficulty" ||
-    value === "appCount" ||
-    value === "rank" ||
-    value === "change" ||
-    value === "updatedAt"
-  );
-}
-
-function isSortDir(value: unknown): value is SortDir {
-  return value === "asc" || value === "desc";
-}
-
-function getStoredSortState(): { key: SortKey; dir: SortDir } {
-  if (typeof window === "undefined") return DEFAULT_SORT_STATE;
-  try {
-    const raw = localStorage.getItem(SORT_STORAGE_KEY);
-    if (!raw) return DEFAULT_SORT_STATE;
-    const parsed: unknown = JSON.parse(raw);
-    if (!parsed || typeof parsed !== "object") return DEFAULT_SORT_STATE;
-    const maybeKey = (parsed as { key?: unknown }).key;
-    const maybeDir = (parsed as { dir?: unknown }).dir;
-    if (!isSortKey(maybeKey) || !isSortDir(maybeDir)) return DEFAULT_SORT_STATE;
-    return { key: maybeKey, dir: maybeDir };
-  } catch {
-    return DEFAULT_SORT_STATE;
-  }
-}
-
-type DashboardAuthStatus = "idle" | "in_progress" | "failed" | "succeeded";
-
-type DashboardAuthStatusPayload = {
-  status: DashboardAuthStatus;
-  updatedAt: string | null;
-  lastError: string | null;
-  requiresTerminalAction: boolean;
-  canPrompt: boolean;
-};
-
 type StartupRefreshStatus = "idle" | "running" | "completed" | "failed";
 
 type StartupRefreshStatusPayload = {
@@ -179,10 +134,6 @@ type StartupRefreshStatusPayload = {
     refreshedKeywordCount: number;
     failedKeywordCount: number;
   };
-};
-
-type PendingAddContext = {
-  keywords: string[];
 };
 
 type AddedAppPayload = {
@@ -233,17 +184,6 @@ function CheckIcon() {
   );
 }
 
-function normalizeKeywordInput(rawInput: string): string[] {
-  const unique = new Set<string>();
-  for (const token of rawInput.split(",")) {
-    const normalized = token.trim().toLowerCase();
-    if (normalized) {
-      unique.add(normalized);
-    }
-  }
-  return Array.from(unique);
-}
-
 export function App() {
   const [apps, setApps] = useState<AppItem[]>([]);
   const [appDocsById, setAppDocsById] = useState<Record<string, AppDoc>>({});
@@ -259,16 +199,6 @@ export function App() {
   });
   const [keywords, setKeywords] = useState<Row[]>([]);
   const [failedKeywordCount, setFailedKeywordCount] = useState(0);
-  const [selectedKeywords, setSelectedKeywords] = useState<Set<string>>(new Set());
-  const [selectionAnchor, setSelectionAnchor] = useState<string | null>(null);
-
-  const [keywordFilter, setKeywordFilter] = useState("");
-  const [maxDifficulty, setMaxDifficulty] = useState(DEFAULT_MAX_DIFFICULTY);
-  const [minPopularity, setMinPopularity] = useState(DEFAULT_MIN_POPULARITY);
-  const [minRank, setMinRank] = useState(DEFAULT_MIN_RANK);
-  const [maxRank, setMaxRank] = useState(DEFAULT_MAX_RANK);
-  const [sortBy, setSortBy] = useState<SortKey>(() => getStoredSortState().key);
-  const [sortDir, setSortDir] = useState<SortDir>(() => getStoredSortState().dir);
   const [openFilterMenu, setOpenFilterMenu] = useState<FilterMenuKey | null>(null);
   const [keywordActionMenu, setKeywordActionMenu] = useState<KeywordActionMenuState | null>(null);
 
@@ -294,13 +224,6 @@ export function App() {
   const [topAppsRows, setTopAppsRows] = useState<TopAppRow[]>([]);
   const [topAppsLoading, setTopAppsLoading] = useState(false);
   const [topAppsError, setTopAppsError] = useState("");
-  const [authModalOpen, setAuthModalOpen] = useState(false);
-  const [authStatus, setAuthStatus] = useState<DashboardAuthStatus>("idle");
-  const [authCanPrompt, setAuthCanPrompt] = useState(true);
-  const [authNeedsTerminalAction, setAuthNeedsTerminalAction] = useState(false);
-  const [authStatusError, setAuthStatusError] = useState("");
-  const [isStartingAuth, setIsStartingAuth] = useState(false);
-  const [pendingAddContext, setPendingAddContext] = useState<PendingAddContext | null>(null);
   const [startupRefreshState, setStartupRefreshState] =
     useState<StartupRefreshStatusPayload | null>(null);
   const [displayLocale] = useState(() => getBrowserLocale());
@@ -315,6 +238,51 @@ export function App() {
     (isResearchAppId(selectedAppId) ? "Research" : selectedAppId);
   const isSelectedAppResearch = isResearchAppId(selectedAppId);
   const showRankingColumns = !isSelectedAppResearch;
+  const {
+    keywordFilter,
+    setKeywordFilter,
+    maxDifficulty,
+    setMaxDifficulty,
+    minPopularity,
+    setMinPopularity,
+    minRank,
+    setMinRank,
+    maxRank,
+    setMaxRank,
+    sortBy,
+    setSortBy,
+    sortDir,
+    setSortDir,
+    filteredRows,
+  } = useFiltersSort({
+    keywords,
+    showRankingColumns,
+  });
+  const {
+    selectedKeywords,
+    setSelectedKeywords,
+    setSelectionAnchor,
+    onSelectRow: onSelectKeywordRow,
+  } = useSelection({
+    keywords,
+    filteredRows,
+  });
+  const {
+    authModalOpen,
+    authStatus,
+    authStatusError,
+    isStartingAuth,
+    pendingAddContext,
+    setPendingAddContext,
+    openAuthModalForPendingAdd,
+    startReauthentication,
+    authCheckLoadingText,
+    authStatusLabel,
+    canStartReauth,
+    showReauthButton,
+  } = useAuthFlow({
+    isAddingKeywords,
+  });
   const researchApps = apps.filter((app) => isResearchAppId(app.id));
   const ownedApps = apps.filter((app) => !isResearchAppId(app.id));
   const emptyStateText =
@@ -384,12 +352,6 @@ export function App() {
     });
     setKeywords(rows);
     setFailedKeywordCount(rows.filter((row) => row.keywordStatus === "failed").length);
-    const keep = new Set(rows.map((r) => r.keyword));
-    setSelectedKeywords((prev) => {
-      const next = new Set(Array.from(prev).filter((kw) => keep.has(kw)));
-      return next;
-    });
-    setSelectionAnchor((prev) => (prev && !keep.has(prev) ? null : prev));
   }, []);
 
   useEffect(() => {
@@ -449,15 +411,6 @@ export function App() {
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    try {
-      localStorage.setItem(SORT_STORAGE_KEY, JSON.stringify({ key: sortBy, dir: sortDir }));
-    } catch {
-      // no-op
-    }
-  }, [sortBy, sortDir]);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
     const media = window.matchMedia(MOBILE_BREAKPOINT);
     const update = (event?: MediaQueryListEvent) => {
       setIsCompactLayout(event ? event.matches : media.matches);
@@ -500,21 +453,6 @@ export function App() {
     const timeout = window.setTimeout(() => setCopiedAppId(null), 1500);
     return () => window.clearTimeout(timeout);
   }, [copiedAppId]);
-
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      const target = event.target as HTMLElement | null;
-      const tag = target?.tagName?.toLowerCase();
-      if (tag === "input" || tag === "textarea" || tag === "select" || target?.isContentEditable) return;
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "a") {
-        event.preventDefault();
-        setSelectedKeywords(new Set(keywords.map((row) => row.keyword)));
-        setSelectionAnchor(keywords.length > 0 ? keywords[0].keyword : null);
-      }
-    };
-    document.addEventListener("keydown", onKeyDown);
-    return () => document.removeEventListener("keydown", onKeyDown);
-  }, [keywords]);
 
   useEffect(() => {
     if (!openFilterMenu) return;
@@ -623,104 +561,13 @@ export function App() {
     return () => window.clearInterval(id);
   }, [hasPendingDifficulty, loadKeywords, selectedAppId]);
 
-  const filteredRows = useMemo(() => {
-    const term = keywordFilter.trim().toLowerCase();
-    const hasPopularityMinBound = minPopularity > 0;
-    const hasDifficultyMaxBound = maxDifficulty < DEFAULT_MAX_DIFFICULTY;
-    const hasRankLowerBound = minRank > 0;
-    const hasRankUpperBound = maxRank !== DEFAULT_MAX_RANK;
-    const hasRankFilter = showRankingColumns && (hasRankLowerBound || hasRankUpperBound);
-
-    let rows = keywords.filter((row) => {
-      if (term && !row.keyword.toLowerCase().includes(term)) return false;
-      if (
-        hasDifficultyMaxBound &&
-        row.difficultyScore != null &&
-        row.difficultyScore >= maxDifficulty
-      ) {
-        return false;
-      }
-      if (hasPopularityMinBound && row.popularity <= minPopularity) return false;
-      if (hasRankFilter) {
-        if (row.currentPosition == null) return false;
-        if (hasRankLowerBound && row.currentPosition <= minRank) return false;
-        if (hasRankUpperBound && row.currentPosition >= maxRank) return false;
-      }
-      return true;
-    });
-
-    rows = [...rows].sort((a, b) => {
-      const dir = sortDir === "desc" ? -1 : 1;
-      const compareNullable = (x: number | null, y: number | null) => {
-        if (x == null && y == null) return 0;
-        if (x == null) return 1;
-        if (y == null) return -1;
-        if (x === y) return 0;
-        return x > y ? dir : -dir;
-      };
-
-      switch (sortBy) {
-        case "keyword": {
-          const cmp = a.keyword.localeCompare(b.keyword);
-          return sortDir === "desc" ? -cmp : cmp;
-        }
-        case "updatedAt":
-          return compareNullable(a.updatedAt ? new Date(a.updatedAt).getTime() : null, b.updatedAt ? new Date(b.updatedAt).getTime() : null);
-        case "change":
-          return compareNullable(getChange(a), getChange(b));
-        case "rank":
-          return compareNullable(a.currentPosition, b.currentPosition);
-        case "difficulty":
-          return compareNullable(a.difficultyScore, b.difficultyScore);
-        case "appCount":
-          return compareNullable(a.appCount, b.appCount);
-        case "popularity":
-          return compareNullable(a.popularity, b.popularity);
-      }
-    });
-
-    return rows;
-  }, [keywords, keywordFilter, maxDifficulty, minPopularity, minRank, maxRank, showRankingColumns, sortBy, sortDir]);
-
-  useEffect(() => {
-    if (showRankingColumns) return;
-    if (sortBy !== "rank" && sortBy !== "change") return;
-    setSortBy(DEFAULT_SORT_STATE.key);
-    setSortDir(DEFAULT_SORT_STATE.dir);
-  }, [showRankingColumns, sortBy]);
-
-  const onSelectRow = (rowKeyword: string, rowIndex: number, event: React.MouseEvent<HTMLTableRowElement>) => {
+  const onSelectRow = (
+    rowKeyword: string,
+    rowIndex: number,
+    event: React.MouseEvent<HTMLTableRowElement>
+  ) => {
     setKeywordActionMenu(null);
-    if (event.shiftKey && selectionAnchor) {
-      const start = filteredRows.findIndex((r) => r.keyword === selectionAnchor);
-      if (start >= 0) {
-        const [from, to] = start <= rowIndex ? [start, rowIndex] : [rowIndex, start];
-        const next = new Set<string>();
-        for (let i = from; i <= to; i++) next.add(filteredRows[i].keyword);
-        setSelectedKeywords(next);
-        return;
-      }
-    }
-
-    if (event.metaKey || event.ctrlKey) {
-      setSelectedKeywords((prev) => {
-        const next = new Set(prev);
-        if (next.has(rowKeyword)) next.delete(rowKeyword);
-        else next.add(rowKeyword);
-        return next;
-      });
-      setSelectionAnchor(rowKeyword);
-      return;
-    }
-
-    if (selectedKeywords.size === 1 && selectedKeywords.has(rowKeyword)) {
-      setSelectedKeywords(new Set());
-      setSelectionAnchor(null);
-      return;
-    }
-
-    setSelectedKeywords(new Set([rowKeyword]));
-    setSelectionAnchor(rowKeyword);
+    onSelectKeywordRow(rowKeyword, rowIndex, event);
   };
 
   const onContextDelete = async (selected: string[]) => {
@@ -809,66 +656,6 @@ export function App() {
     [keywordActionMenu, onContextCopy]
   );
 
-  useEffect(() => {
-    if (!isStartingAuth && authStatus !== "in_progress") return;
-    let isActive = true;
-    const pollStatus = async () => {
-      try {
-        const data = await apiGet<DashboardAuthStatusPayload>("/api/aso/auth/status");
-        if (!isActive) return;
-        setAuthStatus(data.status);
-        setAuthCanPrompt(data.canPrompt);
-        setAuthNeedsTerminalAction(Boolean(data.requiresTerminalAction));
-        if (data.status === "failed") {
-          setAuthStatusError(data.lastError?.trim() || "Reauthentication failed.");
-          return;
-        }
-        if (data.status === "succeeded") {
-          setAuthStatusError("");
-          return;
-        }
-      } catch {
-        if (!isActive) return;
-      }
-    };
-
-    void pollStatus();
-    const timerId = window.setInterval(() => {
-      void pollStatus();
-    }, 1500);
-
-    return () => {
-      isActive = false;
-      window.clearInterval(timerId);
-    };
-  }, [authStatus, isStartingAuth]);
-
-  const openAuthModalForPendingAdd = useCallback(
-    (error: unknown, keywords: string[]): boolean => {
-      const errorCode = getDashboardApiErrorCode(error);
-      if (!isAuthFlowErrorCode(errorCode)) return false;
-      setPendingAddContext({ keywords });
-      if (errorCode === "AUTH_IN_PROGRESS") {
-        setAuthStatus("in_progress");
-        setAuthCanPrompt(true);
-        setAuthNeedsTerminalAction(false);
-        setAuthStatusError("");
-      } else if (errorCode === "TTY_REQUIRED") {
-        setAuthStatus("failed");
-        setAuthCanPrompt(false);
-        setAuthNeedsTerminalAction(true);
-        setAuthStatusError(authFlowErrorMessage(errorCode));
-      } else {
-        setAuthStatus("idle");
-        setAuthCanPrompt(true);
-        setAuthNeedsTerminalAction(false);
-        setAuthStatusError("");
-      }
-      return true;
-    },
-    []
-  );
-
   const submitKeywords = useCallback(
     async (kws: string[]): Promise<boolean> => {
       try {
@@ -884,8 +671,6 @@ export function App() {
         setAddInput("");
         setSuccessText("");
         setPendingAddContext(null);
-        setAuthNeedsTerminalAction(false);
-        setAuthModalOpen(false);
         await loadApps();
         await loadKeywords(selectedAppId);
         return true;
@@ -903,7 +688,7 @@ export function App() {
 
   const onAddKeywords = async (event: React.FormEvent) => {
     event.preventDefault();
-    const normalizedKeywords = normalizeKeywordInput(addInput);
+    const normalizedKeywords = sanitizeKeywords(addInput.split(","));
 
     if (normalizedKeywords.length === 0) {
       setErrorText("Please add at least one keyword.");
@@ -961,53 +746,6 @@ export function App() {
     }
   }, [failedKeywordCount, loadKeywords, selectedAppId]);
 
-  const onStartReauthentication = useCallback(async () => {
-    try {
-      setIsStartingAuth(true);
-      setAuthStatus("in_progress");
-      setAuthNeedsTerminalAction(false);
-      setAuthStatusError("");
-      const data = await apiWrite<DashboardAuthStatusPayload>("POST", "/api/aso/auth/start", {});
-      setAuthStatus(data.status);
-      setAuthCanPrompt(data.canPrompt);
-      setAuthNeedsTerminalAction(Boolean(data.requiresTerminalAction));
-    } catch (error) {
-      const errorCode = getDashboardApiErrorCode(error);
-      if (isAuthFlowErrorCode(errorCode)) {
-        setAuthStatusError(authFlowErrorMessage(errorCode));
-        if (errorCode === "AUTH_IN_PROGRESS") {
-          setAuthStatus("in_progress");
-          setAuthCanPrompt(true);
-          setAuthNeedsTerminalAction(false);
-        } else if (errorCode === "TTY_REQUIRED") {
-          setAuthStatus("failed");
-          setAuthCanPrompt(false);
-          setAuthNeedsTerminalAction(true);
-        }
-        return;
-      }
-      setAuthStatus("failed");
-      setAuthNeedsTerminalAction(false);
-      setAuthStatusError(toActionableErrorMessage(error, "Failed to start reauthentication."));
-    } finally {
-      setIsStartingAuth(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (!pendingAddContext) return;
-    if (authStatus !== "idle") return;
-    if (!authCanPrompt) return;
-    if (isStartingAuth) return;
-    void onStartReauthentication();
-  }, [
-    pendingAddContext,
-    authStatus,
-    authCanPrompt,
-    isStartingAuth,
-    onStartReauthentication,
-  ]);
-
   useEffect(() => {
     if (authStatus !== "succeeded") return;
     if (!pendingAddContext) return;
@@ -1018,26 +756,6 @@ export function App() {
       autoRetryInFlightRef.current = false;
     });
   }, [authStatus, pendingAddContext, submitKeywords]);
-
-  useEffect(() => {
-    if (!pendingAddContext) {
-      setAuthModalOpen(false);
-      return;
-    }
-    if (!authCanPrompt) {
-      setAuthModalOpen(true);
-      return;
-    }
-    if (authStatus === "failed") {
-      setAuthModalOpen(true);
-      return;
-    }
-    if (authNeedsTerminalAction) {
-      setAuthModalOpen(true);
-      return;
-    }
-    setAuthModalOpen(false);
-  }, [pendingAddContext, authCanPrompt, authStatus, authNeedsTerminalAction]);
 
   const onAddApp = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -1266,17 +984,6 @@ export function App() {
     );
   };
 
-  const pendingAddKeywordCount = pendingAddContext?.keywords.length ?? 0;
-  const authCheckLoadingText =
-    pendingAddContext &&
-    !authModalOpen &&
-    !isAddingKeywords &&
-    (isStartingAuth ||
-      authStatus === "idle" ||
-      authStatus === "in_progress" ||
-      authStatus === "succeeded")
-      ? `Checking Apple session for ${pendingAddKeywordCount} keyword${pendingAddKeywordCount === 1 ? "" : "s"}...`
-      : "";
   const effectiveLoadingText = loadingText || authCheckLoadingText;
   const showLoading = effectiveLoadingText !== "";
   const isColdStart = isInitialLoad && !hasCachedData;
@@ -1285,16 +992,6 @@ export function App() {
   const showError = !showLoading && errorText !== "";
   const showSuccess = !showLoading && !showError && successText !== "";
   const addButtonLabel = isCompactLayout ? "Add" : "Add Keywords";
-  const authStatusLabel =
-    !authCanPrompt
-      ? "Open dashboard from terminal to authenticate."
-      : authNeedsTerminalAction
-        ? "Complete reauthentication in the terminal that launched the dashboard."
-        : authStatus === "failed"
-          ? "Reauthentication failed. Try again."
-          : "";
-  const canStartReauth = authCanPrompt && !isStartingAuth;
-  const showReauthButton = authStatus === "failed" && authCanPrompt;
   const startupRefreshMessage = useMemo(() => {
     if (!startupRefreshState) return null;
     if (startupRefreshState.status === "running") {
@@ -1589,17 +1286,14 @@ export function App() {
                   : `Retry Failed (${failedKeywordCount})`}
               </Button>
             ) : null}
-            <div className="status-slot" aria-live="polite">
-              <p id="loading-text" className={`loading-text ${showLoading ? "visible" : ""}`}>
-                {effectiveLoadingText}
-              </p>
-              <p id="add-error" className={`error ${showError ? "visible" : ""}`}>
-                {errorText}
-              </p>
-              <p id="add-success" className={`success ${showSuccess ? "visible" : ""}`}>
-                {successText}
-              </p>
-            </div>
+            <StatusBanners
+              showLoading={showLoading}
+              loadingText={effectiveLoadingText}
+              showError={showError}
+              errorText={errorText}
+              showSuccess={showSuccess}
+              successText={successText}
+            />
           </form>
         </Card>
 
@@ -1837,29 +1531,16 @@ export function App() {
         </Card>
       </main>
       {keywordActionMenu ? (
-        <div
-          className="keyword-action-menu"
-          style={{ left: `${keywordActionMenu.x}px`, top: `${keywordActionMenu.y}px` }}
-          role="menu"
-          aria-label="Keyword actions"
-        >
-          <button
-            type="button"
-            className="keyword-action-item"
-            role="menuitem"
-            onClick={() => void onContextAction("copy")}
-          >
-            Copy
-          </button>
-          <button
-            type="button"
-            className="keyword-action-item danger"
-            role="menuitem"
-            onClick={() => void onContextAction("delete")}
-          >
-            Delete
-          </button>
-        </div>
+        <KeywordActionMenu
+          x={keywordActionMenu.x}
+          y={keywordActionMenu.y}
+          onCopy={() => {
+            void onContextAction("copy");
+          }}
+          onDelete={() => {
+            void onContextAction("delete");
+          }}
+        />
       ) : null}
       {topAppsKeyword ? (
         <div
@@ -2037,33 +1718,17 @@ export function App() {
           </section>
         </div>
       ) : null}
-      {authModalOpen ? (
-        <div className="dialog-backdrop auth-dialog-backdrop" role="presentation">
-          <section className="dialog-card ui-card auth-dialog-card" role="dialog" aria-modal="true" aria-label="Apple reauthentication required">
-            <header className="dialog-header">
-              <h2>Apple Reauthentication Required</h2>
-            </header>
-            <div className="dialog-content auth-dialog-content">
-              {authStatusLabel ? <p className="dialog-message">{authStatusLabel}</p> : null}
-              {authStatusError ? <p className="dialog-message error">{authStatusError}</p> : null}
-              <div className="auth-dialog-actions">
-                {showReauthButton ? (
-                  <Button
-                    type="button"
-                    className="auth-action-button"
-                    onClick={() => {
-                      void onStartReauthentication();
-                    }}
-                    disabled={!canStartReauth}
-                  >
-                    {isStartingAuth ? "Starting..." : "Reauthenticate"}
-                  </Button>
-                ) : null}
-              </div>
-            </div>
-          </section>
-        </div>
-      ) : null}
+      <AuthDialog
+        open={authModalOpen}
+        statusLabel={authStatusLabel}
+        statusError={authStatusError}
+        showReauthButton={showReauthButton}
+        canStartReauth={canStartReauth}
+        isStartingAuth={isStartingAuth}
+        onStartReauthentication={() => {
+          void startReauthentication();
+        }}
+      />
     </div>
   );
 }

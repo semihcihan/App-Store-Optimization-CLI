@@ -7,16 +7,10 @@ import {
 import {
   getKeyword,
   getKeywords,
-  upsertKeywords,
 } from "../../../db/aso-keywords";
 import {
   getCompetitorAppDocs,
-  upsertCompetitorAppDocs,
 } from "../../../db/aso-apps";
-import {
-  getAssociationsForKeyword,
-  setPreviousPosition,
-} from "../../../db/app-keywords";
 import type {
   AsoCacheRepository,
   AsoKeywordRecord,
@@ -26,6 +20,8 @@ import {
   isCompleteStoredAsoKeyword,
   isStoredKeywordCacheHit,
 } from "../../../shared/aso-keyword-validity";
+import { keywordWriteRepository } from "../../keywords/keyword-write-repository";
+import { normalizeCountry } from "../../../domain/keywords/policy";
 
 function isFiniteFutureIso(iso: string | undefined, nowMs: number): boolean {
   if (!iso) return false;
@@ -54,7 +50,7 @@ export class LocalAsoCacheRepository implements AsoCacheRepository {
     country: string;
     keywords: string[];
   }): Promise<{ hits: AsoKeywordRecord[]; misses: string[] }> {
-    const country = params.country.toUpperCase();
+    const country = normalizeCountry(params.country);
     const keywords = sanitizeKeywords(params.keywords);
     const nowMs = Date.now();
     const hits: AsoKeywordRecord[] = [];
@@ -84,71 +80,27 @@ export class LocalAsoCacheRepository implements AsoCacheRepository {
     }>;
     appDocs?: AsoAppDoc[];
   }): Promise<AsoKeywordRecord[]> {
-    const country = params.country.toUpperCase();
-    const orderExpiresAt = computeOrderExpiryIso();
-    const popularityExpiresAt = computePopularityExpiryIso();
-    const now = new Date().toISOString();
+    const country = normalizeCountry(params.country);
     const normalizedItems = params.items.map((item) => ({
       ...item,
       normalizedKeyword: normalizeKeyword(item.keyword),
     }));
-    const existingByNormalized = new Map(
-      getKeywords(
-        country,
-        normalizedItems.map((item) => item.normalizedKeyword)
-      ).map((keyword) => [keyword.normalizedKeyword, keyword] as const)
+    keywordWriteRepository.upsertKeywordItems(
+      country,
+      normalizedItems.map((item) => ({
+        keyword: item.keyword,
+        normalizedKeyword: item.normalizedKeyword,
+        popularity: item.popularity,
+        difficultyScore: item.difficultyScore,
+        minDifficultyScore: item.minDifficultyScore,
+        appCount: item.appCount,
+        keywordIncluded: item.keywordIncluded,
+        orderedAppIds: item.orderedAppIds,
+      }))
     );
 
-    for (const item of normalizedItems) {
-      const existing = existingByNormalized.get(item.normalizedKeyword);
-      if (!existing) continue;
-      const orderedIds = existing.orderedAppIds;
-      if (orderedIds.length === 0) continue;
-      const associations = getAssociationsForKeyword(item.keyword, country);
-      for (const assoc of associations) {
-        const idx = orderedIds.indexOf(assoc.appId);
-        if (idx >= 0) {
-          setPreviousPosition(item.keyword, country, assoc.appId, idx + 1);
-        }
-      }
-    }
-
-    const records: AsoKeywordRecord[] = normalizedItems.map((item) => ({
-      keyword: item.keyword,
-      normalizedKeyword: item.normalizedKeyword,
-      country,
-      popularity: item.popularity,
-      difficultyScore: item.difficultyScore,
-      minDifficultyScore: item.minDifficultyScore,
-      appCount: item.appCount,
-      keywordIncluded: item.keywordIncluded,
-      orderedAppIds: item.orderedAppIds,
-      createdAt: now,
-      updatedAt: now,
-      orderExpiresAt,
-      popularityExpiresAt,
-    }));
-
-    if (normalizedItems.length > 0) {
-      upsertKeywords(
-        country,
-        normalizedItems.map((item) => ({
-          keyword: item.keyword,
-          normalizedKeyword: item.normalizedKeyword,
-          popularity: item.popularity,
-          difficultyScore: item.difficultyScore,
-          minDifficultyScore: item.minDifficultyScore,
-          appCount: item.appCount,
-          keywordIncluded: item.keywordIncluded,
-          orderedAppIds: item.orderedAppIds,
-          orderExpiresAt,
-          popularityExpiresAt,
-        }))
-      );
-    }
-
     if (params.appDocs && params.appDocs.length > 0) {
-      upsertCompetitorAppDocs(
+      keywordWriteRepository.upsertCompetitorDocs(
         country,
         params.appDocs.map((app) => ({
           appId: app.appId,
@@ -167,7 +119,21 @@ export class LocalAsoCacheRepository implements AsoCacheRepository {
       );
     }
 
-    return records.map((fallback) => {
+    const existingByNormalized = new Map(
+      getKeywords(
+        country,
+        normalizedItems.map((item) => item.normalizedKeyword)
+      ).map((keyword) => [keyword.normalizedKeyword, keyword] as const)
+    );
+
+    return normalizedItems.map((fallback) => {
+      const existing = existingByNormalized.get(fallback.normalizedKeyword);
+      if (isCompleteStoredAsoKeyword(existing)) {
+        return {
+          ...existing,
+          popularityExpiresAt: existing.popularityExpiresAt,
+        };
+      }
       const stored = getKeyword(country, fallback.keyword);
       if (isCompleteStoredAsoKeyword(stored)) {
         return {
@@ -175,7 +141,22 @@ export class LocalAsoCacheRepository implements AsoCacheRepository {
           popularityExpiresAt: stored.popularityExpiresAt,
         };
       }
-      return fallback;
+      const now = new Date().toISOString();
+      return {
+        keyword: fallback.keyword,
+        normalizedKeyword: fallback.normalizedKeyword,
+        country,
+        popularity: fallback.popularity,
+        difficultyScore: fallback.difficultyScore,
+        minDifficultyScore: fallback.minDifficultyScore,
+        appCount: fallback.appCount,
+        keywordIncluded: fallback.keywordIncluded,
+        orderedAppIds: fallback.orderedAppIds,
+        createdAt: now,
+        updatedAt: now,
+        orderExpiresAt: computeOrderExpiryIso(),
+        popularityExpiresAt: computePopularityExpiryIso(),
+      };
     });
   }
 
@@ -183,7 +164,7 @@ export class LocalAsoCacheRepository implements AsoCacheRepository {
     country: string;
     appIds: string[];
   }): Promise<AsoAppDoc[]> {
-    const country = params.country.toUpperCase();
+    const country = normalizeCountry(params.country);
     const appIds = Array.from(
       new Set(params.appIds.map((appId) => appId.trim()).filter(Boolean))
     );

@@ -5,8 +5,9 @@ Define failure boundaries, retry rules, and recovery behavior across CLI, dashbo
 
 ## Failure Boundaries
 - CLI popularity stage (`cli/services/keywords/aso-popularity-service.ts`) handles Search Ads auth/session and popularity failures.
-- Dashboard server (`cli/dashboard-server/server.ts`) maps internal failures to stable API error codes.
+- Dashboard error mapping is centralized in `cli/domain/errors/dashboard-errors.ts` and consumed by both server (`cli/dashboard-server/server.ts`) and UI (`cli/dashboard-ui/app-helpers.ts`).
 - Enrichment services (`cli/services/cache-api/services/aso-enrichment-service.ts`, `cli/services/cache-api/services/aso-apple-client.ts`) handle App Store fetch failures and fallback behavior.
+- Dashboard keyword/app-doc route handlers are split under `cli/dashboard-server/routes/*`, while auth state and HTTP utilities are isolated in `cli/dashboard-server/auth-state.ts` and `cli/dashboard-server/http-utils.ts`.
 
 ## Dashboard Error Codes
 - `INVALID_REQUEST`
@@ -26,7 +27,7 @@ Define failure boundaries, retry rules, and recovery behavior across CLI, dashbo
 - Popularity fetch retries transient responses (`429`, `5xx`, `KWS_NO_ORG_CONTENT_PROVIDERS`) and transient network errors.
 - App Store web fetches retry `429`, `5xx`, and transient network errors with jittered exponential backoff.
 - Startup refresh manager retries each unit once and records failures without crashing runtime.
-- Keyword orchestration isolates terminal failures per keyword and stores normalized failure metadata in `aso_keyword_failures`.
+- `keywordPipelineService` isolates terminal failures per keyword and stores normalized failure metadata in `aso_keyword_failures` via `keywordWriteRepository` (single write owner).
 
 ## Recovery Behavior
 - Dashboard add-keyword:

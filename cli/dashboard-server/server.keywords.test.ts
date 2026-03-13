@@ -1,15 +1,7 @@
 import { PassThrough } from "stream";
 import { jest } from "@jest/globals";
 import { createAppKeywords, listByApp } from "../db/app-keywords";
-import {
-  listKeywordFailuresForApp,
-  deleteKeywordFailures,
-} from "../db/aso-keyword-failures";
-import {
-  enrichAndPersistKeywords,
-  fetchAndPersistKeywordPopularityStage,
-  refreshAndPersistKeywordOrder,
-} from "../services/keywords/aso-keyword-service";
+import { keywordPipelineService } from "../services/keywords/keyword-pipeline-service";
 import { createServerRequestHandler } from "./server";
 
 jest.mock("../db/apps", () => ({
@@ -44,14 +36,17 @@ jest.mock("../db/aso-keyword-failures", () => ({
   deleteKeywordFailures: jest.fn(() => 0),
 }));
 
-jest.mock("../services/keywords/aso-keyword-service", () => ({
-  normalizeKeywords: jest.fn((input: string[]) =>
-    Array.from(new Set(input.map((item) => item.trim().toLowerCase()).filter(Boolean)))
-  ),
-  fetchAndPersistKeywordPopularityStage: jest.fn(),
-  enrichAndPersistKeywords: jest.fn(),
-  refreshAndPersistKeywordOrder: jest.fn(),
-  refreshKeywordsForStartup: jest.fn(async () => []),
+jest.mock("../services/keywords/keyword-pipeline-service", () => ({
+  keywordPipelineService: {
+    normalizeKeywords: jest.fn((input: string[]) =>
+      Array.from(new Set(input.map((item) => item.trim().toLowerCase()).filter(Boolean)))
+    ),
+    runPopularityStage: jest.fn(),
+    enrichAndPersist: jest.fn(),
+    refreshOrder: jest.fn(),
+    retryFailed: jest.fn(),
+    refreshStartup: jest.fn(async () => []),
+  },
 }));
 
 jest.mock("../services/auth/aso-auth-service", () => ({
@@ -139,11 +134,12 @@ function requestJson(params: {
 describe("dashboard server keyword add flow", () => {
   const mockListByApp = jest.mocked(listByApp);
   const mockCreateAppKeywords = jest.mocked(createAppKeywords);
-  const mockFetchKeywordStage = jest.mocked(fetchAndPersistKeywordPopularityStage);
-  const mockEnrichKeywords = jest.mocked(enrichAndPersistKeywords);
-  const mockRefreshOrder = jest.mocked(refreshAndPersistKeywordOrder);
-  const mockListKeywordFailuresForApp = jest.mocked(listKeywordFailuresForApp);
-  const mockDeleteKeywordFailures = jest.mocked(deleteKeywordFailures);
+  const mockFetchKeywordStage = jest.mocked(
+    keywordPipelineService.runPopularityStage
+  );
+  const mockEnrichKeywords = jest.mocked(keywordPipelineService.enrichAndPersist);
+  const mockRefreshOrder = jest.mocked(keywordPipelineService.refreshOrder);
+  const mockRetryFailed = jest.mocked(keywordPipelineService.retryFailed);
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -159,8 +155,11 @@ describe("dashboard server keyword add flow", () => {
       failedKeywords: [],
     });
     mockRefreshOrder.mockResolvedValue([]);
-    mockListKeywordFailuresForApp.mockReturnValue([]);
-    mockDeleteKeywordFailures.mockReturnValue(0);
+    mockRetryFailed.mockResolvedValue({
+      retriedCount: 0,
+      succeededCount: 0,
+      failedCount: 0,
+    });
   });
 
   it("rejects over-limit keyword requests before association lookup and stage calls", async () => {
@@ -218,43 +217,10 @@ describe("dashboard server keyword add flow", () => {
   });
 
   it("retries failed keywords for selected app", async () => {
-    mockListKeywordFailuresForApp.mockReturnValue([
-      {
-        country: "US",
-        normalizedKeyword: "bad",
-        keyword: "bad",
-        status: "failed",
-        stage: "enrichment",
-        reasonCode: "ENRICHMENT_FAILED",
-        message: "failed",
-        statusCode: 500,
-        retryable: true,
-        attempts: 3,
-        requestId: null,
-        updatedAt: "2026-01-01T00:00:00.000Z",
-      },
-    ]);
-    mockFetchKeywordStage.mockResolvedValue({
-      hits: [],
-      pendingItems: [{ keyword: "bad", popularity: 30 }],
-      orderRefreshKeywords: [],
-      failedKeywords: [],
-    });
-    mockEnrichKeywords.mockResolvedValue({
-      items: [
-        {
-          keyword: "bad",
-          popularity: 30,
-          difficultyScore: 10,
-          minDifficultyScore: 8,
-          appCount: 10,
-          keywordIncluded: 1,
-          orderedAppIds: [],
-          orderExpiresAt: "2099-01-01T00:00:00.000Z",
-          popularityExpiresAt: "2099-01-01T00:00:00.000Z",
-        } as any,
-      ],
-      failedKeywords: [],
+    mockRetryFailed.mockResolvedValue({
+      retriedCount: 1,
+      succeededCount: 1,
+      failedCount: 0,
     });
 
     const response = await requestJson({
@@ -275,6 +241,6 @@ describe("dashboard server keyword add flow", () => {
         failedCount: 0,
       },
     });
-    expect(mockDeleteKeywordFailures).toHaveBeenCalledWith("US", ["bad"]);
+    expect(mockRetryFailed).toHaveBeenCalledWith("app-1", "US");
   });
 });

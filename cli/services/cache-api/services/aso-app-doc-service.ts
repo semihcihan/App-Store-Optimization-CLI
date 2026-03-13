@@ -2,6 +2,10 @@ import { computeAppExpiryIsoForApp } from "./aso-keyword-utils";
 import type { AsoCacheRepository, AsoAppDoc } from "./aso-types";
 import { asoAppleGet } from "./aso-apple-client";
 import { logger } from "../../../utils/logger";
+import {
+  assertSupportedCountry,
+  normalizeCountry,
+} from "../../../domain/keywords/policy";
 
 type AppStoreProductVersionHistoryItem = {
   releaseDate?: string;
@@ -176,7 +180,8 @@ export async function fetchAppStoreLookupAppDocs(params: {
   country: string;
   appIds: string[];
 }): Promise<AsoAppDoc[]> {
-  const country = params.country.toUpperCase();
+  const country = normalizeCountry(params.country);
+  assertSupportedCountry(country);
   if (params.appIds.length === 0) return [];
   const uniqueIds = Array.from(new Set(params.appIds.map((id) => id.trim()).filter(Boolean)));
   const docs = await Promise.all(uniqueIds.map((appId) => fetchAppDocById(country, appId)));
@@ -194,10 +199,8 @@ export async function getAsoAppDocs(params: {
   appIds: string[];
   repository: AsoCacheRepository;
 }): Promise<AsoAppDoc[]> {
-  const country = params.country.toUpperCase();
-  if (country !== "US") {
-    throw new Error("Only US is supported for now");
-  }
+  const country = normalizeCountry(params.country);
+  assertSupportedCountry(country);
 
   const appIds = Array.from(
     new Set(params.appIds.map((id) => id.trim()).filter(Boolean))

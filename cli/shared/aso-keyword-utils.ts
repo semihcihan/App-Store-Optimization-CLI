@@ -1,5 +1,10 @@
+import {
+  normalizeKeyword as normalizeKeywordFromDomain,
+  sanitizeKeywords as sanitizeKeywordsFromDomain,
+} from "../domain/keywords/policy";
+
 export function normalizeKeyword(keyword: string): string {
-  return keyword.trim().toLowerCase();
+  return normalizeKeywordFromDomain(keyword);
 }
 
 export function normalizeTextForKeywordMatch(text: string): string {
@@ -11,14 +16,7 @@ export function normalizeTextForKeywordMatch(text: string): string {
 }
 
 export function sanitizeKeywords(input: string[]): string[] {
-  const unique = new Set<string>();
-  for (const keyword of input) {
-    const normalized = normalizeKeyword(keyword);
-    if (normalized) {
-      unique.add(normalized);
-    }
-  }
-  return Array.from(unique);
+  return sanitizeKeywordsFromDomain(input);
 }
 
 export function getOrderTtlHours(): number {

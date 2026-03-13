@@ -1,25 +1,30 @@
 import { z } from "zod";
-import { getAsoResilienceConfig } from "../../../shared/aso-resilience";
-import { normalizeAppleUpstreamError } from "../../../shared/apple-upstream-error";
-import type { FailedKeyword } from "../../../shared/aso-keyword-types";
-import { localAsoCacheRepository } from "../services/aso-cache-local";
-import { enrichKeyword } from "../services/aso-enrichment-service";
-import { normalizeKeyword, sanitizeKeywords } from "../services/aso-keyword-utils";
-import { getAsoAppDocs as getAsoAppDocsFromService } from "../services/aso-app-doc-service";
-import { ASO_MAX_KEYWORDS } from "../../../shared/aso-keyword-limits";
+import { getAsoResilienceConfig } from "../../shared/aso-resilience";
+import { normalizeAppleUpstreamError } from "../../shared/apple-upstream-error";
+import type { FailedKeyword } from "../../shared/aso-keyword-types";
+import { localAsoCacheRepository } from "./services/aso-cache-local";
+import { enrichKeyword } from "./services/aso-enrichment-service";
+import { normalizeKeyword, sanitizeKeywords } from "./services/aso-keyword-utils";
+import { getAsoAppDocs as getAsoAppDocsFromService } from "./services/aso-app-doc-service";
+import { ASO_MAX_KEYWORDS } from "../../shared/aso-keyword-limits";
 import type {
   AsoAppDoc,
   AsoCacheRepository,
   AsoKeywordRecord,
-} from "../services/aso-types";
+} from "./services/aso-types";
+import {
+  DEFAULT_ASO_COUNTRY,
+  assertSupportedCountry,
+  normalizeCountry,
+} from "../../domain/keywords/policy";
 
 const CacheLookupRequestSchema = z.object({
-  country: z.string().default("US"),
+  country: z.string().default(DEFAULT_ASO_COUNTRY),
   keywords: z.array(z.string()).min(1).max(ASO_MAX_KEYWORDS),
 });
 
 const EnrichRequestSchema = z.object({
-  country: z.string().default("US"),
+  country: z.string().default(DEFAULT_ASO_COUNTRY),
   items: z
     .array(
       z.object({
@@ -31,7 +36,7 @@ const EnrichRequestSchema = z.object({
     .max(ASO_MAX_KEYWORDS),
 });
 const AppDocsRequestSchema = z.object({
-  country: z.string().default("US"),
+  country: z.string().default(DEFAULT_ASO_COUNTRY),
   appIds: z.array(z.string()).min(1).max(50),
 });
 
@@ -82,10 +87,8 @@ export async function lookupAsoCache(
   dependencies: AsoDependencies = getDefaultDependencies()
 ): Promise<{ hits: AsoKeywordRecord[]; misses: string[] }> {
   const validated = CacheLookupRequestSchema.parse(params);
-  const country = validated.country.toUpperCase();
-  if (country !== "US") {
-    throw new Error("Only US is supported for now");
-  }
+  const country = normalizeCountry(validated.country);
+  assertSupportedCountry(country);
 
   return dependencies.repository.getByKeywords({
     country,
@@ -104,10 +107,8 @@ export async function enrichAsoKeywords(
   failedKeywords: FailedKeyword[];
 }> {
   const validated = EnrichRequestSchema.parse(params);
-  const country = validated.country.toUpperCase();
-  if (country !== "US") {
-    throw new Error("Only US is supported for now");
-  }
+  const country = normalizeCountry(validated.country);
+  assertSupportedCountry(country);
 
   const getAppDocs = dependencies.repository.getAppDocs
     ? (appIds: string[]) =>
@@ -193,8 +194,10 @@ export async function getAsoAppDocs(
   dependencies: AsoDependencies = getDefaultDependencies()
 ): Promise<AsoAppDoc[]> {
   const validated = AppDocsRequestSchema.parse(params);
+  const country = normalizeCountry(validated.country);
+  assertSupportedCountry(country);
   return getAsoAppDocsFromService({
-    country: validated.country,
+    country,
     appIds: validated.appIds,
     repository: dependencies.repository,
   });

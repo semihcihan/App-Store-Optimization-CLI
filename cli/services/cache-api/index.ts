@@ -1,4 +1,8 @@
-export { lookupAsoCache, enrichAsoKeywords, getAsoAppDocs } from "./routes/aso";
+export {
+  lookupAsoCache,
+  enrichAsoKeywords,
+  getAsoAppDocs,
+} from "./keyword-cache-service";
 export {
   enrichKeyword,
   refreshKeywordOrder,

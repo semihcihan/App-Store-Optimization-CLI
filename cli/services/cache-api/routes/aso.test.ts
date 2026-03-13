@@ -1,5 +1,5 @@
 import { jest } from "@jest/globals";
-import { enrichAsoKeywords } from "./aso";
+import { enrichAsoKeywords } from "../keyword-cache-service";
 import { enrichKeyword } from "../services/aso-enrichment-service";
 
 jest.mock("../services/aso-enrichment-service", () => ({

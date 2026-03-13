@@ -12,10 +12,12 @@ Also covers MCP keyword suggestion entrypoint (`aso_suggest`) that evaluates exp
 - App Store metadata keyword field is comma-separated and limited to `100` characters, so terms should be compactly separated (example: `love,couple`).
 
 ## Responsibility Split
-- CLI (`cli/services/keywords/aso-keyword-service.ts`): normalize keywords, orchestrate stages, fetch popularity, persist local records.
+- Domain policy (`cli/domain/keywords/*`, `cli/domain/errors/*`): shared keyword normalization/country policy (`US`), request limits, and dashboard-safe error/message mapping used by CLI + dashboard server + dashboard UI.
+- CLI pipeline (`cli/services/keywords/keyword-pipeline-service.ts`): single orchestrator for stage-1 lookup/popularity, enrichment, order refresh, startup refresh, and failed-keyword retry.
 - MCP server (`cli/mcp/index.ts`): validate explicit `keywords` input (max 100), call `aso keywords "<comma-separated-keywords>" --stdout`, and return only accepted rows after threshold filtering.
-- Backend (`cli/services/cache-api/routes/aso.ts`, `cli/services/cache-api/services/*`): lookup cache, enrich keywords, serve app docs, persist backend cache.
-- Dashboard server (`cli/dashboard-server/server.ts`): run stage 1 synchronously, return early, run stage 2 in background.
+- Cache API (`cli/services/cache-api/keyword-cache-service.ts`, `cli/services/cache-api/services/*`): lookup cache, enrich keywords, serve app docs.
+- Keyword write repository (`cli/services/keywords/keyword-write-repository.ts`): single write owner for `aso_keywords`, `aso_keyword_failures`, competitor app docs, and `app_keywords.previous_position` updates.
+- Dashboard server (`cli/dashboard-server/server.ts`, `cli/dashboard-server/routes/*`): run stage 1 synchronously, return early, run stage 2 in background.
 - Shared domain policy (`cli/shared/*`): keyword normalization/TTL policy, freshness validation, resilience config, and upstream error normalization used by both `keywords` and `cache-api` layers.
 
 ## Pipeline
@@ -134,4 +136,5 @@ Keyword-level difficulty:
 - Popularity stays in CLI because it depends on local Search Ads auth + Primary App ID context.
 - Enrichment/cache stays backend-side for deterministic reuse.
 - Two-stage flow keeps dashboard latency low while preserving full enrichment asynchronously.
-- `cache-api` repository is the single persistence owner for enriched keyword/app-doc cache writes; CLI orchestration avoids duplicate writes for the same enrichment payload.
+- `keywordPipelineService` is the only orchestration entrypoint for CLI commands, dashboard keyword routes, startup refresh, and retry-failed flow.
+- `keywordWriteRepository` is the only write owner for keyword/failure/app-doc persistence and previous-position updates.

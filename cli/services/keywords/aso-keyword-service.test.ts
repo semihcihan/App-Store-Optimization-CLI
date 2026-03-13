@@ -13,9 +13,8 @@ import {
 } from "./aso-local-cache-service";
 import { asoPopularityService } from "./aso-popularity-service";
 import {
-  refreshAndPersistKeywordOrder,
-  fetchAndPersistKeywords,
-} from "./aso-keyword-service";
+  keywordPipelineService,
+} from "./keyword-pipeline-service";
 
 jest.mock("./aso-local-cache-service", () => ({
   lookupAsoCacheLocal: jest.fn(async () => ({ hits: [], misses: [] })),
@@ -47,7 +46,7 @@ function cleanDbFiles(): void {
   }
 }
 
-describe("aso-keyword-service", () => {
+describe("keyword-pipeline-service", () => {
   const mockRefreshAsoKeywordOrderLocal = jest.mocked(refreshAsoKeywordOrderLocal);
   const mockLookupAsoCacheLocal = jest.mocked(lookupAsoCacheLocal);
   const mockEnrichAsoKeywordsLocal = jest.mocked(enrichAsoKeywordsLocal);
@@ -104,7 +103,7 @@ describe("aso-keyword-service", () => {
       orderedAppIds: ["app-2", "app-1"],
     });
 
-    const refreshed = await refreshAndPersistKeywordOrder("US", ["ranked"]);
+    const refreshed = await keywordPipelineService.refreshOrder("US", ["ranked"]);
 
     expect(refreshed).toHaveLength(1);
     expect(getKeyword("US", "ranked")?.orderedAppIds).toEqual(["app-2", "app-1"]);
@@ -153,7 +152,7 @@ describe("aso-keyword-service", () => {
       failedKeywords: [],
     });
 
-    const result = await fetchAndPersistKeywords("US", ["good", "bad"]);
+    const result = await keywordPipelineService.run("US", ["good", "bad"]);
 
     expect(result.items.map((item) => item.keyword)).toEqual(["good"]);
     expect(result.failedKeywords).toHaveLength(1);
@@ -206,12 +205,12 @@ describe("aso-keyword-service", () => {
       failedKeywords: [],
     });
 
-    await expect(fetchAndPersistKeywords("US", ["bad"])).rejects.toThrow(
+    await expect(keywordPipelineService.run("US", ["bad"])).rejects.toThrow(
       "All keywords failed"
     );
     expect(listKeywordFailures("US")).toHaveLength(1);
 
-    const retryResult = await fetchAndPersistKeywords("US", ["bad"]);
+    const retryResult = await keywordPipelineService.run("US", ["bad"]);
     expect(retryResult.failedKeywords).toHaveLength(0);
     expect(listKeywordFailures("US")).toHaveLength(0);
   });

@@ -1,9 +1,11 @@
 import { describe, it, expect, jest, beforeEach } from "@jest/globals";
 import { logger } from "../utils/logger";
 
-jest.mock("../services/keywords/aso-keyword-service", () => ({
-  parseKeywords: jest.fn(),
-  fetchAndPersistKeywords: jest.fn(),
+jest.mock("../services/keywords/keyword-pipeline-service", () => ({
+  keywordPipelineService: {
+    parseKeywords: jest.fn(),
+    run: jest.fn(),
+  },
 }));
 
 jest.mock("../dashboard-server", () => ({
@@ -43,10 +45,7 @@ jest.mock("../utils/logger", () => ({
 }));
 
 import asoCommand from "./aso";
-import {
-  parseKeywords,
-  fetchAndPersistKeywords,
-} from "../services/keywords/aso-keyword-service";
+import { keywordPipelineService } from "../services/keywords/keyword-pipeline-service";
 import { startDashboard } from "../dashboard-server";
 import { asoKeychainService } from "../services/auth/aso-keychain-service";
 import { asoCookieStoreService } from "../services/auth/aso-cookie-store-service";
@@ -63,9 +62,9 @@ describe("aso command", () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    jest.mocked(parseKeywords).mockReturnValue([]);
+    jest.mocked(keywordPipelineService.parseKeywords).mockReturnValue([]);
     jest
-      .mocked(fetchAndPersistKeywords)
+      .mocked(keywordPipelineService.run)
       .mockResolvedValue({ items: [], failedKeywords: [] } as any);
     jest.mocked(resolveAsoAdamId).mockResolvedValue("1234567890");
     jest.mocked(saveKeywordsToDefaultResearchApp).mockReturnValue(0);
@@ -85,7 +84,7 @@ describe("aso command", () => {
       adamId: undefined,
       allowPrompt: true,
     });
-    expect(fetchAndPersistKeywords).not.toHaveBeenCalled();
+    expect(keywordPipelineService.run).not.toHaveBeenCalled();
   });
 
   it("resets saved ASO auth state with reset-credentials subcommand", async () => {
@@ -99,14 +98,14 @@ describe("aso command", () => {
       "Reset ASO credentials/cookies."
     );
     expect(startDashboard).not.toHaveBeenCalled();
-    expect(fetchAndPersistKeywords).not.toHaveBeenCalled();
+    expect(keywordPipelineService.run).not.toHaveBeenCalled();
     expect(resolveAsoAdamId).not.toHaveBeenCalled();
   });
 
   it("fetches keywords in `aso keywords` mode", async () => {
-    jest.mocked(parseKeywords).mockReturnValue(["term"]);
+    jest.mocked(keywordPipelineService.parseKeywords).mockReturnValue(["term"]);
     jest
-      .mocked(fetchAndPersistKeywords)
+      .mocked(keywordPipelineService.run)
       .mockResolvedValue({
         items: [{ keyword: "term", popularity: 42 } as any],
         failedKeywords: [],
@@ -119,7 +118,7 @@ describe("aso command", () => {
       terms: "term",
     } as any);
 
-    expect(fetchAndPersistKeywords).toHaveBeenCalledWith("US", ["term"]);
+    expect(keywordPipelineService.run).toHaveBeenCalledWith("US", ["term"]);
     expect(resolveAsoAdamId).toHaveBeenCalledWith({
       adamId: undefined,
       allowPrompt: true,
@@ -135,9 +134,9 @@ describe("aso command", () => {
   });
 
   it("saves requested keywords when command ends with all-keywords-failed error", async () => {
-    jest.mocked(parseKeywords).mockReturnValue(["failed-term"]);
+    jest.mocked(keywordPipelineService.parseKeywords).mockReturnValue(["failed-term"]);
     jest
-      .mocked(fetchAndPersistKeywords)
+      .mocked(keywordPipelineService.run)
       .mockRejectedValue(new Error("All keywords failed (1): failed-term:FAILED(500)"));
     jest.mocked(saveKeywordsToDefaultResearchApp).mockReturnValue(1);
 
@@ -180,7 +179,7 @@ describe("aso command", () => {
     expect(asoAuthService.reAuthenticate).toHaveBeenCalledTimes(1);
     expect(resolveAsoAdamId).not.toHaveBeenCalled();
     expect(startDashboard).not.toHaveBeenCalled();
-    expect(fetchAndPersistKeywords).not.toHaveBeenCalled();
+    expect(keywordPipelineService.run).not.toHaveBeenCalled();
   });
 
   it("fails fast when --stdout is used without keyword terms in keywords mode", async () => {
@@ -196,12 +195,12 @@ describe("aso command", () => {
     );
 
     expect(resolveAsoAdamId).not.toHaveBeenCalled();
-    expect(fetchAndPersistKeywords).not.toHaveBeenCalled();
+    expect(keywordPipelineService.run).not.toHaveBeenCalled();
   });
 
   it("fails fast when more than 100 keywords are provided", async () => {
     const tooManyKeywords = Array.from({ length: 101 }, (_, index) => `term-${index}`);
-    jest.mocked(parseKeywords).mockReturnValue(tooManyKeywords);
+    jest.mocked(keywordPipelineService.parseKeywords).mockReturnValue(tooManyKeywords);
 
     await expect(
       asoCommand.handler?.({
@@ -212,7 +211,7 @@ describe("aso command", () => {
     ).rejects.toThrow("A maximum of 100 keywords is supported per call");
 
     expect(resolveAsoAdamId).not.toHaveBeenCalled();
-    expect(fetchAndPersistKeywords).not.toHaveBeenCalled();
+    expect(keywordPipelineService.run).not.toHaveBeenCalled();
   });
 
   it("rejects keyword flags on dashboard command", async () => {
@@ -231,8 +230,8 @@ describe("aso command", () => {
       items: [{ keyword: "term", popularity: 42 }],
       failedKeywords: [],
     };
-    jest.mocked(parseKeywords).mockReturnValue(["term"]);
-    jest.mocked(fetchAndPersistKeywords).mockResolvedValue(result as any);
+    jest.mocked(keywordPipelineService.parseKeywords).mockReturnValue(["term"]);
+    jest.mocked(keywordPipelineService.run).mockResolvedValue(result as any);
 
     await asoCommand.handler?.({
       subcommand: "keywords",
@@ -241,7 +240,7 @@ describe("aso command", () => {
       terms: "term",
     } as any);
 
-    expect(fetchAndPersistKeywords).toHaveBeenCalledWith("US", ["term"], {
+    expect(keywordPipelineService.run).toHaveBeenCalledWith("US", ["term"], {
       allowInteractiveAuthRecovery: false,
     });
     expect(resolveAsoAdamId).toHaveBeenCalledWith({
@@ -257,9 +256,9 @@ describe("aso command", () => {
     const authRequiredError = Object.assign(new Error("auth required"), {
       code: "ASO_AUTH_REAUTH_REQUIRED",
     });
-    jest.mocked(parseKeywords).mockReturnValue(["term"]);
+    jest.mocked(keywordPipelineService.parseKeywords).mockReturnValue(["term"]);
     jest
-      .mocked(fetchAndPersistKeywords)
+      .mocked(keywordPipelineService.run)
       .mockRejectedValueOnce(authRequiredError)
       .mockResolvedValueOnce({
         items: [{ keyword: "term", popularity: 42 }],
@@ -279,10 +278,10 @@ describe("aso command", () => {
         onUserActionRequired: expect.any(Function),
       })
     );
-    expect(fetchAndPersistKeywords).toHaveBeenNthCalledWith(1, "US", ["term"], {
+    expect(keywordPipelineService.run).toHaveBeenNthCalledWith(1, "US", ["term"], {
       allowInteractiveAuthRecovery: false,
     });
-    expect(fetchAndPersistKeywords).toHaveBeenNthCalledWith(2, "US", ["term"], {
+    expect(keywordPipelineService.run).toHaveBeenNthCalledWith(2, "US", ["term"], {
       allowInteractiveAuthRecovery: false,
     });
   });
@@ -291,9 +290,9 @@ describe("aso command", () => {
     const authRequiredError = Object.assign(new Error("auth required"), {
       code: "ASO_AUTH_REAUTH_REQUIRED",
     });
-    jest.mocked(parseKeywords).mockReturnValue(["term"]);
+    jest.mocked(keywordPipelineService.parseKeywords).mockReturnValue(["term"]);
     jest
-      .mocked(fetchAndPersistKeywords)
+      .mocked(keywordPipelineService.run)
       .mockRejectedValueOnce(authRequiredError);
     jest
       .mocked(asoAuthService.reAuthenticate)
@@ -311,6 +310,6 @@ describe("aso command", () => {
       } as any)
     ).rejects.toThrow(STDOUT_INTERACTIVE_AUTH_REQUIRED_MESSAGE);
 
-    expect(fetchAndPersistKeywords).toHaveBeenCalledTimes(1);
+    expect(keywordPipelineService.run).toHaveBeenCalledTimes(1);
   });
 });

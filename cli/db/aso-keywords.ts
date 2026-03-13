@@ -1,6 +1,7 @@
 import type { StoredAsoKeyword } from "./types";
 import { getDb } from "./store";
 import { computePopularityExpiryIso } from "../shared/aso-keyword-utils";
+import { normalizeKeyword } from "../domain/keywords/policy";
 
 type KeywordRow = {
   country: string;
@@ -17,10 +18,6 @@ type KeywordRow = {
   order_expires_at: string;
   popularity_expires_at: string;
 };
-
-function normalizeKeyword(keyword: string): string {
-  return keyword.trim().toLowerCase();
-}
 
 function roundNullableScore(value: number | null): number | null {
   if (value == null) return null;

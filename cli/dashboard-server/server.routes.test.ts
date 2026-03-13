@@ -9,7 +9,6 @@ import {
 import { getKeyword, listKeywords } from "../db/aso-keywords";
 import {
   getKeywordFailures,
-  listKeywordFailuresForApp,
 } from "../db/aso-keyword-failures";
 import {
   getCompetitorAppDocs,
@@ -19,7 +18,7 @@ import {
 } from "../db/aso-apps";
 import { getAsoAppDocsLocal } from "../services/keywords/aso-local-cache-service";
 import { asoAuthService } from "../services/auth/aso-auth-service";
-import { fetchAndPersistKeywordPopularityStage } from "../services/keywords/aso-keyword-service";
+import { keywordPipelineService } from "../services/keywords/keyword-pipeline-service";
 import { isAsoAuthReauthRequiredError } from "../services/keywords/aso-popularity-service";
 import { createServerRequestHandler } from "./server";
 import { DEFAULT_RESEARCH_APP_ID } from "../shared/aso-research";
@@ -59,22 +58,29 @@ jest.mock("../db/aso-keyword-failures", () => ({
   upsertKeywordFailures: jest.fn(),
 }));
 
-jest.mock("../services/keywords/aso-keyword-service", () => ({
-  normalizeKeywords: jest.fn((input: string[]) =>
-    Array.from(new Set(input.map((item) => item.trim().toLowerCase()).filter(Boolean)))
-  ),
-  fetchAndPersistKeywordPopularityStage: jest.fn(async () => ({
-    hits: [],
-    pendingItems: [],
-    orderRefreshKeywords: [],
-    failedKeywords: [],
-  })),
-  enrichAndPersistKeywords: jest.fn(async () => ({
-    items: [],
-    failedKeywords: [],
-  })),
-  refreshAndPersistKeywordOrder: jest.fn(async () => []),
-  refreshKeywordsForStartup: jest.fn(async () => []),
+jest.mock("../services/keywords/keyword-pipeline-service", () => ({
+  keywordPipelineService: {
+    normalizeKeywords: jest.fn((input: string[]) =>
+      Array.from(new Set(input.map((item) => item.trim().toLowerCase()).filter(Boolean)))
+    ),
+    runPopularityStage: jest.fn(async () => ({
+      hits: [],
+      pendingItems: [],
+      orderRefreshKeywords: [],
+      failedKeywords: [],
+    })),
+    enrichAndPersist: jest.fn(async () => ({
+      items: [],
+      failedKeywords: [],
+    })),
+    refreshOrder: jest.fn(async () => []),
+    retryFailed: jest.fn(async () => ({
+      retriedCount: 0,
+      succeededCount: 0,
+      failedCount: 0,
+    })),
+    refreshStartup: jest.fn(async () => []),
+  },
 }));
 
 jest.mock("../services/auth/aso-auth-service", () => ({
@@ -172,7 +178,6 @@ describe("dashboard server routes", () => {
   const mockListKeywords = jest.mocked(listKeywords);
   const mockListAllAppKeywords = jest.mocked(listAllAppKeywords);
   const mockGetKeywordFailures = jest.mocked(getKeywordFailures);
-  const mockListKeywordFailuresForApp = jest.mocked(listKeywordFailuresForApp);
   const mockDeleteAppKeywords = jest.mocked(deleteAppKeywords);
   const mockGetKeyword = jest.mocked(getKeyword);
   const mockGetCompetitorAppDocs = jest.mocked(getCompetitorAppDocs);
@@ -181,7 +186,10 @@ describe("dashboard server routes", () => {
   const mockUpsertOwnedAppDocs = jest.mocked(upsertOwnedAppDocs);
   const mockGetAsoAppDocsLocal = jest.mocked(getAsoAppDocsLocal);
   const mockReAuthenticate = jest.mocked(asoAuthService.reAuthenticate);
-  const mockFetchKeywordStage = jest.mocked(fetchAndPersistKeywordPopularityStage);
+  const mockFetchKeywordStage = jest.mocked(
+    keywordPipelineService.runPopularityStage
+  );
+  const mockRetryFailed = jest.mocked(keywordPipelineService.retryFailed);
   const mockIsAsoAuthReauthRequiredError = jest.mocked(isAsoAuthReauthRequiredError);
 
   beforeEach(() => {
@@ -192,7 +200,6 @@ describe("dashboard server routes", () => {
     mockListKeywords.mockReturnValue([]);
     mockListAllAppKeywords.mockReturnValue([]);
     mockGetKeywordFailures.mockReturnValue([]);
-    mockListKeywordFailuresForApp.mockReturnValue([]);
     mockDeleteAppKeywords.mockReturnValue(0);
     mockGetKeyword.mockReturnValue(null);
     mockGetCompetitorAppDocs.mockReturnValue([]);
@@ -204,6 +211,11 @@ describe("dashboard server routes", () => {
       pendingItems: [],
       orderRefreshKeywords: [],
       failedKeywords: [],
+    });
+    mockRetryFailed.mockResolvedValue({
+      retriedCount: 0,
+      succeededCount: 0,
+      failedCount: 0,
     });
     mockIsAsoAuthReauthRequiredError.mockReturnValue(false);
   });
@@ -783,13 +795,9 @@ describe("dashboard server routes", () => {
   });
 
   it("returns auth-required for keyword routes when reauth is required", async () => {
-    mockListKeywordFailuresForApp.mockReturnValue([
-      {
-        keyword: "failed-term",
-      } as any,
-    ]);
     mockIsAsoAuthReauthRequiredError.mockReturnValue(true);
     mockFetchKeywordStage.mockRejectedValue(new Error("session expired"));
+    mockRetryFailed.mockRejectedValue(new Error("session expired"));
 
     const addKeywords = await request({
       method: "POST",

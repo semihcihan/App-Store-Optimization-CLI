@@ -1,5 +1,6 @@
 import type { StoredAsoKeywordFailure } from "./types";
 import { getDb } from "./store";
+import { normalizeKeyword } from "../domain/keywords/policy";
 
 type KeywordFailureRow = {
   country: string;
@@ -15,10 +16,6 @@ type KeywordFailureRow = {
   request_id: string | null;
   updated_at: string;
 };
-
-function normalizeKeyword(keyword: string): string {
-  return keyword.trim().toLowerCase();
-}
 
 function toStoredKeywordFailure(row: KeywordFailureRow): StoredAsoKeywordFailure {
   return {
