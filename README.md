@@ -17,9 +17,22 @@ Research ASO keywords, inspect competition, and manage results from one local-fi
 
 - Fast, free keyword research and visibility tracking
 - Keyword scoring with popularity + difficulty in one command
-- Local dashboard for reviewing keyword/app data
+- Local ASO dashboard for reviewing keyword/app data
 - MCP tool (`aso_evaluate_keywords`) for agent workflows and automated keyword research
-- Local persistence and reusable auth session
+
+<h3 align="center">ASO Dashboard</h3>
+
+<p align="center">
+  <img src="./cli/dashboard-ui/public/dashboard.jpg" alt="ASO dashboard" title="ASO Dashboard" width="900" />
+</p>
+
+<h3 align="center">MCP</h3>
+
+The dashboard keywords shown above were discovered and added automatically by an agent using the MCP tool.
+
+<p align="center">
+  <img src="./cli/dashboard-ui/public/mcp.jpg" alt="ASO MCP workflow" width="900" />
+</p>
 
 ## Install
 
@@ -27,17 +40,7 @@ Research ASO keywords, inspect competition, and manage results from one local-fi
 npm install -g aso-cli
 ```
 
-## App Icon Assets
-
-Source file: [`assets/app-icon/app-icon.html`](./assets/app-icon/app-icon.html)
-
-```bash
-npm run generate:app-icon
-```
-
-## Runtime Requirement
-
-- Node.js `>=20.18.1`.
+Note: requires Node.js `>=20.18.1`.
 
 ## Apple Search Ads Setup
 
@@ -45,26 +48,34 @@ ASO commands require Apple Search Ads setup.
 
 ### Prerequisites
 
-- Apple Search Ads account
-- Linked App Store Connect account
+- App Store Connect account
 - App ID of a published app you can access
-- No campaign creation or billing required
+- No campaign creation required
+- No billing information required
 
 ### Setup
 
 1. Create/sign in: https://searchads.apple.com
-2. Open Advanced: https://searchads.apple.com/advanced
-3. Link your App Store Connect account in campaign group settings
-4. Copy an App ID from your App Store URL (number after `id`)
-5. Run `aso auth` and complete Apple ID + password + 2FA in terminal
+   - If your country is not available during signup, select `United States`.
+2. Open Apple Search Ads Advanced: https://searchads.apple.com/advanced
+3. Click your account name in the top-left corner.
+4. Under Campaign Groups, click Settings.
+5. Click Link Accounts.
+6. Select your App Store Connect account and save.
+   - If this is your first time using Apple Search Ads, you will usually have only one campaign group.
+7. Copy an App ID from your App Store URL (number after `id`)
+   Example App Store URL:
+   ```text
+   https://apps.apple.com/us/app/example-app/id123456789
+   ```
+   App ID is `123456789` in this example.
+8. Run `aso auth` and complete Apple ID + password + 2FA in terminal
 
-Example App Store URL:
+Notes:
 
-```text
-https://apps.apple.com/us/app/example-app/id123456789
-```
-
-App ID is `123456789` in this example.
+- You may see a missing billing information warning; this can be safely ignored.
+- Ensure all campaign groups are linked to a valid App Store Connect account.
+- [Troubleshoot App Store Connect account linking](https://ads.apple.com/app-store/help/get-started/0012-link-app-store-connect-accounts)
 
 ## Quick Start
 
@@ -95,18 +106,34 @@ aso
 - `--country <code>`: currently `US` only
 - `--primary-app-id <id>`: saved locally for future runs
 
-## Output Example (`aso keywords`)
+## Output Example (`aso keywords "meditation"`)
+
+````json
+{
+  "items": [
+    {
+      "keyword": "meditation",
+      "popularity": 45,
+      "difficultyScore": 62,
+      "minDifficultyScore": 38
+    }
+  ],
+  "failedKeywords": []
+}
 
 ```json
-[
-  {
-    "keyword": "meditation",
-    "popularity": 45,
-    "difficultyScore": 62,
-    "minDifficultyScore": 38
-  }
-]
-```
+{
+  "items": [
+    {
+      "keyword": "meditation",
+      "popularity": 45,
+      "difficultyScore": 62,
+      "minDifficultyScore": 38
+    }
+  ],
+  "failedKeywords": []
+}
+````
 
 ## MCP
 
@@ -122,12 +149,6 @@ Example MCP config:
     }
   }
 }
-```
-
-## Help
-
-```bash
-aso --help
 ```
 
 ## Current Scope
