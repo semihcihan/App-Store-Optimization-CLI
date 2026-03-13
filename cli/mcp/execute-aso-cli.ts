@@ -34,12 +34,22 @@ function spawnAso(args: string[]) {
 export function runAsoCommand(args: string[]): Promise<AsoCommandResult> {
   return new Promise((resolve, reject) => {
     let proc: ReturnType<typeof spawnAso>;
+    const command = typeof args[0] === "string" ? args[0] : "unknown";
     try {
       proc = spawnAso(args);
     } catch (err) {
       reportBugsnagError(err, {
-        args,
-        message: "Error spawning aso",
+        command,
+        argCount: args.length,
+        stage: "spawn",
+        surface: "aso-mcp",
+        telemetryHint: {
+          classification: "actionable_bug",
+          surface: "aso-mcp",
+          source: "mcp.execute-aso-cli.spawn",
+          stage: "spawn",
+          tool: "aso_suggest",
+        },
       });
       reject(err);
       return;
@@ -61,6 +71,19 @@ export function runAsoCommand(args: string[]): Promise<AsoCommandResult> {
     });
 
     proc.on("error", (err) => {
+      reportBugsnagError(err, {
+        command,
+        argCount: args.length,
+        stage: "transport",
+        surface: "aso-mcp",
+        telemetryHint: {
+          classification: "actionable_bug",
+          surface: "aso-mcp",
+          source: "mcp.execute-aso-cli.transport",
+          stage: "transport",
+          tool: "aso_suggest",
+        },
+      });
       resolve({ stdout, stderr: err.message, exitCode: 1 });
     });
   });

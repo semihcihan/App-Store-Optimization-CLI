@@ -91,6 +91,7 @@ async function requestPopularitiesOnce(
         adamId,
         termsCount: terms.length,
       },
+      isTerminal: false,
     });
   }
 }
@@ -217,7 +218,17 @@ export async function requestPopularitiesWithKwsRetry(
     } catch (error) {
       const retryable = isTransientAxiosError(error);
       if (!retryable || attempt >= maxAttempts) {
-        throw error;
+        throw withAppleHttpTraceContext(error, {
+          provider: "apple-search-ads",
+          operation: "keywords-popularities-request",
+          context: {
+            adamId,
+            termsCount: terms.length,
+            attempt,
+            maxAttempts,
+          },
+          isTerminal: true,
+        });
       }
       const delayMs = getRetryDelayMs({
         statusCode: (axios.isAxiosError(error) ? error.response?.status : 0) ?? 0,

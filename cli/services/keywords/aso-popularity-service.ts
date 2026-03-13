@@ -299,6 +299,7 @@ export class AsoPopularityService {
               requestID: response.data.requestID || null,
               messageCode: messageCode || null,
             },
+            isTerminal: true,
           }
         );
       }

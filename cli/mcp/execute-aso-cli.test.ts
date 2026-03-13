@@ -79,8 +79,14 @@ describe("execute-aso-cli", () => {
 
     await expect(runAsoCommand(["keywords"])).rejects.toThrow("spawn failed");
     expect(mockReportBugsnagError).toHaveBeenCalledWith(error, {
-      args: ["keywords"],
-      message: "Error spawning aso",
+      command: "keywords",
+      argCount: 1,
+      stage: "spawn",
+      surface: "aso-mcp",
+      telemetryHint: expect.objectContaining({
+        classification: "actionable_bug",
+        source: "mcp.execute-aso-cli.spawn",
+      }),
     });
   });
 
@@ -97,6 +103,15 @@ describe("execute-aso-cli", () => {
       stderr: "transport failed",
       exitCode: 1,
     });
+    expect(mockReportBugsnagError).toHaveBeenCalledWith(
+      expect.objectContaining({ message: "transport failed" }),
+      expect.objectContaining({
+        command: "keywords",
+        argCount: 1,
+        stage: "transport",
+        surface: "aso-mcp",
+      })
+    );
   });
 
   it("formats MCP tool results", () => {

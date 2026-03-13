@@ -241,8 +241,15 @@ export function withAppleHttpTraceContext(
     provider: AppleTraceProvider;
     operation: string;
     context?: Record<string, unknown>;
+    isTerminal?: boolean;
   }
 ): Error {
+  const statusCode =
+    typeof params.context?.statusCode === "number"
+      ? params.context.statusCode
+      : typeof (params.context as any)?.status === "number"
+        ? (params.context as any).status
+        : undefined;
   const recentHttpTraces = recentTraceStore.map(toMetadataTrace);
   const recentTraceIds = new Set(recentTraceStore.map((entry) => entry.traceId));
   const recentFailedHttpTraces = recentFailedTraceStore.map(toMetadataTrace);
@@ -257,6 +264,13 @@ export function withAppleHttpTraceContext(
       context: sanitize(params.context || {}),
       recentHttpTraces: [...recentHttpTraces, ...extraRecentFailedHttpTraces],
       recentFailedHttpTraces,
+    },
+    telemetryHint: {
+      upstreamProvider: params.provider,
+      operation: params.operation,
+      statusCode,
+      isTerminal: params.isTerminal,
+      source: `apple.${params.provider}.${params.operation}`,
     },
   });
 }

@@ -7,6 +7,7 @@ import {
   handleAsoSuggest,
 } from "./services/aso-suggest";
 import { assertSupportedNodeVersion } from "../services/runtime/node-version-guard";
+import { reportBugsnagError } from "../services/telemetry/error-reporter";
 
 assertSupportedNodeVersion();
 
@@ -42,6 +43,16 @@ async function main() {
 }
 
 main().catch((error) => {
+  reportBugsnagError(error, {
+    surface: "aso-mcp",
+    stage: "bootstrap",
+    telemetryHint: {
+      classification: "actionable_bug",
+      surface: "aso-mcp",
+      source: "mcp.index.main",
+      stage: "bootstrap",
+    },
+  });
   console.error("MCP server error:", error);
   process.exitCode = 1;
 });

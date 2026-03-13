@@ -370,6 +370,12 @@ export function createKeywordHandlers(deps: AsoRouteDeps) {
         );
         return;
       }
+      deps.reportDashboardError(error, {
+        method: "POST",
+        path: "/api/aso/keywords/retry-failed",
+        appId,
+        country,
+      });
       const publicError = deps.toUserSafeError(
         error,
         "Failed to retry failed keywords"

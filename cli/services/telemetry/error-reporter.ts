@@ -1,5 +1,9 @@
 import "./instrument";
 import { notifyBugsnagError } from "../../shared/telemetry/bugsnag-shared";
+import {
+  classifyTelemetryError,
+  withTelemetryDecisionMetadata,
+} from "../../shared/telemetry/bugsnag-classifier";
 import { getErrorBugsnagMetadata } from "./bugsnag-metadata";
 
 export function reportBugsnagError(
@@ -7,5 +11,11 @@ export function reportBugsnagError(
   metadata: Record<string, unknown> = {}
 ): void {
   const errorMetadata = getErrorBugsnagMetadata(error) || {};
-  notifyBugsnagError(error, { ...metadata, ...errorMetadata });
+  const mergedMetadata = { ...metadata, ...errorMetadata };
+  const decision = classifyTelemetryError(error, mergedMetadata);
+  if (!decision.report) return;
+  notifyBugsnagError(
+    error,
+    withTelemetryDecisionMetadata(mergedMetadata, decision)
+  );
 }

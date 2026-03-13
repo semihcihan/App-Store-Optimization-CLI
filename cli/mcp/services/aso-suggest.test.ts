@@ -12,15 +12,21 @@ jest.mock("../../services/keywords/aso-research-keyword-service", () => ({
   saveKeywordsToDefaultResearchApp: jest.fn(),
 }));
 
+jest.mock("../../services/telemetry/error-reporter", () => ({
+  reportBugsnagError: jest.fn(),
+}));
+
 import { runAsoCommand } from "../execute-aso-cli";
 import { handleAsoSuggest } from "./aso-suggest";
 import { saveKeywordsToDefaultResearchApp } from "../../services/keywords/aso-research-keyword-service";
+import { reportBugsnagError } from "../../services/telemetry/error-reporter";
 
 describe("aso_suggest service", () => {
   const mockRunAsoCommand = jest.mocked(runAsoCommand);
   const mockSaveKeywordsToDefaultResearchApp = jest.mocked(
     saveKeywordsToDefaultResearchApp
   );
+  const mockReportBugsnagError = jest.mocked(reportBugsnagError);
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -145,5 +151,66 @@ describe("aso_suggest service", () => {
     expect((result as { isError?: boolean }).isError).toBe(true);
     expect(result.content[0]?.type).toBe("text");
     expect(result.content[0]?.text).toContain("not valid `{ items, failedKeywords }` payload");
+    expect(mockReportBugsnagError).toHaveBeenCalledWith(
+      expect.any(Error),
+      expect.objectContaining({
+        surface: "aso-mcp",
+        tool: "aso_suggest",
+        stage: "parse-envelope",
+        exitCode: 0,
+      })
+    );
+  });
+
+  it("reports malformed JSON stdout as actionable parse failure", async () => {
+    mockRunAsoCommand.mockResolvedValue({
+      stdout: "not-json",
+      stderr: "",
+      exitCode: 0,
+    });
+
+    const result = await handleAsoSuggest({
+      keywords: ["foo"],
+    });
+
+    expect((result as { isError?: boolean }).isError).toBe(true);
+    expect(result.content[0]?.text).toContain("not valid JSON");
+    expect(mockReportBugsnagError).toHaveBeenCalledWith(
+      expect.any(Error),
+      expect.objectContaining({
+        surface: "aso-mcp",
+        tool: "aso_suggest",
+        stage: "parse-json",
+        exitCode: 0,
+      })
+    );
+  });
+
+  it("reports persistence failures and rethrows", async () => {
+    mockRunAsoCommand.mockResolvedValue({
+      stdout: JSON.stringify({
+        items: [{ keyword: "foo", popularity: 90, difficulty: 20 }],
+        failedKeywords: [],
+      }),
+      stderr: "",
+      exitCode: 0,
+    });
+    mockSaveKeywordsToDefaultResearchApp.mockImplementation(() => {
+      throw new Error("persist failed");
+    });
+
+    await expect(
+      handleAsoSuggest({
+        keywords: ["foo"],
+      })
+    ).rejects.toThrow("persist failed");
+    expect(mockReportBugsnagError).toHaveBeenCalledWith(
+      expect.objectContaining({ message: "persist failed" }),
+      expect.objectContaining({
+        surface: "aso-mcp",
+        tool: "aso_suggest",
+        stage: "persist",
+      })
+    );
   });
 });

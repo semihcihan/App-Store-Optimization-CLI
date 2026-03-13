@@ -32,6 +32,12 @@ describe("reportBugsnagError", () => {
       phase: "error",
       command: "aso keywords",
       requestId: "req-1",
+      surface: "unknown",
+      source: "unknown",
+      operation: "unknown",
+      isTerminal: null,
+      telemetryClassification: "unknown",
+      telemetryDecisionReason: "default_report",
     });
   });
 
@@ -43,6 +49,24 @@ describe("reportBugsnagError", () => {
 
     expect(mockNotifyBugsnagError).toHaveBeenCalledWith(error, {
       command: "aso auth",
+      surface: "unknown",
+      source: "unknown",
+      operation: "unknown",
+      isTerminal: null,
+      telemetryClassification: "unknown",
+      telemetryDecisionReason: "default_report",
     });
+  });
+
+  it("suppresses known user-fault Apple auth errors", () => {
+    const error = Object.assign(new Error("Invalid Apple ID credentials"), {
+      name: "AppleAuthResponseError",
+      reason: "invalid_credentials",
+    });
+    mockGetErrorBugsnagMetadata.mockReturnValue(undefined);
+
+    reportBugsnagError(error, { command: "aso auth" });
+
+    expect(mockNotifyBugsnagError).not.toHaveBeenCalled();
   });
 });

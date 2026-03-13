@@ -50,6 +50,11 @@ Define failure boundaries, retry rules, and recovery behavior across CLI, dashbo
 - Apple HTTP calls carry trace context.
 - Bugsnag Apple metadata includes the latest `10` redacted Apple HTTP calls plus up to `3` latest non-success calls when they have already rotated out of that `10`-call window.
 - Dashboard server reports failures with structured metadata (path, phase, counts).
+- Bugsnag reporting uses an actionability allowlist:
+  - reports internal bugs, Apple contract-change signals, and terminal upstream failures
+  - suppresses expected user-flow noise (invalid credentials, expected auth/API `4xx`, validation issues)
+- Dashboard UI reports only actionable API failures (for example: `5xx`, network/runtime exceptions, malformed success payloads); expected `4xx` flows are suppressed.
+- MCP reports runtime/transport/parse-contract failures; non-zero child CLI exits are suppressed by default.
 - Startup refresh state (`status`, counters, timestamps, lastError) is exposed via API.
 - CLI ASO retry/fallback diagnostics (auth, popularity, and enrichment fallback traces) are logged at `debug`; user-facing flows should surface terminal outcomes and actionable prompts/errors instead of intermediate warning noise.
 

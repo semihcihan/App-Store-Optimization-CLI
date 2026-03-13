@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { runAsoCommand, toMcpToolResult } from "../execute-aso-cli";
 import { saveKeywordsToDefaultResearchApp } from "../../services/keywords/aso-research-keyword-service";
+import { reportBugsnagError } from "../../services/telemetry/error-reporter";
 import { ASO_MAX_KEYWORDS } from "../../shared/aso-keyword-limits";
 import { sanitizeKeywords } from "../../domain/keywords/policy";
 
@@ -153,8 +154,51 @@ export async function handleAsoSuggest(args: AsoSuggestArgs) {
   }
 
   const parsedJson = parseJsonFromStdout(commandResult.stdout);
+  if (parsedJson == null) {
+    reportBugsnagError(new Error("MCP expected JSON output from aso keywords"), {
+      surface: "aso-mcp",
+      tool: "aso_suggest",
+      stage: "parse-json",
+      command: "keywords",
+      exitCode: commandResult.exitCode,
+      stdoutLength: commandResult.stdout.length,
+      stderrLength: commandResult.stderr.length,
+      telemetryHint: {
+        classification: "actionable_bug",
+        surface: "aso-mcp",
+        source: "mcp.aso-suggest.parse-json",
+        stage: "parse",
+        tool: "aso_suggest",
+      },
+    });
+    return buildFailureResult(
+      "ASO command succeeded but response was not valid JSON."
+    );
+  }
+
   const parsedItems = extractItemsPayload(parsedJson);
   if (parsedItems == null) {
+    reportBugsnagError(
+      new Error(
+        "MCP expected `{ items, failedKeywords }` envelope from aso keywords"
+      ),
+      {
+        surface: "aso-mcp",
+        tool: "aso_suggest",
+        stage: "parse-envelope",
+        command: "keywords",
+        exitCode: commandResult.exitCode,
+        stdoutLength: commandResult.stdout.length,
+        stderrLength: commandResult.stderr.length,
+        telemetryHint: {
+          classification: "actionable_bug",
+          surface: "aso-mcp",
+          source: "mcp.aso-suggest.parse-envelope",
+          stage: "parse",
+          tool: "aso_suggest",
+        },
+      }
+    );
     return buildFailureResult(
       "ASO command succeeded but response format was not valid `{ items, failedKeywords }` payload."
     );
@@ -189,10 +233,27 @@ export async function handleAsoSuggest(args: AsoSuggestArgs) {
   });
 
   if (accepted.length > 0) {
-    saveKeywordsToDefaultResearchApp(
-      accepted.map((item) => item.keyword),
-      "US"
-    );
+    try {
+      saveKeywordsToDefaultResearchApp(
+        accepted.map((item) => item.keyword),
+        "US"
+      );
+    } catch (error) {
+      reportBugsnagError(error, {
+        surface: "aso-mcp",
+        tool: "aso_suggest",
+        stage: "persist",
+        acceptedCount: accepted.length,
+        telemetryHint: {
+          classification: "actionable_bug",
+          surface: "aso-mcp",
+          source: "mcp.aso-suggest.persist",
+          stage: "persist",
+          tool: "aso_suggest",
+        },
+      });
+      throw error;
+    }
   }
 
   return {

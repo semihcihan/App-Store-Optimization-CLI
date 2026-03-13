@@ -95,7 +95,7 @@ describe("app-helpers", () => {
     ).toBe("fallback");
   });
 
-  it("handles API requests and reports failures", async () => {
+  it("handles API requests and forwards failures to dashboard notifier", async () => {
     const fetchMock = jest.fn();
     global.fetch = fetchMock as typeof fetch;
     fetchMock.mockResolvedValueOnce(

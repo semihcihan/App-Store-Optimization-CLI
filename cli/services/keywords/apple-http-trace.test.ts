@@ -174,4 +174,23 @@ describe("apple-http-trace", () => {
       cValue: "charlie",
     });
   });
+
+  it("includes optional terminality hint in telemetry metadata", () => {
+    const wrapped = withAppleHttpTraceContext(new Error("terminal"), {
+      provider: "apple-search-ads",
+      operation: "keywords-popularities-request",
+      context: { statusCode: 503 },
+      isTerminal: true,
+    });
+
+    const metadata = getErrorBugsnagMetadata(wrapped) as
+      | { telemetryHint?: { isTerminal?: boolean; upstreamProvider?: string } }
+      | undefined;
+    expect(metadata?.telemetryHint).toEqual(
+      expect.objectContaining({
+        isTerminal: true,
+        upstreamProvider: "apple-search-ads",
+      })
+    );
+  });
 });

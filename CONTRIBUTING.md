@@ -66,6 +66,7 @@ Data sent:
 - Error details and stack traces
 - Runtime metadata attached by the app (command context and categorized diagnostics)
 - Basic runtime/device info collected by Bugsnag SDK
+- Telemetry classification metadata (`actionable_bug`, `apple_contract_change`, `upstream_terminal_failure`, etc.)
 
 Data not intentionally sent by app logic:
 - Apple auth cookies and authorization headers (sensitive headers are redacted in request diagnostics)
