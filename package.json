@@ -12,7 +12,7 @@
     "prebuild": "npm run check:node && npm run generate-mcp-content",
     "predev": "npm run check:node && npm run generate-mcp-content",
     "pretest": "npm run check:node",
-    "pretypecheck": "npm run check:node",
+    "pretypecheck": "npm run check:node && npm run generate-mcp-content",
     "generate-mcp-content": "node cli/mcp/generate-mcp-content.js",
     "generate:app-icon": "node scripts/render-app-icon.js",
     "build": "node esbuild.config.js",
