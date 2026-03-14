@@ -120,19 +120,6 @@ aso
   ],
   "failedKeywords": []
 }
-
-```json
-{
-  "items": [
-    {
-      "keyword": "meditation",
-      "popularity": 45,
-      "difficultyScore": 62,
-      "minDifficultyScore": 38
-    }
-  ],
-  "failedKeywords": []
-}
 ````
 
 ## MCP
