@@ -59,6 +59,7 @@ Define failure boundaries, retry rules, and recovery behavior across CLI, dashbo
   - reports internal bugs, Apple contract-change signals, and terminal upstream failures
   - suppresses expected user-flow noise (invalid credentials, expected auth/API `4xx`, validation issues)
 - Dashboard UI reports only actionable API failures (for example: `5xx`, network/runtime exceptions, malformed success payloads); expected `4xx` flows are suppressed.
+- Dashboard UI Bugsnag metadata includes the latest `10` redacted dashboard API traces (`method`, `path`, `durationMs`, response/error summary) to aid transport-failure debugging when no HTTP response is returned.
 - MCP reports runtime/transport/parse-contract failures; non-zero child CLI exits are suppressed by default.
 - Startup refresh state (`status`, counters, timestamps, lastError) is exposed via API.
 - CLI ASO retry/fallback diagnostics (auth, popularity, and enrichment fallback traces) are logged at `debug`; user-facing flows should surface terminal outcomes and actionable prompts/errors instead of intermediate warning noise.

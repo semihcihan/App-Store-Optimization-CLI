@@ -20,6 +20,7 @@ import {
   getIconUrl,
   getNumberDelta,
   isAuthFlowErrorCode,
+  resetRecentDashboardApiTracesForTests,
   roundTo,
   toActionableErrorMessage,
 } from "./app-helpers";
@@ -43,6 +44,7 @@ describe("app-helpers", () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    resetRecentDashboardApiTracesForTests();
   });
 
   afterEach(() => {
@@ -116,11 +118,58 @@ describe("app-helpers", () => {
       status: 401,
       errorCode: "AUTH_REQUIRED",
     });
+
     expect(mockNotifyDashboardError).toHaveBeenCalledWith(
       expect.any(Error),
       expect.objectContaining({
         method: "POST",
         path: "/bad",
+        source: "dashboard-ui.api-request",
+        operation: "POST /bad",
+        isTerminal: true,
+        recentApiTraces: expect.arrayContaining([
+          expect.objectContaining({
+            method: "POST",
+            path: "/bad",
+            response: expect.objectContaining({
+              status: 401,
+              ok: false,
+              success: false,
+              errorCode: "AUTH_REQUIRED",
+            }),
+            error: expect.objectContaining({
+              name: "DashboardApiError",
+            }),
+          }),
+        ]),
+      })
+    );
+  });
+
+  it("records fetch transport failures without response metadata", async () => {
+    const fetchMock = jest.fn();
+    global.fetch = fetchMock as typeof fetch;
+    fetchMock.mockRejectedValueOnce(new TypeError("Load failed"));
+
+    await expect(apiGet("/network-down")).rejects.toThrow("Load failed");
+
+    expect(mockNotifyDashboardError).toHaveBeenCalledWith(
+      expect.any(TypeError),
+      expect.objectContaining({
+        method: "GET",
+        path: "/network-down",
+        source: "dashboard-ui.api-request",
+        operation: "GET /network-down",
+        recentApiTraces: expect.arrayContaining([
+          expect.objectContaining({
+            method: "GET",
+            path: "/network-down",
+            error: expect.objectContaining({
+              name: "TypeError",
+              message: "Load failed",
+            }),
+          }),
+        ]),
       })
     );
   });

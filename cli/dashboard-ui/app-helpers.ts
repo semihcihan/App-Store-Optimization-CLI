@@ -5,6 +5,12 @@ import {
   toDashboardActionableErrorMessage,
 } from "../domain/errors/dashboard-errors";
 import { DEFAULT_ASO_COUNTRY as DOMAIN_DEFAULT_ASO_COUNTRY } from "../domain/keywords/policy";
+import {
+  buildSensitiveKeyMatcher,
+  pushBoundedEntry,
+  sanitizeTelemetryUrl,
+  sanitizeTelemetryValue,
+} from "../shared/telemetry/trace-utils";
 
 export type AppDoc = {
   appId: string;
@@ -49,6 +55,43 @@ const APP_STORE_LANGUAGE_BY_COUNTRY: Record<string, string> = {
 
 export const APP_STORE_ICON_IMAGE_URL =
   "https://support.apple.com/content/dam/edam/applecare/images/en_US/psp_content/content-block-sm-appstore-icon_2x.png";
+const DASHBOARD_API_TRACE_LIMIT = 10;
+const SENSITIVE_FIELD_KEYWORDS = [
+  "authorization",
+  "password",
+  "token",
+  "secret",
+  "cookie",
+  "apikey",
+  "api-key",
+  "session",
+];
+const isSensitiveField = buildSensitiveKeyMatcher({
+  includes: SENSITIVE_FIELD_KEYWORDS,
+});
+
+type DashboardApiTrace = {
+  timestamp: string;
+  method: "GET" | "POST" | "DELETE";
+  path: string;
+  durationMs: number;
+  request: {
+    hasBody: boolean;
+    body?: unknown;
+  };
+  response?: {
+    status: number;
+    ok: boolean;
+    success: boolean;
+    errorCode?: string;
+  };
+  error?: {
+    name?: string;
+    message: string;
+  };
+};
+
+const recentDashboardApiTraces: DashboardApiTrace[] = [];
 
 export class DashboardApiError extends Error {
   status: number;
@@ -60,6 +103,43 @@ export class DashboardApiError extends Error {
     this.status = status;
     this.errorCode = errorCode;
   }
+}
+
+function toTraceError(error: unknown): { name?: string; message: string } {
+  if (error instanceof Error) {
+    return {
+      name: error.name,
+      message: error.message,
+    };
+  }
+  return {
+    message: String(error),
+  };
+}
+
+function pushDashboardApiTrace(trace: DashboardApiTrace): void {
+  pushBoundedEntry(recentDashboardApiTraces, trace, DASHBOARD_API_TRACE_LIMIT);
+}
+
+function getRecentDashboardApiTraces(): DashboardApiTrace[] {
+  return recentDashboardApiTraces.map((trace) => ({
+    ...trace,
+    request: { ...trace.request },
+    response: trace.response ? { ...trace.response } : undefined,
+    error: trace.error ? { ...trace.error } : undefined,
+  }));
+}
+
+function toDashboardApiOperation(
+  method: "GET" | "POST" | "DELETE",
+  path: string
+): string {
+  const operationPath = path.split("?")[0] || path;
+  return `${method} ${operationPath}`;
+}
+
+export function resetRecentDashboardApiTracesForTests(): void {
+  recentDashboardApiTraces.length = 0;
 }
 
 export function getDashboardApiErrorCode(error: unknown): string | null {
@@ -87,6 +167,32 @@ export async function apiRequest<T>(
   path: string,
   body?: unknown
 ): Promise<T> {
+  const sanitizedPath = sanitizeTelemetryUrl(path, {
+    isSensitiveKey: isSensitiveField,
+    baseUrl: "http://dashboard.local",
+  });
+  const startedAt = Date.now();
+
+  const pushTrace = (entry: Omit<DashboardApiTrace, "timestamp" | "method" | "path" | "durationMs" | "request"> & {
+    request?: DashboardApiTrace["request"];
+  }) => {
+    pushDashboardApiTrace({
+      timestamp: new Date().toISOString(),
+      method,
+      path: sanitizedPath,
+      durationMs: Date.now() - startedAt,
+      request: entry.request ?? {
+        hasBody: body !== undefined,
+        body:
+          body === undefined
+            ? undefined
+            : sanitizeTelemetryValue(body, { isSensitiveKey: isSensitiveField }),
+      },
+      response: entry.response,
+      error: entry.error,
+    });
+  };
+
   try {
     const response = await fetch(path, {
       method,
@@ -99,18 +205,41 @@ export async function apiRequest<T>(
     } catch {
       json = null;
     }
+    const responseTrace = {
+      status: response.status,
+      ok: response.ok,
+      success: json?.success === true,
+      errorCode: typeof json?.errorCode === "string" ? json.errorCode : undefined,
+    };
     if (!response.ok || !json?.success) {
-      throw new DashboardApiError(
+      const dashboardError = new DashboardApiError(
         json?.error || json?.message || `Request failed (${response.status})`,
         response.status,
         typeof json?.errorCode === "string" ? json.errorCode : undefined
       );
+      pushTrace({
+        response: responseTrace,
+        error: toTraceError(dashboardError),
+      });
+      throw dashboardError;
     }
+    pushTrace({
+      response: responseTrace,
+    });
     return json.data as T;
   } catch (error) {
+    if (!(error instanceof DashboardApiError)) {
+      pushTrace({
+        error: toTraceError(error),
+      });
+    }
     notifyDashboardError(error, {
       method,
-      path,
+      path: sanitizedPath,
+      source: "dashboard-ui.api-request",
+      operation: toDashboardApiOperation(method, sanitizedPath),
+      isTerminal: true,
+      recentApiTraces: getRecentDashboardApiTraces(),
     });
     throw error;
   }
