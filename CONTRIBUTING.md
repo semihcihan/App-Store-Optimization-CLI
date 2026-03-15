@@ -70,6 +70,7 @@ Data sent:
 
 Data not intentionally sent by app logic:
 - Apple auth cookies and authorization headers (sensitive headers are redacted in request diagnostics)
+- Credential-like fields in telemetry metadata/error payloads (globally scrubbed by Bugsnag SDK-level redaction before send)
 
 ## Pull requests
 

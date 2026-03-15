@@ -46,8 +46,94 @@ describe("bugsnag-shared", () => {
         autoTrackSessions: false,
         logger: null,
         enabledBreadcrumbTypes: ["error", "manual"],
+        redactedKeys: expect.any(Array),
+        onError: expect.any(Function),
       })
     );
+  });
+
+  it("sanitizes sensitive values globally via Bugsnag onError hook", async () => {
+    const { initializeBugsnag } = await import("../../shared/telemetry/bugsnag-shared");
+    const Bugsnag = getBugsnagMock();
+
+    initializeBugsnag({ isDevelopment: false, appVersion: "1.2.3" });
+
+    expect(Bugsnag.start).toHaveBeenCalledTimes(1);
+    const config = Bugsnag.start.mock.calls[0]?.[0] as {
+      onError?: (event: any) => void;
+    };
+    expect(typeof config.onError).toBe("function");
+
+    const metadata: Record<string, any> = {
+      metadata: {
+        context: {
+          code: "ENOENT",
+          path: "security",
+          spawnargs: [
+            "add-generic-password",
+            "-U",
+            "-s",
+            "aso.cli.apple",
+            "-a",
+            "default",
+            "-w",
+            '{"appleId":"user@example.com","password":"pw"}',
+          ],
+          nested: {
+            username: "user@example.com",
+            password: "pw",
+          },
+        },
+      },
+    };
+
+    const event: any = {
+      errors: [
+        {
+          errorMessage:
+            'spawn failed payload={"appleId":"user@example.com","password":"pw"}',
+        },
+      ],
+      getMetadata: jest.fn((section?: string, key?: string) => {
+        if (!section) return metadata;
+        if (!key) return metadata[section];
+        return metadata[section]?.[key];
+      }),
+      clearMetadata: jest.fn((section: string, key?: string) => {
+        if (!key) {
+          delete metadata[section];
+          return;
+        }
+        const sectionData = metadata[section];
+        if (sectionData && typeof sectionData === "object") {
+          delete sectionData[key];
+        }
+      }),
+      addMetadata: jest.fn((section: string, values: Record<string, unknown>) => {
+        metadata[section] = values;
+      }),
+    };
+
+    config.onError?.(event);
+
+    expect(metadata.metadata.context.spawnargs).toEqual([
+      "add-generic-password",
+      "-U",
+      "-s",
+      "aso.cli.apple",
+      "-a",
+      "default",
+      "-w",
+      "[REDACTED]",
+    ]);
+    expect(metadata.metadata.context.nested).toEqual({
+      username: "[REDACTED]",
+      password: "[REDACTED]",
+    });
+    expect(event.errors[0].errorMessage).toContain('"appleId":"[REDACTED]"');
+    expect(event.errors[0].errorMessage).toContain('"password":"[REDACTED]"');
+    expect(event.errors[0].errorMessage).not.toContain("user@example.com");
+    expect(event.errors[0].errorMessage).not.toContain('"password":"pw"');
   });
 
   it("notifies errors only after startup and attaches metadata", async () => {

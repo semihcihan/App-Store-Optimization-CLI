@@ -53,6 +53,7 @@ Define failure boundaries, retry rules, and recovery behavior across CLI, dashbo
 ## Observability
 - Apple HTTP calls carry trace context.
 - Bugsnag Apple metadata includes the latest `10` redacted Apple HTTP calls plus up to `3` latest non-success calls when they have already rotated out of that `10`-call window.
+- Bugsnag redaction is centralized at SDK startup via global `redactedKeys` and `onError` sanitization before event delivery (including nested metadata and keychain command-arg payloads such as `spawnargs` values after `-w`).
 - Dashboard server reports failures with structured metadata (path, phase, counts).
 - Bugsnag reporting uses an actionability allowlist:
   - reports internal bugs, Apple contract-change signals, and terminal upstream failures
