@@ -69,4 +69,35 @@ describe("reportBugsnagError", () => {
 
     expect(mockNotifyBugsnagError).not.toHaveBeenCalled();
   });
+
+  it("deep-merges telemetryHint so caller classifications survive trace metadata", () => {
+    const error = new Error("contract drift");
+    mockGetErrorBugsnagMetadata.mockReturnValue({
+      telemetryHint: {
+        upstreamProvider: "apple-search-ads",
+        operation: "keywords-popularities-response",
+        source: "apple.apple-search-ads.keywords-popularities-response",
+      },
+    });
+
+    reportBugsnagError(error, {
+      telemetryHint: {
+        classification: "apple_contract_change",
+        surface: "aso-apple-api",
+      },
+    });
+
+    expect(mockNotifyBugsnagError).toHaveBeenCalledWith(
+      error,
+      expect.objectContaining({
+        telemetryHint: expect.objectContaining({
+          classification: "apple_contract_change",
+          surface: "aso-apple-api",
+          upstreamProvider: "apple-search-ads",
+          operation: "keywords-popularities-response",
+          source: "apple.apple-search-ads.keywords-popularities-response",
+        }),
+      })
+    );
+  });
 });

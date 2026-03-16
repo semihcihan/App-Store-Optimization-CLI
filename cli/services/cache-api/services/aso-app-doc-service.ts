@@ -2,6 +2,7 @@ import { computeAppExpiryIsoForApp } from "./aso-keyword-utils";
 import type { AsoCacheRepository, AsoAppDoc } from "./aso-types";
 import { asoAppleGet } from "./aso-apple-client";
 import { logger } from "../../../utils/logger";
+import { reportAppleContractChange } from "../../keywords/apple-http-trace";
 import {
   assertSupportedCountry,
   normalizeCountry,
@@ -159,13 +160,49 @@ async function fetchAppDocById(country: string, appId: string): Promise<AsoAppDo
 
   const payload = parseAppStorePayload(response.data);
   if (!payload) {
+    reportAppleContractChange({
+      provider: "apple-appstore",
+      operation: "appstore.app-lookup",
+      endpoint: "https://apps.apple.com/app/id{appId}",
+      statusCode: response.status,
+      expectedContract:
+        "App lookup response is JSON/object or HTML with serialized-server-data JSON",
+      actualSignal: `payload_parse_failed rawType=${typeof response.data}`,
+      context: {
+        appId,
+        country: country.toUpperCase(),
+      },
+      isTerminal: false,
+      dedupeKey: "appstore-app-lookup-payload-parse",
+    });
     logger.debug("[aso-app-lookup] unparseable payload", {
       appId,
       country: country.toUpperCase(),
     });
     return null;
   }
-  return parseAppDocFromPayload(payload, appId, country.toUpperCase());
+
+  const parsedDoc = parseAppDocFromPayload(payload, appId, country.toUpperCase());
+  if (!parsedDoc) {
+    reportAppleContractChange({
+      provider: "apple-appstore",
+      operation: "appstore.app-lookup",
+      endpoint: "https://apps.apple.com/app/id{appId}",
+      statusCode: response.status,
+      expectedContract:
+        "App lookup payload has storePlatformData.product-dv.results with a product entry",
+      actualSignal: "missing_product_payload",
+      context: {
+        appId,
+        country: country.toUpperCase(),
+      },
+      isTerminal: false,
+      dedupeKey: "appstore-app-lookup-missing-product",
+    });
+    return null;
+  }
+
+  return parsedDoc;
 }
 
 function normalizeCountryOnAppDocs(country: string, docs: AsoAppDoc[]): AsoAppDoc[] {

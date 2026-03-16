@@ -1,5 +1,6 @@
 import axios, { type AxiosInstance, type AxiosRequestConfig } from "axios";
 import { withBugsnagMetadata } from "../telemetry/bugsnag-metadata";
+import { reportBugsnagError } from "../telemetry/error-reporter";
 import {
   buildSensitiveKeyMatcher,
   pushBoundedEntry,
@@ -7,7 +8,10 @@ import {
   sanitizeTelemetryValue,
 } from "../../shared/telemetry/trace-utils";
 
-export type AppleTraceProvider = "apple-auth" | "apple-search-ads";
+export type AppleTraceProvider =
+  | "apple-auth"
+  | "apple-search-ads"
+  | "apple-appstore";
 
 type AppleHttpTrace = {
   timestamp: string;
@@ -38,8 +42,10 @@ type AppleHttpTraceStoreEntry = AppleHttpTrace & {
 
 const RECENT_TRACE_LIMIT = 10;
 const RECENT_FAILED_TRACE_LIMIT = 3;
+const APPLE_CONTRACT_CHANGE_DEDUPE_WINDOW_MS = 15 * 60 * 1000;
 const recentTraceStore: AppleHttpTraceStoreEntry[] = [];
 const recentFailedTraceStore: AppleHttpTraceStoreEntry[] = [];
+const appleContractChangeLastSeenAt = new Map<string, number>();
 let nextTraceId = 1;
 let tracedClients = new WeakSet<AxiosInstance>();
 
@@ -112,6 +118,67 @@ function pushTrace(trace: AppleHttpTrace): void {
   if (entry.nonSuccess) {
     pushBoundedEntry(recentFailedTraceStore, entry, RECENT_FAILED_TRACE_LIMIT);
   }
+}
+
+function normalizeContractSignaturePart(value: unknown, maxLength = 120): string {
+  if (value == null) return "";
+  const normalized = String(value).trim().toLowerCase().replace(/\s+/g, " ");
+  if (normalized.length <= maxLength) return normalized;
+  return normalized.slice(0, maxLength);
+}
+
+function statusBucket(statusCode?: number): string {
+  if (typeof statusCode !== "number" || !Number.isFinite(statusCode)) {
+    return "none";
+  }
+  if (statusCode < 100) return "non_http";
+  const family = Math.floor(statusCode / 100);
+  return `${family}xx`;
+}
+
+function buildContractChangeSignature(params: {
+  provider: AppleTraceProvider;
+  operation: string;
+  endpoint?: string;
+  expectedContract: string;
+  actualSignal: string;
+  statusCode?: number;
+  dedupeKey?: string;
+}): string {
+  if (params.dedupeKey) {
+    return [
+      params.provider,
+      params.operation,
+      normalizeContractSignaturePart(params.dedupeKey, 200),
+    ].join("|");
+  }
+  return [
+    params.provider,
+    params.operation,
+    normalizeContractSignaturePart(params.endpoint),
+    normalizeContractSignaturePart(params.expectedContract),
+    normalizeContractSignaturePart(params.actualSignal),
+    statusBucket(params.statusCode),
+  ].join("|");
+}
+
+function shouldReportContractChange(signature: string, now: number): boolean {
+  for (const [key, lastSeenAt] of appleContractChangeLastSeenAt.entries()) {
+    if (now - lastSeenAt >= APPLE_CONTRACT_CHANGE_DEDUPE_WINDOW_MS) {
+      appleContractChangeLastSeenAt.delete(key);
+    }
+  }
+
+  const lastSeenAt = appleContractChangeLastSeenAt.get(signature);
+  if (
+    typeof lastSeenAt === "number" &&
+    now - lastSeenAt < APPLE_CONTRACT_CHANGE_DEDUPE_WINDOW_MS
+  ) {
+    return false;
+  }
+
+  appleContractChangeLastSeenAt.set(signature, now);
+  return true;
 }
 
 export function attachAppleHttpTracing(
@@ -237,9 +304,88 @@ export function withAppleHttpTraceContext(
   });
 }
 
+export function reportAppleContractChange(params: {
+  provider: AppleTraceProvider;
+  operation: string;
+  endpoint: string;
+  expectedContract: string;
+  actualSignal: string;
+  statusCode?: number;
+  requestId?: string;
+  context?: Record<string, unknown>;
+  error?: unknown;
+  isTerminal?: boolean;
+  dedupeKey?: string;
+  surface?: string;
+}): void {
+  const now = Date.now();
+  const signature = buildContractChangeSignature({
+    provider: params.provider,
+    operation: params.operation,
+    endpoint: params.endpoint,
+    expectedContract: params.expectedContract,
+    actualSignal: params.actualSignal,
+    statusCode: params.statusCode,
+    dedupeKey: params.dedupeKey,
+  });
+  if (!shouldReportContractChange(signature, now)) {
+    return;
+  }
+
+  const source = `apple.contract.${params.provider}.${params.operation}`;
+  const surface = params.surface ?? "aso-apple-api";
+  const wrapped = withAppleHttpTraceContext(
+    params.error ?? new Error(`Apple contract drift detected: ${params.operation}`),
+    {
+      provider: params.provider,
+      operation: params.operation,
+      context: {
+        endpoint: params.endpoint,
+        expectedContract: params.expectedContract,
+        actualSignal: params.actualSignal,
+        statusCode: params.statusCode,
+        requestId: params.requestId,
+        ...(params.context || {}),
+      },
+      isTerminal: params.isTerminal,
+    }
+  );
+
+  reportBugsnagError(wrapped, {
+    surface,
+    source,
+    operation: params.operation,
+    endpoint: params.endpoint,
+    statusCode: params.statusCode,
+    isTerminal: params.isTerminal ?? false,
+    appleContractChange: {
+      provider: params.provider,
+      operation: params.operation,
+      endpoint: params.endpoint,
+      expectedContract: params.expectedContract,
+      actualSignal: params.actualSignal,
+      statusCode: params.statusCode,
+      requestId: params.requestId,
+      signature,
+      dedupeWindowMs: APPLE_CONTRACT_CHANGE_DEDUPE_WINDOW_MS,
+    },
+    telemetryHint: {
+      classification: "apple_contract_change",
+      upstreamProvider: params.provider,
+      source,
+      operation: params.operation,
+      surface,
+      statusCode: params.statusCode,
+      isTerminal: params.isTerminal ?? false,
+      stage: "contract-change",
+    },
+  });
+}
+
 export function resetAppleHttpTracingForTests(): void {
   recentTraceStore.length = 0;
   recentFailedTraceStore.length = 0;
+  appleContractChangeLastSeenAt.clear();
   nextTraceId = 1;
   tracedClients = new WeakSet<AxiosInstance>();
 }

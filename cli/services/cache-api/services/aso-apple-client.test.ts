@@ -1,15 +1,24 @@
 import { jest } from "@jest/globals";
-import axios from "axios";
 import { asoAppleGet } from "./aso-apple-client";
 
-jest.mock("axios", () => ({
-  __esModule: true,
-  default: {
-    get: jest.fn(),
-  },
-}));
+jest.mock("axios", () => {
+  const get = jest.fn();
+  return {
+    __esModule: true,
+    default: {
+      create: jest.fn(() => ({
+        get,
+        interceptors: {
+          request: { use: jest.fn() },
+          response: { use: jest.fn() },
+        },
+      })),
+    },
+    __mockGet: get,
+  };
+});
 
-const mockGet = jest.mocked(axios.get);
+const mockGet = (jest.requireMock("axios") as { __mockGet: jest.Mock }).__mockGet;
 
 describe("aso-apple-client", () => {
   beforeEach(() => {
@@ -37,7 +46,7 @@ describe("aso-apple-client", () => {
       message: "Internal error",
     };
 
-    mockGet
+    (mockGet as any)
       .mockRejectedValueOnce(transientError)
       .mockRejectedValueOnce(transientError)
       .mockRejectedValueOnce(transientError)

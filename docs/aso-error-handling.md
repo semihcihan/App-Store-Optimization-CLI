@@ -53,6 +53,15 @@ Define failure boundaries, retry rules, and recovery behavior across CLI, dashbo
 ## Observability
 - Apple HTTP calls carry trace context.
 - Bugsnag Apple metadata includes the latest `10` redacted Apple HTTP calls plus up to `3` latest non-success calls when they have already rotated out of that `10`-call window.
+- Apple contract-drift reporting is centralized: when expected Apple response shapes/flow contracts drift, the runtime emits Bugsnag events classified as `apple_contract_change` with endpoint + expected-vs-actual metadata.
+- Contract-drift reporting covers all Apple API surfaces used by ASO runtime:
+  - Apple auth/session bootstrap and 2FA flow
+  - Search Ads popularity endpoint
+  - App Store search page parsing
+  - MZSearch order payload parsing
+  - App lookup payload parsing
+  - App title/subtitle page parsing
+- Contract-drift events are deduped for `15` minutes per unique signature (`provider + operation + endpoint + drift kind + status bucket`) to reduce alert spam during repeated failures.
 - Bugsnag redaction is centralized at SDK startup via global `redactedKeys` and `onError` sanitization before event delivery (including nested metadata and keychain command-arg payloads such as `spawnargs` values after `-w`).
 - Dashboard server reports failures with structured metadata (path, phase, counts).
 - Bugsnag reporting uses an actionability allowlist:

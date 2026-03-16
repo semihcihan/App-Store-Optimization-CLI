@@ -8,6 +8,7 @@ import { fetchAppStoreTitleAndSubtitle } from "./aso-app-store-details";
 import { fetchAppStoreLookupAppDocs } from "./aso-app-doc-service";
 import type { AsoAppDoc, AsoAppDocIcon } from "./aso-types";
 import { asoAppleGet } from "./aso-apple-client";
+import { reportAppleContractChange } from "../../keywords/apple-http-trace";
 
 interface MzSearchResponse {
   pageData?: {
@@ -70,6 +71,8 @@ const DIFFICULTY_DETAIL_LIMIT = 5;
 const DIFFICULTY_AVG_WEIGHT = 1;
 const DIFFICULTY_MIN_WEIGHT = 2;
 const DIFFICULTY_APP_COUNT_WEIGHT = 1;
+const MZSEARCH_ORDER_URL = "https://search.itunes.apple.com/WebObjects/MZSearch.woa/wa/search";
+const APPSTORE_SEARCH_URL = "https://apps.apple.com/us/iphone/search";
 
 function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
@@ -196,7 +199,7 @@ async function fetchPopularityOrderedIds(params: {
   country: string;
 }): Promise<string[]> {
   const response = await asoAppleGet<MzSearchResponse>(
-    "https://search.itunes.apple.com/WebObjects/MZSearch.woa/wa/search",
+    MZSEARCH_ORDER_URL,
     {
       operation: "mzsearch.keyword-order",
       params: {
@@ -214,9 +217,44 @@ async function fetchPopularityOrderedIds(params: {
     }
   );
 
-  const bubbles = response.data?.pageData?.bubbles || [];
+  const bubbles = response.data?.pageData?.bubbles;
+  if (!Array.isArray(bubbles)) {
+    reportAppleContractChange({
+      provider: "apple-appstore",
+      operation: "mzsearch.keyword-order",
+      endpoint: MZSEARCH_ORDER_URL,
+      statusCode: response.status,
+      expectedContract: "MZSearch response has pageData.bubbles[]",
+      actualSignal: `bubblesType=${typeof bubbles}`,
+      context: {
+        keyword: params.keyword,
+        country: params.country.toUpperCase(),
+      },
+      isTerminal: false,
+      dedupeKey: "mzsearch-keyword-order-bubbles-array",
+    });
+    return [];
+  }
+
   for (const bubble of bubbles) {
     if (bubble?.name !== "software") continue;
+    if (!Array.isArray(bubble.results)) {
+      reportAppleContractChange({
+        provider: "apple-appstore",
+        operation: "mzsearch.keyword-order",
+        endpoint: MZSEARCH_ORDER_URL,
+        statusCode: response.status,
+        expectedContract: "software bubble has results[] entries",
+        actualSignal: `softwareResultsType=${typeof bubble.results}`,
+        context: {
+          keyword: params.keyword,
+          country: params.country.toUpperCase(),
+        },
+        isTerminal: false,
+        dedupeKey: "mzsearch-keyword-order-software-results-array",
+      });
+      return [];
+    }
     return (bubble.results || [])
       .map((result) => `${result.id || ""}`.trim())
       .filter(Boolean);
@@ -261,19 +299,16 @@ async function fetchSearchPageOrderedData(params: {
   orderedAppIds: string[];
   appDocs: AsoAppDoc[];
 }> {
-  const response = await asoAppleGet(
-    "https://apps.apple.com/us/iphone/search",
-    {
-      operation: "appstore.search-page",
-      params: { term: params.keyword },
-      headers: {
-        "User-Agent": DEFAULT_APPLE_WEB_USER_AGENT,
-        Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        "Accept-Language": "en-US,en;q=0.9",
-      },
-      timeout: 30000,
-    }
-  );
+  const response = await asoAppleGet(APPSTORE_SEARCH_URL, {
+    operation: "appstore.search-page",
+    params: { term: params.keyword },
+    headers: {
+      "User-Agent": DEFAULT_APPLE_WEB_USER_AGENT,
+      Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+      "Accept-Language": "en-US,en;q=0.9",
+    },
+    timeout: 30000,
+  });
 
   const html = `${response.data || ""}`;
   const serializedDataMatch = html.match(
@@ -338,6 +373,21 @@ export async function refreshKeywordOrder(params: {
   } catch (htmlErr) {
     const htmlMessage =
       htmlErr instanceof Error ? htmlErr.message : String(htmlErr);
+    reportAppleContractChange({
+      provider: "apple-appstore",
+      operation: "appstore.search-page",
+      endpoint: APPSTORE_SEARCH_URL,
+      expectedContract:
+        "Search page includes serialized-server-data with ordered app ids",
+      actualSignal: htmlMessage,
+      context: {
+        keyword: params.keyword,
+        country,
+      },
+      error: htmlErr,
+      isTerminal: false,
+      dedupeKey: "appstore-search-page-fallback",
+    });
     logger.debug(
       `ASO order refresh: search page HTML failed for keyword="${params.keyword}" (${htmlMessage}), falling back to MZSearch`
     );
@@ -497,6 +547,21 @@ export async function enrichKeyword(
   } catch (htmlErr) {
     const htmlMessage =
       htmlErr instanceof Error ? htmlErr.message : String(htmlErr);
+    reportAppleContractChange({
+      provider: "apple-appstore",
+      operation: "appstore.search-page",
+      endpoint: APPSTORE_SEARCH_URL,
+      expectedContract:
+        "Search page includes serialized-server-data with ordered app ids and lockups",
+      actualSignal: htmlMessage,
+      context: {
+        keyword: params.keyword,
+        country,
+      },
+      error: htmlErr,
+      isTerminal: false,
+      dedupeKey: "appstore-search-page-fallback",
+    });
     logger.debug(
       `ASO enrichment: search page HTML failed for keyword="${params.keyword}" (${htmlMessage}), falling back to MZSearch`
     );

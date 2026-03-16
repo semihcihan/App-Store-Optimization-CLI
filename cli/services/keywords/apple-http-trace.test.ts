@@ -2,14 +2,23 @@ import axios from "axios";
 import AxiosMockAdapter from "axios-mock-adapter";
 import {
   attachAppleHttpTracing,
+  reportAppleContractChange,
   resetAppleHttpTracingForTests,
   withAppleHttpTraceContext,
 } from "./apple-http-trace";
 import { getErrorBugsnagMetadata } from "../telemetry/bugsnag-metadata";
+import { reportBugsnagError } from "../telemetry/error-reporter";
+
+jest.mock("../telemetry/error-reporter", () => ({
+  reportBugsnagError: jest.fn(),
+}));
 
 describe("apple-http-trace", () => {
+  const mockReportBugsnagError = jest.mocked(reportBugsnagError);
+
   beforeEach(() => {
     resetAppleHttpTracingForTests();
+    jest.clearAllMocks();
   });
 
   it("redacts SIRP proof fields in traced request and response payloads", async () => {
@@ -192,5 +201,55 @@ describe("apple-http-trace", () => {
         upstreamProvider: "apple-search-ads",
       })
     );
+  });
+
+  it("reports apple contract drifts with explicit contract classification", () => {
+    reportAppleContractChange({
+      provider: "apple-appstore",
+      operation: "appstore.search-page",
+      endpoint: "https://apps.apple.com/us/iphone/search",
+      expectedContract: "serialized-server-data exists",
+      actualSignal: "script_missing",
+      statusCode: 200,
+      isTerminal: false,
+    });
+
+    expect(mockReportBugsnagError).toHaveBeenCalledTimes(1);
+    expect(mockReportBugsnagError).toHaveBeenCalledWith(
+      expect.any(Error),
+      expect.objectContaining({
+        telemetryHint: expect.objectContaining({
+          classification: "apple_contract_change",
+          upstreamProvider: "apple-appstore",
+        }),
+        appleContractChange: expect.objectContaining({
+          operation: "appstore.search-page",
+          dedupeWindowMs: 15 * 60 * 1000,
+        }),
+      })
+    );
+  });
+
+  it("dedupes repeated apple contract drifts for 15 minutes", () => {
+    jest.useFakeTimers();
+    const params = {
+      provider: "apple-appstore" as const,
+      operation: "appstore.search-page",
+      endpoint: "https://apps.apple.com/us/iphone/search",
+      expectedContract: "serialized-server-data exists",
+      actualSignal: "script_missing",
+      statusCode: 200,
+      isTerminal: false,
+      dedupeKey: "search-page-script-missing",
+    };
+
+    reportAppleContractChange(params);
+    reportAppleContractChange(params);
+    expect(mockReportBugsnagError).toHaveBeenCalledTimes(1);
+
+    jest.advanceTimersByTime(15 * 60 * 1000 + 1);
+    reportAppleContractChange(params);
+    expect(mockReportBugsnagError).toHaveBeenCalledTimes(2);
+    jest.useRealTimers();
   });
 });

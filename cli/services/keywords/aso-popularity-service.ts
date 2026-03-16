@@ -6,7 +6,10 @@ import {
   requestPopularitiesWithKwsRetry,
   type PopularityResponse,
 } from "./aso-apple-popularity-client";
-import { withAppleHttpTraceContext } from "./apple-http-trace";
+import {
+  reportAppleContractChange,
+  withAppleHttpTraceContext,
+} from "./apple-http-trace";
 import {
   normalizeAppleUpstreamError,
   type NormalizedAppleUpstreamError,
@@ -229,12 +232,55 @@ export class AsoPopularityService {
       response: { statusCode: number; data: PopularityResponse }
     ): Record<string, number> => {
       const result: Record<string, number> = {};
+      if (!Array.isArray(response.data.data)) {
+        reportAppleContractChange({
+          provider: "apple-search-ads",
+          operation: "keywords-popularities-response",
+          endpoint: APPLE_POPULARITY_URL,
+          statusCode: response.statusCode,
+          requestId: response.data.requestID,
+          expectedContract:
+            "Successful popularity response includes data[] entries with { name, popularity }",
+          actualSignal: `status=${String(response.data.status || "unknown")} dataType=${typeof response.data.data}`,
+          context: {
+            termsCount: sanitizedKeywords.length,
+            hasErrorArray: Array.isArray(response.data.error?.errors),
+          },
+          isTerminal: false,
+          dedupeKey: "keywords-popularities-response-data-array",
+        });
+        return result;
+      }
+
+      let invalidItemCount = 0;
       for (const item of response.data.data || []) {
+        if (!item || typeof item.name !== "string") {
+          invalidItemCount += 1;
+          continue;
+        }
         if (item.popularity === null) continue;
         const originalKeyword = sanitizedToOriginal.get(item.name);
         if (originalKeyword) {
           result[originalKeyword] = item.popularity;
         }
+      }
+      if (invalidItemCount > 0) {
+        reportAppleContractChange({
+          provider: "apple-search-ads",
+          operation: "keywords-popularities-response",
+          endpoint: APPLE_POPULARITY_URL,
+          statusCode: response.statusCode,
+          requestId: response.data.requestID,
+          expectedContract:
+            "Popularity data[] items include a string name and numeric popularity|null",
+          actualSignal: `invalid_items=${invalidItemCount}`,
+          context: {
+            termsCount: sanitizedKeywords.length,
+            returnedItems: response.data.data.length,
+          },
+          isTerminal: false,
+          dedupeKey: "keywords-popularities-response-invalid-items",
+        });
       }
       return result;
     };

@@ -15,6 +15,7 @@ import {
 } from "./aso-keychain-service";
 import {
   attachAppleHttpTracing,
+  reportAppleContractChange,
   withAppleHttpTraceContext,
 } from "../keywords/apple-http-trace";
 
@@ -908,6 +909,20 @@ export class AsoAuthEngine {
       if (!this.shouldFallbackToLegacyFromSirp(error)) {
         throw error;
       }
+      if (error instanceof AppleAuthResponseError && error.reason === "unknown") {
+        reportAppleContractChange({
+          provider: "apple-auth",
+          operation: "sirp-fallback",
+          endpoint: `${APPLE_IDMSA_BASE_URL}/signin/complete`,
+          statusCode: error.status,
+          expectedContract:
+            "SIRP login failure is classified to a known Apple auth reason",
+          actualSignal: `unknown_reason status=${error.status}`,
+          error,
+          isTerminal: false,
+          dedupeKey: "apple-auth-sirp-fallback-unknown-reason",
+        });
+      }
       logger.debug(
         `[aso-auth] SIRP failed, falling back to legacy: ${String(error)}`
       );
@@ -1220,6 +1235,22 @@ export class AsoAuthEngine {
 
     const bodyType = typeof response.data;
     const reason = inferAppleAuthFailureReason(response.status, response.data);
+    if (reason === "unknown") {
+      reportAppleContractChange({
+        provider: "apple-auth",
+        operation: "signin-complete",
+        endpoint: `${APPLE_IDMSA_BASE_URL}/signin`,
+        statusCode: response.status,
+        expectedContract:
+          "Apple sign-in response maps to known outcomes (200, 403, 409, 412 or known payload reason)",
+        actualSignal: `unexpected_status=${response.status} bodyType=${bodyType}`,
+        context: {
+          payloadSummary: summarizeAppleErrorPayload(response.data),
+        },
+        isTerminal: true,
+        dedupeKey: "apple-auth-signin-complete-unknown-reason",
+      });
+    }
     throw this.withAppleAuthTrace(
       new AppleAuthResponseError({
         message: `Apple login failed with status ${response.status} (responseType=${bodyType})`,
@@ -1257,6 +1288,19 @@ export class AsoAuthEngine {
     const scnt = response.headers.scnt;
     const xAppleIdSessionId = response.headers["x-apple-id-session-id"];
     if (!scnt || !xAppleIdSessionId) {
+      reportAppleContractChange({
+        provider: "apple-auth",
+        operation: "extract-session-headers",
+        endpoint: APPLE_IDMSA_BASE_URL,
+        statusCode: response.status,
+        expectedContract:
+          "Auth responses include scnt and x-apple-id-session-id headers",
+        actualSignal: `missing_headers scnt=${Boolean(scnt)} xAppleIdSessionId=${Boolean(
+          xAppleIdSessionId
+        )}`,
+        isTerminal: true,
+        dedupeKey: "apple-auth-missing-session-headers",
+      });
       throw new Error("Missing Apple session headers required for 2FA");
     }
     return {
@@ -1367,6 +1411,20 @@ export class AsoAuthEngine {
           "[aso-auth] Loaded widget key from App Store Connect config"
         );
         return authServiceKey;
+      }
+
+      if (response.status === 200 && !authServiceKey) {
+        reportAppleContractChange({
+          provider: "apple-auth",
+          operation: "widget-config",
+          endpoint: APPLE_WIDGET_CONFIG_URL,
+          statusCode: response.status,
+          expectedContract:
+            "Widget config response includes non-empty authServiceKey",
+          actualSignal: "missing_auth_service_key",
+          isTerminal: false,
+          dedupeKey: "apple-auth-widget-config-missing-auth-service-key",
+        });
       }
 
       logger.debug(
@@ -1488,6 +1546,22 @@ export class AsoAuthEngine {
         });
       }
       if (methodChoices.length === 0) {
+        reportAppleContractChange({
+          provider: "apple-auth",
+          operation: "2fa-method-selection",
+          endpoint: APPLE_IDMSA_BASE_URL,
+          statusCode: challengeResponse.status,
+          expectedContract:
+            "2FA challenge returns at least one supported verification method",
+          actualSignal: "no_supported_2fa_methods",
+          context: {
+            noTrustedDevices,
+            trustedPhoneCount: phoneNumbers.length,
+            hasTrustedDevices,
+          },
+          isTerminal: true,
+          dedupeKey: "apple-auth-2fa-no-supported-methods",
+        });
         throw this.withAppleAuthTrace(
           new Error("No supported 2FA verification methods were returned."),
           "2fa-method-selection"
@@ -1760,6 +1834,20 @@ export class AsoAuthEngine {
 
     const location = String(webAuthResponse.headers.location || "");
     if (!location.includes("searchads.apple.com")) {
+      reportAppleContractChange({
+        provider: "apple-auth",
+        operation: "webauth-handoff",
+        endpoint: APPLE_IDMS_WEB_AUTH_SIGNIN_POST_URL,
+        statusCode: webAuthResponse.status,
+        expectedContract:
+          "WebAuth handoff redirects to a searchads.apple.com destination",
+        actualSignal: `unexpected_location=${location || "unknown"}`,
+        context: {
+          iframeId,
+        },
+        isTerminal: true,
+        dedupeKey: "apple-auth-webauth-unexpected-location",
+      });
       throw this.withAppleAuthTrace(
         new Error(
           `WebAuth handoff redirected to unexpected location: ${location || "unknown"}`

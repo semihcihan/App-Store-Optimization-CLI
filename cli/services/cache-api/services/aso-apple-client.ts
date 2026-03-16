@@ -2,8 +2,11 @@ import axios, { AxiosError, AxiosRequestConfig, AxiosResponse } from "axios";
 import { ContextualError } from "../../../utils/error-handling-helpers";
 import { logger } from "../../../utils/logger";
 import { getAsoResilienceConfig } from "../../../shared/aso-resilience";
+import { attachAppleHttpTracing } from "../../keywords/apple-http-trace";
 
 const SENSITIVE_HEADER_KEYS = ["authorization", "cookie", "set-cookie", "x-api-key"];
+const asoAppleHttpClient = axios.create();
+attachAppleHttpTracing(asoAppleHttpClient, "apple-appstore");
 
 type AsoAppleGetConfig<T = unknown> = AxiosRequestConfig<T> & {
   operation: string;
@@ -150,7 +153,7 @@ export async function asoAppleGet<T = unknown>(
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
-      const response = await axios.get<T>(url, requestConfig);
+      const response = await asoAppleHttpClient.get<T>(url, requestConfig);
       logger.debug(`[${requestId}] ASO APPLE RES GET ${operation}`, {
         requestId,
         operation,

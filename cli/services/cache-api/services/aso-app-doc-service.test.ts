@@ -1,17 +1,25 @@
 import { jest } from "@jest/globals";
-import axios from "axios";
 import {
   fetchAppStoreLookupAppDocs,
   getAsoAppDocs,
 } from "./aso-app-doc-service";
+import { asoAppleGet } from "./aso-apple-client";
 import type { AsoCacheRepository } from "./aso-types";
+import { reportAppleContractChange } from "../../keywords/apple-http-trace";
 
-jest.mock("axios");
+jest.mock("./aso-apple-client", () => ({
+  asoAppleGet: jest.fn(),
+}));
 jest.mock("./aso-keyword-utils", () => ({
   computeAppExpiryIsoForApp: jest.fn(() => "2099-12-31T00:00:00.000Z"),
 }));
 
-const mockedAxios = axios as jest.Mocked<typeof axios>;
+jest.mock("../../keywords/apple-http-trace", () => ({
+  reportAppleContractChange: jest.fn(),
+}));
+
+const mockedAsoAppleGet = jest.mocked(asoAppleGet);
+const mockedReportAppleContractChange = jest.mocked(reportAppleContractChange);
 
 function createRepository(
   overrides: Partial<AsoCacheRepository> = {}
@@ -29,7 +37,7 @@ describe("aso-app-doc-service", () => {
   });
 
   it("maps apps.apple.com payload into app docs and skips missing payloads", async () => {
-    mockedAxios.get
+    mockedAsoAppleGet
       .mockResolvedValueOnce({
         data: {
           storePlatformData: {
@@ -71,13 +79,19 @@ describe("aso-app-doc-service", () => {
         iconArtwork: { url: "https://cdn/icon.png" },
       },
     ]);
-    expect(mockedAxios.get).toHaveBeenNthCalledWith(
+    expect(mockedAsoAppleGet).toHaveBeenNthCalledWith(
       1,
       "https://apps.apple.com/app/id1",
       expect.objectContaining({
         headers: expect.objectContaining({
           "X-Apple-Store-Front": "143441-1,29",
         }),
+      })
+    );
+    expect(mockedReportAppleContractChange).toHaveBeenCalledWith(
+      expect.objectContaining({
+        provider: "apple-appstore",
+        operation: "appstore.app-lookup",
       })
     );
   });
@@ -95,7 +109,7 @@ describe("aso-app-doc-service", () => {
         },
       ]) as unknown) as AsoCacheRepository["getAppDocs"],
     });
-    mockedAxios.get.mockResolvedValue({
+    mockedAsoAppleGet.mockResolvedValue({
       data: {
         storePlatformData: {
           "product-dv": {
@@ -148,7 +162,7 @@ describe("aso-app-doc-service", () => {
     const repository = createRepository({
       getAppDocs: (jest.fn(async () => []) as unknown) as AsoCacheRepository["getAppDocs"],
     });
-    mockedAxios.get.mockResolvedValue({
+    mockedAsoAppleGet.mockResolvedValue({
       data: {
         storePlatformData: {
           "product-dv": {
@@ -206,7 +220,7 @@ describe("aso-app-doc-service", () => {
     });
 
     expect(result).toEqual([]);
-    expect(mockedAxios.get).not.toHaveBeenCalled();
+    expect(mockedAsoAppleGet).not.toHaveBeenCalled();
   });
 
   it("throws for non-US country", async () => {

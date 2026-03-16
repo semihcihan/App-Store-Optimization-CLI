@@ -1,5 +1,6 @@
 import * as cheerio from "cheerio";
 import { asoAppleGet } from "./aso-apple-client";
+import { reportAppleContractChange } from "../../keywords/apple-http-trace";
 
 const APP_STORE_BASE = "https://apps.apple.com";
 const DEFAULT_LANGUAGE = "en-us";
@@ -54,7 +55,44 @@ export async function fetchAppStoreTitleAndSubtitle(
   if (response.status !== 200) {
     return null;
   }
+  if (typeof response.data !== "string") {
+    reportAppleContractChange({
+      provider: "apple-appstore",
+      operation: "appstore.title-subtitle-page",
+      endpoint: "https://apps.apple.com/{country}/app/id{appId}",
+      statusCode: response.status,
+      expectedContract: "Title/subtitle page returns HTML text",
+      actualSignal: `response_data_type=${typeof response.data}`,
+      context: {
+        appId,
+        country: requestCountry.toUpperCase(),
+        language,
+      },
+      isTerminal: false,
+      dedupeKey: "appstore-title-subtitle-non-html-response",
+    });
+    return null;
+  }
 
   const { title, subtitle } = parseTitleAndSubtitle(response.data);
+  if (!title && !subtitle) {
+    reportAppleContractChange({
+      provider: "apple-appstore",
+      operation: "appstore.title-subtitle-page",
+      endpoint: "https://apps.apple.com/{country}/app/id{appId}",
+      statusCode: response.status,
+      expectedContract:
+        "Page includes title/subtitle selectors (.product-header__title or .product-header__subtitle)",
+      actualSignal: "title_and_subtitle_missing",
+      context: {
+        appId,
+        country: requestCountry.toUpperCase(),
+        language,
+      },
+      isTerminal: false,
+      dedupeKey: "appstore-title-subtitle-selectors-missing",
+    });
+    return null;
+  }
   return { title, subtitle };
 }
