@@ -9,6 +9,12 @@ import { fetchAppStoreLookupAppDocs } from "./aso-app-doc-service";
 import type { AsoAppDoc, AsoAppDocIcon } from "./aso-types";
 import { asoAppleGet } from "./aso-apple-client";
 import { reportAppleContractChange } from "../../keywords/apple-http-trace";
+import {
+  DIFFICULTY_DETAIL_LIMIT,
+  type KeywordMatchType,
+  calculateAppDifficultyBreakdown,
+  calculateKeywordDifficultyBreakdown,
+} from "./aso-difficulty";
 
 interface MzSearchResponse {
   pageData?: {
@@ -53,30 +59,14 @@ interface AmpSearchResponse {
   }>;
 }
 
-const MAX_COMPETING_APPS = 200;
-const MAX_RATINGS = 10000;
-const AGE_NORMALIZATION_DAYS = 365;
-const RATING_PER_DAY_MAX = 100;
-const RATING_PER_DAY_MAP_THRESHOLD = 0.25;
-const RATING_PER_DAY_THRESHOLD = 1;
-const LOW_RATING_COUNT_THRESHOLD = 10;
-const MIN_RATING_FOR_POSITIVE_SCORE = 3;
 const MZSEARCH_PLATFORM_ID_JSON = 29;
 const STORE_FRONT_ID_BY_COUNTRY: Record<string, number> = {
   US: 143441,
 };
 const DEFAULT_APPLE_WEB_USER_AGENT =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.1.1 Safari/605.1.15";
-const DIFFICULTY_DETAIL_LIMIT = 5;
-const DIFFICULTY_AVG_WEIGHT = 1;
-const DIFFICULTY_MIN_WEIGHT = 2;
-const DIFFICULTY_APP_COUNT_WEIGHT = 1;
 const MZSEARCH_ORDER_URL = "https://search.itunes.apple.com/WebObjects/MZSearch.woa/wa/search";
 const APPSTORE_SEARCH_URL = "https://apps.apple.com/us/iphone/search";
-
-function clamp(value: number, min: number, max: number): number {
-  return Math.max(min, Math.min(max, value));
-}
 
 function safeDaysSince(isoDate: string | undefined): number {
   if (!isoDate) return 365;
@@ -97,56 +87,29 @@ function parseRatingCount(value: string | number | undefined): number {
   return Math.round(num);
 }
 
-function normalizeRatingCountPerDay(ratingPerDay: number): number {
-  if (ratingPerDay <= 0) return 0;
-  if (ratingPerDay <= RATING_PER_DAY_THRESHOLD)
-    return ratingPerDay * RATING_PER_DAY_MAP_THRESHOLD;
-  if (ratingPerDay < RATING_PER_DAY_MAX) {
-    const t =
-      (ratingPerDay - RATING_PER_DAY_THRESHOLD) /
-      (RATING_PER_DAY_MAX - RATING_PER_DAY_THRESHOLD);
-    return (
-      RATING_PER_DAY_MAP_THRESHOLD + (1 - RATING_PER_DAY_MAP_THRESHOLD) * t * t
-    );
-  }
-  return 1;
-}
-
-function normalizeAvgRating(avgRating: number, ratingCount: number): number {
-  if (avgRating <= MIN_RATING_FOR_POSITIVE_SCORE) return 0;
-  let normalized =
-    (avgRating - MIN_RATING_FOR_POSITIVE_SCORE) /
-    (5 - MIN_RATING_FOR_POSITIVE_SCORE);
-  normalized = clamp(normalized, 0, 1);
-  normalized =
-    (normalized * Math.min(ratingCount, LOW_RATING_COUNT_THRESHOLD)) /
-    LOW_RATING_COUNT_THRESHOLD;
-  return normalized;
-}
-
-function checkKeywordPresence(
+function detectKeywordMatchType(
   name: string,
   subtitle: string | undefined,
   keyword: string
-): number {
+): KeywordMatchType {
   const normKeyword = normalizeTextForKeywordMatch(keyword);
   const keywordParts = new Set(normKeyword.split(" ").filter(Boolean));
   const normTitle = normalizeTextForKeywordMatch(name);
 
-  if (normTitle.includes(normKeyword)) return 1;
+  if (normTitle.includes(normKeyword)) return "titleExactPhrase";
 
   const titleWords = new Set(normTitle.split(" ").filter(Boolean));
   if (
     keywordParts.size > 0 &&
     [...keywordParts].every((w) => titleWords.has(w))
   )
-    return 0.7;
+    return "titleAllWords";
 
   const normSubtitle = normalizeTextForKeywordMatch(subtitle || "");
-  if (normSubtitle && normSubtitle.includes(normKeyword)) return 0.7;
+  if (normSubtitle && normSubtitle.includes(normKeyword)) return "subtitleExactPhrase";
 
   const combined = `${normTitle} ${normSubtitle}`.trim();
-  if (combined.includes(normKeyword)) return 0.5;
+  if (combined.includes(normKeyword)) return "combinedPhrase";
 
   const subtitleWords = new Set(normSubtitle.split(" ").filter(Boolean));
   if (
@@ -154,10 +117,10 @@ function checkKeywordPresence(
     subtitleWords.size > 0 &&
     [...keywordParts].every((w) => subtitleWords.has(w))
   ) {
-    return 0.4;
+    return "subtitleAllWords";
   }
 
-  return 0;
+  return "none";
 }
 
 function appCompetitiveScore(app: AsoAppDoc, keyword: string): number {
@@ -167,26 +130,15 @@ function appCompetitiveScore(app: AsoAppDoc, keyword: string): number {
   const firstRelease = app.releaseDate;
   const daysSinceLastRelease = safeDaysSince(lastRelease ?? undefined);
   const daysSinceFirstRelease = safeDaysSince(firstRelease ?? undefined);
+  const keywordMatch = detectKeywordMatchType(app.name, app.subtitle, keyword);
 
-  const normalizedAge =
-    1 - clamp(daysSinceLastRelease / AGE_NORMALIZATION_DAYS, 0, 1);
-  const ratingPerDay = ratingCount / Math.max(daysSinceFirstRelease, 1);
-  const normalizedRatingPerDay = normalizeRatingCountPerDay(ratingPerDay);
-  const normalizedRatingCount = clamp(ratingCount / MAX_RATINGS, 0, 1);
-  const normalizedAvgRating = normalizeAvgRating(avgRating, ratingCount);
-  const keywordScore = checkKeywordPresence(
-    app.name,
-    app.subtitle,
-    keyword
-  );
-
-  const score =
-    0.2 * normalizedRatingCount +
-    0.2 * normalizedAvgRating +
-    0.1 * normalizedAge +
-    0.3 * keywordScore +
-    0.2 * normalizedRatingPerDay;
-  return Math.max(0, score);
+  return calculateAppDifficultyBreakdown({
+    averageUserRating: avgRating,
+    userRatingCount: ratingCount,
+    daysSinceLastRelease,
+    daysSinceFirstRelease,
+    keywordMatch,
+  }).score;
 }
 
 function getStoreFrontHeader(country: string): string {
@@ -668,8 +620,8 @@ export async function enrichKeyword(
     .map((id) => appDocs.find((d) => d.appId === id))
     .filter((d): d is AsoAppDoc => d != null);
   const keywordIncluded = docsForDifficulty.reduce((count, app) => {
-    const score = checkKeywordPresence(app.name, app.subtitle, params.keyword);
-    return count + (score > 0 ? 1 : 0);
+    const keywordMatch = detectKeywordMatchType(app.name, app.subtitle, params.keyword);
+    return count + (keywordMatch === "none" ? 0 : 1);
   }, 0);
 
   if (
@@ -699,31 +651,17 @@ export async function enrichKeyword(
   const competitiveScores = docsForDifficulty.map((app) =>
     appCompetitiveScore(app, params.keyword)
   );
-  const avgCompetitive =
-    competitiveScores.reduce((a, b) => a + b, 0) / competitiveScores.length;
-  const minCompetitive = Math.min(...competitiveScores);
-  const normalizedAppCount = Math.min(appCount / MAX_COMPETING_APPS, 1);
-  const weightSum =
-    DIFFICULTY_AVG_WEIGHT +
-    DIFFICULTY_MIN_WEIGHT +
-    DIFFICULTY_APP_COUNT_WEIGHT;
-  const rawDifficulty =
-    (DIFFICULTY_APP_COUNT_WEIGHT * normalizedAppCount +
-      DIFFICULTY_AVG_WEIGHT * avgCompetitive +
-      DIFFICULTY_MIN_WEIGHT * minCompetitive) /
-    weightSum;
-  const difficultyScore = Math.max(
-    1,
-    Math.min(100, rawDifficulty * 100)
-  );
-  const minDifficultyScore = minCompetitive * 100;
+  const difficulty = calculateKeywordDifficultyBreakdown({
+    competitiveScores,
+    appCount,
+  });
 
   return {
     keyword: params.keyword,
     normalizedKeyword,
     popularity: params.popularity,
-    difficultyScore,
-    minDifficultyScore,
+    difficultyScore: difficulty.difficultyScore,
+    minDifficultyScore: difficulty.minDifficultyScore,
     appCount,
     keywordIncluded,
     orderedAppIds,

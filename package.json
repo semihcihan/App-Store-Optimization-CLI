@@ -1,6 +1,6 @@
 {
   "name": "aso-cli",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "Local App Store Optimization CLI",
   "main": "cli/dist/cli.js",
   "bin": {
@@ -25,6 +25,7 @@
     "nuke": "rm -rf node_modules cli/dist package-lock.json",
     "start": "node cli/dist/cli.js",
     "start:dev": "NODE_ENV=development node cli/dist/cli.js",
+    "difficulty:lab": "node scripts/difficulty-lab.js",
     "mcp": "node cli/dist/mcp.js",
     "mcp:test": "npx @modelcontextprotocol/inspector node cli/dist/mcp.js",
     "test": "jest --config jest.config.js",

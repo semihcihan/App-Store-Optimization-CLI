@@ -95,6 +95,28 @@ Keyword-level difficulty:
 - `difficultyScore = clamp(rawDifficulty * 100, 1, 100)`
 - `minDifficultyScore = minCompetitive * 100`
 
+### Difficulty Lab Tool
+- Local script `npm run difficulty:lab` (or `node scripts/difficulty-lab.js`) runs quick difficulty experiments with explicit inputs.
+- Input scenarios are explicit per-app fields:
+  - `appCount` (same value across rows; keyword-level total competing app count)
+  - `averageUserRating`
+  - `userRatingCount`
+  - `daysSinceLastRelease`
+  - `daysSinceFirstRelease`
+  - `keywordMatch` (enum):
+    - `none`
+    - `titleExactPhrase`
+    - `titleAllWords`
+    - `subtitleExactPhrase`
+    - `combinedPhrase`
+    - `subtitleAllWords`
+- Edit `scripts/difficulty-scenarios.example.json` and rerun. The script always reads this file.
+- Output:
+  - per-app table with concise input columns + `appScore` (`0..100`)
+  - two keyword-level summaries:
+    - `runtime` (enforces top-5 gate; may fall back to score `1`)
+    - `simulated` (same weights, no top-5 fallback gate)
+
 ## Persistence Model
 - Local DB (`~/.aso/aso-db.sqlite`): `aso_keywords`, `aso_apps`, `app_keywords`.
 - Failure DB table: `aso_keyword_failures` keyed by `(country, normalized_keyword)` for current failed state.
