@@ -1669,7 +1669,7 @@ export function App() {
                         </>
                       ) : null}
                       <td className="updated-value">
-                        {formatDate(row.updatedAt, displayLocale)}
+                        {formatDate(row.updatedAt)}
                       </td>
                     </tr>
                   );
@@ -1732,9 +1732,9 @@ export function App() {
                     const iconUrl = getIconUrl(app);
                     const subtitle = app.subtitle?.trim();
                     const appStoreUrl = buildAppStoreUrl(app.appId, DEFAULT_ASO_COUNTRY);
-                    const releaseDate = formatCalendarDate(app.releaseDate, displayLocale) || "-";
+                    const releaseDate = formatCalendarDate(app.releaseDate) || "-";
                     const lastUpdateDate =
-                      formatCalendarDate(app.currentVersionReleaseDate, displayLocale) || "-";
+                      formatCalendarDate(app.currentVersionReleaseDate) || "-";
                     const ratingValue =
                       typeof app.averageUserRating === "number"
                         ? new Intl.NumberFormat("en-US", {
