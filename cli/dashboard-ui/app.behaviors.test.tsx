@@ -454,6 +454,47 @@ describe("dashboard app behaviors", () => {
     expect(await screen.findByText("Failed to load top apps")).toBeInTheDocument();
   });
 
+  it("selects owned app when clicking sidebar text content", async () => {
+    const fetchMock = buildFetchMock({
+      apps: [
+        { id: DEFAULT_RESEARCH_APP_ID, name: "Research" },
+        { id: "111", name: "Owned App" },
+      ],
+      keywordsByAppId: {
+        [DEFAULT_RESEARCH_APP_ID]: [
+          {
+            keyword: "research-term",
+            popularity: 20,
+            difficultyScore: 10,
+            appCount: 30,
+            positions: [],
+            updatedAt: "2026-03-12T08:00:00.000Z",
+          },
+        ],
+        "111": [
+          {
+            keyword: "owned-term",
+            popularity: 40,
+            difficultyScore: 25,
+            appCount: 44,
+            positions: [{ appId: "111", previousPosition: 6, currentPosition: 5 }],
+            updatedAt: "2026-03-12T08:00:00.000Z",
+          },
+        ],
+      },
+      appDocsById: {
+        "111": { appId: "111", name: "Owned App" },
+      },
+    });
+    global.fetch = fetchMock as typeof fetch;
+
+    render(<App />);
+
+    await screen.findByText("research-term");
+    fireEvent.click(await screen.findByText("Owned App"));
+    expect(await screen.findByText("owned-term")).toBeInTheDocument();
+  });
+
   it("selects owned app via keyboard and copies app id", async () => {
     const writeText = jest.fn(async () => {});
     Object.defineProperty(navigator, "clipboard", {

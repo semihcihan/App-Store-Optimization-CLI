@@ -122,6 +122,7 @@ const SELECTED_APP_STORAGE_KEY = "aso-dashboard:selected-app-id";
 const MOBILE_BREAKPOINT = "(max-width: 980px)";
 const STATUS_MESSAGE_TIMEOUT_MS = 4000;
 const STARTUP_REFRESH_STATUS_POLL_INTERVAL_SECONDS = 10;
+const SIDEBAR_SELECTION_CONTROL_SELECTOR = ".app-id-copy-target, .app-id-copy-icon";
 
 type StartupRefreshStatus = "idle" | "running" | "completed" | "failed";
 
@@ -183,6 +184,16 @@ function CheckIcon() {
       />
     </svg>
   );
+}
+
+function isSidebarSelectionControlTarget(target: EventTarget | null): boolean {
+  if (target instanceof Element) {
+    return target.closest(SIDEBAR_SELECTION_CONTROL_SELECTOR) !== null;
+  }
+  if (target instanceof Node) {
+    return target.parentElement?.closest(SIDEBAR_SELECTION_CONTROL_SELECTOR) != null;
+  }
+  return false;
 }
 
 export function App() {
@@ -571,6 +582,21 @@ export function App() {
       setErrorText("Failed to copy app ID.");
     }
   }, []);
+
+  const selectSidebarApp = useCallback((appId: string) => {
+    if (selectedAppId === appId) return;
+    setSelectedAppId(appId);
+    setSelectedKeywords(new Set());
+    setSelectionAnchor(null);
+  }, [selectedAppId, setSelectionAnchor]);
+
+  const onSidebarAppClickCapture = useCallback(
+    (event: React.MouseEvent<HTMLElement>, appId: string) => {
+      if (isSidebarSelectionControlTarget(event.target)) return;
+      selectSidebarApp(appId);
+    },
+    [selectSidebarApp]
+  );
 
   useEffect(() => {
     if (!hasPendingDifficulty) return;
@@ -1206,12 +1232,9 @@ export function App() {
                 data-app-id={DEFAULT_RESEARCH_APP_ID}
                 role="tab"
                 aria-selected={selectedAppId === DEFAULT_RESEARCH_APP_ID}
-                onClick={() => {
-                  if (selectedAppId === DEFAULT_RESEARCH_APP_ID) return;
-                  setSelectedAppId(DEFAULT_RESEARCH_APP_ID);
-                  setSelectedKeywords(new Set());
-                  setSelectionAnchor(null);
-                }}
+                onClickCapture={(event) =>
+                  onSidebarAppClickCapture(event, DEFAULT_RESEARCH_APP_ID)
+                }
               >
                 <span className="research-icon" aria-hidden="true">
                   <svg viewBox="0 0 24 24" fill="none">
@@ -1232,12 +1255,7 @@ export function App() {
                   data-app-id={app.id}
                   role="tab"
                   aria-selected={isSelected}
-                  onClick={() => {
-                    if (isSelected) return;
-                    setSelectedAppId(app.id);
-                    setSelectedKeywords(new Set());
-                    setSelectionAnchor(null);
-                  }}
+                  onClickCapture={(event) => onSidebarAppClickCapture(event, app.id)}
                 >
                   <span className="research-icon" aria-hidden="true">
                     <svg viewBox="0 0 24 24" fill="none">
@@ -1310,19 +1328,11 @@ export function App() {
                   role="tab"
                   tabIndex={0}
                   aria-selected={isSelected}
-                  onClick={() => {
-                    if (isSelected) return;
-                    setSelectedAppId(app.id);
-                    setSelectedKeywords(new Set());
-                    setSelectionAnchor(null);
-                  }}
+                  onClickCapture={(event) => onSidebarAppClickCapture(event, app.id)}
                   onKeyDown={(event) => {
                     if (event.key !== "Enter" && event.key !== " ") return;
                     event.preventDefault();
-                    if (isSelected) return;
-                    setSelectedAppId(app.id);
-                    setSelectedKeywords(new Set());
-                    setSelectionAnchor(null);
+                    selectSidebarApp(app.id);
                   }}
                 >
                   {iconUrl ? (
