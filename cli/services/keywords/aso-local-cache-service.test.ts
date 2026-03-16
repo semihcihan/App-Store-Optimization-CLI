@@ -70,6 +70,20 @@ describe("aso-local-cache-service", () => {
     });
   });
 
+  it("forwards app doc force-lookup requests to cache-api", async () => {
+    const expected = [{ appId: "1", country: "US", name: "Fresh" }];
+    mockGetAsoAppDocs.mockResolvedValue(expected as any);
+
+    const result = await getAsoAppDocsLocal("US", ["1"], { forceLookup: true });
+
+    expect(result).toEqual(expected);
+    expect(mockGetAsoAppDocs).toHaveBeenCalledWith({
+      country: "US",
+      appIds: ["1"],
+      forceLookup: true,
+    });
+  });
+
   it("forwards order-refresh requests to cache-api", async () => {
     const expected = {
       keyword: "term",

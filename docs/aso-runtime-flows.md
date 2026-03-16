@@ -96,7 +96,7 @@ Runtime flow contracts across CLI commands, local dashboard API, and ASO service
 
 ## Flow E: App Doc Hydration
 - `GET /api/aso/top-apps`: read ordered IDs from keyword, return competitor docs, hydrate missing/expired docs.
-- `GET /api/aso/apps`: return owned docs for requested IDs, hydrate missing/expired docs, and also treat docs as stale when `last_fetched_at` exceeds `ASO_OWNED_APP_DOC_REFRESH_MAX_AGE_HOURS` (default `24`) (or all docs when `refresh=true`).
+- `GET /api/aso/apps`: return owned docs for requested IDs, treat docs as stale when `last_fetched_at` exceeds `ASO_OWNED_APP_DOC_REFRESH_MAX_AGE_HOURS` (default `24`) (or all docs when `refresh=true`), and force App Store ID lookup for stale IDs so owned ratings/details are refreshed from Apple instead of competitor cache reuse.
 - `GET /api/aso/apps/search`: resolve ordered IDs for a free-text term using the same App Store order-search pipeline used by keyword ordering, then hydrate docs for the top IDs.
 
 ## Flow E2: Dashboard Add Apps

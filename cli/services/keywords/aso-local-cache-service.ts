@@ -30,9 +30,17 @@ export async function enrichAsoKeywordsLocal(
 
 export async function getAsoAppDocsLocal(
   country: string,
-  appIds: string[]
+  appIds: string[],
+  options?: { forceLookup?: boolean }
 ): Promise<AsoAppDocItem[]> {
-  return getAsoAppDocs({ country, appIds }) as Promise<AsoAppDocItem[]>;
+  const params: { country: string; appIds: string[]; forceLookup?: boolean } = {
+    country,
+    appIds,
+  };
+  if (options?.forceLookup === true) {
+    params.forceLookup = true;
+  }
+  return getAsoAppDocs(params) as Promise<AsoAppDocItem[]>;
 }
 
 export async function refreshAsoKeywordOrderLocal(

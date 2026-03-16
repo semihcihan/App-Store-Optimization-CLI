@@ -80,7 +80,8 @@ function mergeHydratedCompetitorDoc(
 
 export async function fetchAsoAppDocsFromApi(
   country: string,
-  appIds: string[]
+  appIds: string[],
+  options?: { forceLookup?: boolean }
 ): Promise<AsoApiAppDoc[]> {
   if (appIds.length === 0) return [];
   const uniqueIds = Array.from(new Set(appIds.map((id) => id.trim()).filter(Boolean)));
@@ -93,10 +94,14 @@ export async function fetchAsoAppDocsFromApi(
     country,
     appIdsCount: uniqueIds.length,
     chunkCount: idChunks.length,
+    forceLookup: options?.forceLookup === true,
   });
 
   for (const chunk of idChunks) {
-    const docs = await getAsoAppDocsLocal(country, chunk);
+    const docs =
+      options == null
+        ? await getAsoAppDocsLocal(country, chunk)
+        : await getAsoAppDocsLocal(country, chunk, options);
     for (const doc of docs) {
       if (doc?.appId) {
         docsById.set(doc.appId, {
@@ -116,6 +121,7 @@ export async function fetchAsoAppDocsFromApi(
     appDocCount: ordered.length,
     appIdsCount: uniqueIds.length,
     chunkCount: idChunks.length,
+    forceLookup: options?.forceLookup === true,
   });
   return ordered;
 }
@@ -336,7 +342,7 @@ export function createAppDocHandlers(deps: AsoRouteDeps) {
       return Promise.resolve();
     }
 
-    return fetchAsoAppDocsFromApi(country, staleIds)
+    return fetchAsoAppDocsFromApi(country, staleIds, { forceLookup: true })
       .then((lookupDocs) => {
         if (lookupDocs.length > 0) {
           upsertOwnedAppDocs(country, lookupDocs);

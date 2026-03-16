@@ -133,7 +133,7 @@ Keyword-level difficulty:
   - `ASO_KEYWORD_ORDER_TTL_HOURS` (default `24`): keyword order/rank data (`orderedAppIds`, `appCount`).
   - `ASO_POPULARITY_CACHE_TTL_HOURS` (default `720`): popularity + difficulty lifecycle (`30` days).
   - `ASO_APP_CACHE_TTL_HOURS` (default `168`): app document cache (`7` days).
-- Dashboard owned-app docs (`GET /api/aso/apps`) also enforce `ASO_OWNED_APP_DOC_REFRESH_MAX_AGE_HOURS` (default `24`) from `last_fetched_at` so ratings/details refresh daily even when app-doc TTL has not expired.
+- Dashboard owned-app docs (`GET /api/aso/apps`) also enforce `ASO_OWNED_APP_DOC_REFRESH_MAX_AGE_HOURS` (default `24`) from `last_fetched_at` so ratings/details refresh daily even when app-doc TTL has not expired, and stale owned IDs are rehydrated via direct App Store ID lookup instead of cache-only app-doc reads.
 - Cache lookup returns only rows that are complete and fresh for both order TTL and popularity TTL.
 - Popularity and difficulty are refreshed together when popularity TTL expires.
 - Startup refresh processes associated owned-app keywords in background batches when popularity expires, difficulty is missing, or order expires.

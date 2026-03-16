@@ -158,6 +158,71 @@ describe("aso-app-doc-service", () => {
     ]);
   });
 
+  it("bypasses cache and refetches all requested docs when forceLookup is true", async () => {
+    const repository = createRepository({
+      getAppDocs: (jest.fn(async () => [
+        {
+          appId: "1",
+          country: "US",
+          name: "Cached",
+          averageUserRating: 4.1,
+          userRatingCount: 100,
+          expiresAt: "2099-01-01T00:00:00.000Z",
+        },
+      ]) as unknown) as AsoCacheRepository["getAppDocs"],
+    });
+    mockedAsoAppleGet.mockResolvedValueOnce({
+      data: {
+        storePlatformData: {
+          "product-dv": {
+            results: {
+              "1": {
+                id: "1",
+                name: "Fetched Fresh",
+                releaseDate: "2025-02-01",
+                userRating: { value: 4.9, ratingCount: 200 },
+              },
+            },
+          },
+        },
+        pageData: {
+          versionHistory: [{ releaseDate: "2025-02-02T00:00:00Z" }],
+        },
+      },
+    } as never);
+
+    const result = await getAsoAppDocs({
+      country: "US",
+      appIds: ["1"],
+      forceLookup: true,
+      repository,
+    });
+
+    expect(repository.getAppDocs).not.toHaveBeenCalled();
+    expect(mockedAsoAppleGet).toHaveBeenCalledWith(
+      "https://apps.apple.com/app/id1",
+      expect.any(Object)
+    );
+    expect(repository.upsertMany).toHaveBeenCalledWith({
+      country: "US",
+      items: [],
+      appDocs: [
+        expect.objectContaining({
+          appId: "1",
+          name: "Fetched Fresh",
+          userRatingCount: 200,
+        }),
+      ],
+    });
+    expect(result).toEqual([
+      expect.objectContaining({
+        appId: "1",
+        name: "Fetched Fresh",
+        userRatingCount: 200,
+      }),
+    ]);
+  });
+
   it("does not set expiresAt when fetched app doc is missing date fields", async () => {
     const repository = createRepository({
       getAppDocs: (jest.fn(async () => []) as unknown) as AsoCacheRepository["getAppDocs"],

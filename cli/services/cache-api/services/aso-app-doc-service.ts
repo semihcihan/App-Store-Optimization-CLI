@@ -234,6 +234,7 @@ export async function fetchAppStoreLookupAppDocs(params: {
 export async function getAsoAppDocs(params: {
   country: string;
   appIds: string[];
+  forceLookup?: boolean;
   repository: AsoCacheRepository;
 }): Promise<AsoAppDoc[]> {
   const country = normalizeCountry(params.country);
@@ -248,12 +249,17 @@ export async function getAsoAppDocs(params: {
     return [];
   }
 
-  const cached = normalizeCountryOnAppDocs(
-    country,
-    await params.repository.getAppDocs({ country, appIds })
-  );
+  const forceLookup = params.forceLookup === true;
+  const cached = forceLookup
+    ? []
+    : normalizeCountryOnAppDocs(
+        country,
+        await params.repository.getAppDocs({ country, appIds })
+      );
   const resultById = new Map(cached.map((doc) => [doc.appId, doc]));
-  const missingIds = appIds.filter((id) => !resultById.has(id));
+  const missingIds = forceLookup
+    ? appIds
+    : appIds.filter((id) => !resultById.has(id));
 
   if (missingIds.length > 0) {
     const fetchedRaw = await fetchAppStoreLookupAppDocs({

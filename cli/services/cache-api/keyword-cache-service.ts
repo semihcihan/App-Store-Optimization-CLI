@@ -38,6 +38,7 @@ const EnrichRequestSchema = z.object({
 const AppDocsRequestSchema = z.object({
   country: z.string().default(DEFAULT_ASO_COUNTRY),
   appIds: z.array(z.string()).min(1).max(50),
+  forceLookup: z.boolean().optional().default(false),
 });
 
 interface AsoDependencies {
@@ -190,7 +191,7 @@ export async function enrichAsoKeywords(
 }
 
 export async function getAsoAppDocs(
-  params: { country: string; appIds: string[] },
+  params: { country: string; appIds: string[]; forceLookup?: boolean },
   dependencies: AsoDependencies = getDefaultDependencies()
 ): Promise<AsoAppDoc[]> {
   const validated = AppDocsRequestSchema.parse(params);
@@ -199,6 +200,7 @@ export async function getAsoAppDocs(
   return getAsoAppDocsFromService({
     country,
     appIds: validated.appIds,
+    forceLookup: validated.forceLookup,
     repository: dependencies.repository,
   });
 }

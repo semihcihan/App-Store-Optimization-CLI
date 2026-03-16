@@ -813,6 +813,9 @@ describe("dashboard server routes", () => {
     });
     expect(hydratedApps.statusCode).toBe(200);
     expect(hydratedApps.json?.data).toEqual([{ appId: "a1", name: "Fresh" }]);
+    expect(mockGetAsoAppDocsLocal).toHaveBeenCalledWith("US", ["a1"], {
+      forceLookup: true,
+    });
     expect(mockUpsertOwnedAppDocs).toHaveBeenCalled();
 
     const deleteInvalid = await request({
@@ -902,7 +905,9 @@ describe("dashboard server routes", () => {
       });
 
       expect(response.statusCode).toBe(200);
-      expect(mockGetAsoAppDocsLocal).toHaveBeenCalledWith("US", ["a1"]);
+      expect(mockGetAsoAppDocsLocal).toHaveBeenCalledWith("US", ["a1"], {
+        forceLookup: true,
+      });
       expect(mockUpsertOwnedAppDocs).toHaveBeenCalled();
       expect(response.json?.data).toEqual([
         expect.objectContaining({
