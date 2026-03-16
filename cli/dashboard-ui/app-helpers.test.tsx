@@ -264,6 +264,34 @@ describe("app-helpers", () => {
     expect(roundTo(4.256, 2)).toBe(4.26);
   });
 
+  it("formats rating value with dot decimal separator regardless of locale (mimics App Store)", () => {
+    // Rating always uses en-US to match App Store display ("4.5" not "4,5")
+    expect(formatRatingValue(4.5, "en-US")).toBe("4.5");
+    expect(formatRatingValue(4.0, "en-US")).toBe("4.0");
+    expect(formatRatingValue(3.75, "en-US")).toBe("3.8");
+
+    // Non-US locales would produce commas — callers must pass "en-US" for ratings
+    expect(formatRatingValue(4.5, "de-DE")).toBe("4,5");
+    expect(formatRatingValue(4.5, "fr-FR")).toBe("4,5");
+  });
+
+  it("formats ratings count using the user locale for big number separators", () => {
+    // Big numbers follow user locale (. or , as thousands separator)
+    expect(formatCount(1200, "en-US")).toBe("1,200");
+    expect(formatCount(1000000, "en-US")).toBe("1,000,000");
+    expect(formatCount(1200, "de-DE")).toBe("1.200");
+  });
+
+  it("formats signed rating delta with dot decimal separator using en-US locale", () => {
+    // Rating deltas use en-US to match App Store style
+    expect(formatSignedNumber(0.1, "en-US", 1)).toBe("+0.1");
+    expect(formatSignedNumber(-0.2, "en-US", 1)).toBe("-0.2");
+
+    // Count deltas use user locale (whole numbers, so separator style doesn't affect single digits)
+    expect(formatSignedNumber(5, "de-DE")).toBe("+5");
+    expect(formatSignedNumber(-5, "de-DE")).toBe("-5");
+  });
+
   it("builds top app rows with rank ordering", () => {
     const rows = buildTopAppRows({
       keyword: "term",

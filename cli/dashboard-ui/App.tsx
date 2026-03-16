@@ -1262,7 +1262,7 @@ export function App() {
               const hasRatingSnapshot = appDoc != null;
               const ratingValue =
                 typeof appDoc?.averageUserRating === "number"
-                  ? formatRatingValue(appDoc.averageUserRating, displayLocale)
+                  ? formatRatingValue(appDoc.averageUserRating, "en-US")
                   : "-";
               const ratingsCount =
                 typeof appDoc?.userRatingCount === "number"
@@ -1285,7 +1285,7 @@ export function App() {
               const showRatingsCountDelta =
                 roundedRatingsCountDelta != null && roundedRatingsCountDelta !== 0;
               const ratingDeltaLabel = showRatingDelta
-                ? formatSignedNumber(roundedRatingDelta as number, displayLocale, 1)
+                ? formatSignedNumber(roundedRatingDelta as number, "en-US", 1)
                 : "";
               const ratingsCountDeltaLabel = showRatingsCountDelta
                 ? formatSignedNumber(
@@ -1737,7 +1737,7 @@ export function App() {
                       formatCalendarDate(app.currentVersionReleaseDate, displayLocale) || "-";
                     const ratingValue =
                       typeof app.averageUserRating === "number"
-                        ? new Intl.NumberFormat(displayLocale, {
+                        ? new Intl.NumberFormat("en-US", {
                             minimumFractionDigits: 1,
                             maximumFractionDigits: 1,
                           }).format(app.averageUserRating)
