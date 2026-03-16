@@ -1,6 +1,6 @@
 import axios from "axios";
 import { logger } from "../../utils/logger";
-import { getAsoResilienceConfig } from "./aso-resilience";
+import { getAsoResilienceConfig } from "../../shared/aso-resilience";
 import {
   attachAppleHttpTracing,
   withAppleHttpTraceContext,

@@ -45,12 +45,14 @@ Useful scripts:
 ## Runtime and environment details
 
 See `.env.example` for optional runtime settings.
+Default values and parsing live in `cli/shared/aso-env.ts`.
 
 Most common variables:
 - `ASO_DB_PATH`
 - `ASO_KEYWORD_ORDER_TTL_HOURS`
 - `ASO_POPULARITY_CACHE_TTL_HOURS`
 - `ASO_APP_CACHE_TTL_HOURS`
+- `ASO_OWNED_APP_DOC_REFRESH_MAX_AGE_HOURS`
 - `ASO_KEYWORD_ENRICHMENT_CONCURRENCY`
 
 Runtime files are local under `~/.aso`:

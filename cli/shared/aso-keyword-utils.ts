@@ -2,6 +2,7 @@ import {
   normalizeKeyword as normalizeKeywordFromDomain,
   sanitizeKeywords as sanitizeKeywordsFromDomain,
 } from "../domain/keywords/policy";
+import { readAsoEnv } from "./aso-env";
 
 export function normalizeKeyword(keyword: string): string {
   return normalizeKeywordFromDomain(keyword);
@@ -20,12 +21,7 @@ export function sanitizeKeywords(input: string[]): string[] {
 }
 
 export function getOrderTtlHours(): number {
-  const parsed = Number.parseInt(
-    process.env.ASO_KEYWORD_ORDER_TTL_HOURS || "24",
-    10
-  );
-  if (Number.isNaN(parsed) || parsed <= 0) return 24;
-  return parsed;
+  return readAsoEnv().keywordOrderTtlHours;
 }
 
 export function computeOrderExpiryIso(now: Date = new Date()): string {
@@ -34,12 +30,7 @@ export function computeOrderExpiryIso(now: Date = new Date()): string {
 }
 
 export function getPopularityTtlHours(): number {
-  const parsed = Number.parseInt(
-    process.env.ASO_POPULARITY_CACHE_TTL_HOURS ?? "720",
-    10
-  );
-  if (Number.isNaN(parsed) || parsed <= 0) return 720;
-  return parsed;
+  return readAsoEnv().popularityCacheTtlHours;
 }
 
 export function computePopularityExpiryIso(now: Date = new Date()): string {
@@ -48,12 +39,7 @@ export function computePopularityExpiryIso(now: Date = new Date()): string {
 }
 
 export function getAppTtlHours(): number {
-  const parsed = Number.parseInt(
-    process.env.ASO_APP_CACHE_TTL_HOURS ?? "168",
-    10
-  );
-  if (Number.isNaN(parsed) || parsed < 0) return 168;
-  return parsed;
+  return readAsoEnv().appCacheTtlHours;
 }
 
 export function computeAppExpiryIsoForApp(now: Date = new Date()): string {

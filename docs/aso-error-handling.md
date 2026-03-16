@@ -23,7 +23,7 @@ Define failure boundaries, retry rules, and recovery behavior across CLI, dashbo
 - `INTERNAL_ERROR`
 
 ## Retry Policy
-- Shared resilience config lives in `cli/services/keywords/aso-resilience.ts`.
+- Shared resilience config lives in `cli/shared/aso-resilience.ts` (env defaults/parsing centralized in `cli/shared/aso-env.ts`).
 - Popularity fetch retries transient responses (`429`, `5xx`, `KWS_NO_ORG_CONTENT_PROVIDERS`) and transient network errors.
 - App Store web fetches retry `429`, `5xx`, and transient network errors with jittered exponential backoff.
 - Startup refresh manager retries each unit once and records failures without crashing runtime.

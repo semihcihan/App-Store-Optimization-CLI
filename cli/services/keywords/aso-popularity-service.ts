@@ -14,7 +14,7 @@ import {
   normalizeAppleUpstreamError,
   type NormalizedAppleUpstreamError,
 } from "./apple-upstream-error";
-import { getAsoResilienceConfig } from "./aso-resilience";
+import { getAsoResilienceConfig } from "../../shared/aso-resilience";
 import type { FailedKeyword } from "./aso-types";
 import {
   ASO_MAX_KEYWORDS,

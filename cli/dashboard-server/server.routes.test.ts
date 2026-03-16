@@ -857,6 +857,98 @@ describe("dashboard server routes", () => {
     });
   });
 
+  it("rehydrates owned app docs when last fetch is older than 24 hours", async () => {
+    const now = Date.parse("2026-03-16T12:00:00.000Z");
+    const nowSpy = jest.spyOn(Date, "now").mockReturnValue(now);
+    try {
+      mockGetOwnedAppDocs
+        .mockReturnValueOnce([
+          {
+            appId: "a1",
+            name: "Cached App",
+            expiresAt: "2099-01-01T00:00:00.000Z",
+            releaseDate: "2025-01-01",
+            currentVersionReleaseDate: "2026-01-01",
+            lastFetchedAt: "2026-03-15T11:59:59.000Z",
+          },
+        ] as any)
+        .mockReturnValue([
+          {
+            appId: "a1",
+            name: "Hydrated App",
+            averageUserRating: 4.7,
+            userRatingCount: 900,
+            expiresAt: "2099-01-01T00:00:00.000Z",
+            releaseDate: "2025-01-01",
+            currentVersionReleaseDate: "2026-01-01",
+            lastFetchedAt: "2026-03-16T12:00:00.000Z",
+          },
+        ] as any);
+      mockGetAsoAppDocsLocal.mockResolvedValueOnce([
+        {
+          appId: "a1",
+          country: "US",
+          name: "Hydrated App",
+          averageUserRating: 4.7,
+          userRatingCount: 900,
+          releaseDate: "2025-01-01",
+          currentVersionReleaseDate: "2026-01-01",
+        },
+      ] as any);
+
+      const response = await request({
+        method: "GET",
+        path: "/api/aso/apps?country=US&ids=a1",
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(mockGetAsoAppDocsLocal).toHaveBeenCalledWith("US", ["a1"]);
+      expect(mockUpsertOwnedAppDocs).toHaveBeenCalled();
+      expect(response.json?.data).toEqual([
+        expect.objectContaining({
+          appId: "a1",
+          name: "Hydrated App",
+        }),
+      ]);
+    } finally {
+      nowSpy.mockRestore();
+    }
+  });
+
+  it("keeps owned app docs cached when last fetch is within 24 hours", async () => {
+    const now = Date.parse("2026-03-16T12:00:00.000Z");
+    const nowSpy = jest.spyOn(Date, "now").mockReturnValue(now);
+    try {
+      mockGetOwnedAppDocs.mockReturnValue([
+        {
+          appId: "a1",
+          name: "Cached App",
+          expiresAt: "2099-01-01T00:00:00.000Z",
+          releaseDate: "2025-01-01",
+          currentVersionReleaseDate: "2026-01-01",
+          lastFetchedAt: "2026-03-16T10:00:00.000Z",
+        },
+      ] as any);
+
+      const response = await request({
+        method: "GET",
+        path: "/api/aso/apps?country=US&ids=a1",
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(mockGetAsoAppDocsLocal).not.toHaveBeenCalled();
+      expect(mockUpsertOwnedAppDocs).not.toHaveBeenCalled();
+      expect(response.json?.data).toEqual([
+        expect.objectContaining({
+          appId: "a1",
+          name: "Cached App",
+        }),
+      ]);
+    } finally {
+      nowSpy.mockRestore();
+    }
+  });
+
   it("maps add-keywords errors to public API error codes", async () => {
     mockFetchKeywordStage.mockRejectedValueOnce(new Error("Too many requests"));
     const rateLimited = await request({
