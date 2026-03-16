@@ -71,6 +71,20 @@ describe("version-check-service", () => {
       expect(message).toContain("Update available");
     });
 
+    it("should suppress update message when stdout output must stay machine-safe", () => {
+      const cache = {
+        latestVersion: "0.0.20",
+        lastCheckDate: new Date().toISOString(),
+      };
+
+      mockFs.existsSync.mockReturnValue(true);
+      mockFs.readFileSync.mockReturnValue(JSON.stringify(cache));
+
+      checkVersionUpdateSync({ allowStdoutMessage: false });
+
+      expect(console.log).not.toHaveBeenCalled();
+    });
+
     it("should not display message when current version is up to date", () => {
       const cache = {
         latestVersion: "0.0.19",

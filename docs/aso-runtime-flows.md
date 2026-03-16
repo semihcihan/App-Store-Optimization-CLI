@@ -17,7 +17,7 @@ Runtime flow contracts across CLI commands, local dashboard API, and ASO service
 ## Trigger Map
 - `aso`: resolve Primary App ID, start dashboard server (`3456` by default, auto-fallback to a free local port when occupied), start startup refresh manager.
 - `aso keywords "..."`: run full keyword pipeline and print envelope result (`items`, `failedKeywords`).
-- `aso keywords "..." --stdout`: machine-safe mode; attempts silent reauth and fails when interactive user input is required.
+- `aso keywords "..." --stdout`: machine-friendly mode; emits JSON-only stdout, attempts silent reauth, and fails when interactive user input is required.
 - `aso auth`: run only Apple Search Ads reauthentication.
 - `aso reset-credentials`: clear saved ASO keychain credentials and local cookies.
 - MCP `aso_evaluate_keywords`: accept explicit keywords (max 100), run `aso keywords "<comma-separated-keywords>" --stdout`, return evaluated keyword results.
@@ -55,6 +55,7 @@ Runtime flow contracts across CLI commands, local dashboard API, and ASO service
 5. Retry Flow A once after successful silent reauth.
 6. If user input is required, fail with guidance to run `aso auth` and retry.
 7. In raw CLI `--stdout` mode, do not auto-associate keywords to research app.
+8. Suppress CLI startup update notifications so stdout stays machine-parseable JSON.
 
 ## Flow B: Dashboard Add Keywords (`POST /api/aso/keywords`)
 1. Validate and normalize input.
@@ -158,4 +159,4 @@ Accepted row fields:
 ## Prompt / TTY Contract
 - Credential and 2FA prompts require an interactive terminal (`stdin` + `stdout` TTY).
 - When prompt-required auth runs in non-interactive mode, auth fails with explicit actionable guidance.
-- `aso keywords --stdout` keeps machine-safe behavior: silent session reuse only; no interactive auth prompts.
+- `aso keywords --stdout` keeps machine-friendly behavior: JSON-only stdout, silent session reuse only, and no interactive auth prompts.

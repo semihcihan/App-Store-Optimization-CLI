@@ -33,7 +33,7 @@ Also covers MCP keyword evaluation entrypoint (`aso_evaluate_keywords`) that eva
 7. For order-only keywords, refresh `orderedAppIds` + `appCount` without refetching popularity.
 8. Persist terminal popularity/enrichment failures in `aso_keyword_failures`.
 
-## Machine-Safe `--stdout` Contract
+## Machine-Friendly `--stdout` Contract
 - `aso keywords "<comma-separated-keywords>" --stdout` is keyword-only and intended for agents/machine calls.
 - Primary App ID resolution is non-interactive in this mode.
 - If `--primary-app-id` is omitted and no saved Primary App ID exists, command fails with guidance to set it first.
@@ -41,6 +41,7 @@ Also covers MCP keyword evaluation entrypoint (`aso_evaluate_keywords`) that eva
 - If auth is required, it attempts one reauthentication pass that is allowed only when no user interaction is needed.
 - If credentials/2FA/confirmation input is required, command fails with guidance to run `aso auth` in a terminal first.
 - After successful `aso auth`, later `--stdout` runs can reuse saved session/cookies.
+- CLI startup update notifications are suppressed in `--stdout` mode so stdout remains JSON-only.
 - Output contract is an envelope:
   - `items`: successful keyword rows
   - `failedKeywords`: terminal failures with stage + reason metadata

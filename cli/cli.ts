@@ -26,7 +26,12 @@ if (isDebugEnabled) {
 }
 
 async function main() {
-  checkVersionUpdateSync();
+  const processArgs = process.argv?.slice(2) || [];
+  const isStdoutKeywordsRun =
+    processArgs.includes("keywords") &&
+    processArgs.some((arg) => arg === "--stdout" || arg.startsWith("--stdout="));
+
+  checkVersionUpdateSync({ allowStdoutMessage: !isStdoutKeywordsRun });
 
   const parser = yargs(hideBin(process.argv))
     .command(asoCmd)

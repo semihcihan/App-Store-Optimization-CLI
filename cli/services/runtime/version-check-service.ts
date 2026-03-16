@@ -20,6 +20,10 @@ interface VersionCache {
   lastCheckDate: string;
 }
 
+interface VersionCheckOptions {
+  allowStdoutMessage?: boolean;
+}
+
 function loadCache(): VersionCache | null {
   try {
     if (!fs.existsSync(CACHE_FILE)) {
@@ -101,13 +105,18 @@ async function fetchLatestVersion(packageName: string): Promise<string | null> {
   }
 }
 
-export function checkVersionUpdateSync(): void {
+export function checkVersionUpdateSync(options: VersionCheckOptions = {}): void {
   const currentVersion = packageJson.version;
   const packageName = packageJson.name;
+  const allowStdoutMessage = options.allowStdoutMessage !== false;
 
   const cache = loadCache();
 
-  if (cache && shouldShowUpdateMessage(currentVersion, cache.latestVersion)) {
+  if (
+    allowStdoutMessage &&
+    cache &&
+    shouldShowUpdateMessage(currentVersion, cache.latestVersion)
+  ) {
     displayUpdateMessage(packageName, currentVersion, cache.latestVersion);
   }
 

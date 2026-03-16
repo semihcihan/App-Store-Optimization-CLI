@@ -83,7 +83,7 @@ const asoCommand: CommandModule = {
         type: "boolean",
         default: false,
         describe:
-          "Output keyword metrics to stdout in machine-safe mode (`aso keywords` only)",
+          "Machine-friendly mode for `aso keywords`: emit JSON-only stdout and disable interactive prompts.",
       })
       .option("primary-app-id", {
         type: "string",
