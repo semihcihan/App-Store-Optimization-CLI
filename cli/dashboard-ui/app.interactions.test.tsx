@@ -220,7 +220,7 @@ describe("dashboard app interactions", () => {
 
     fireEvent.change(
       screen.getByPlaceholderText(
-        "Search apps, app IDs, or developer names. You can also add this text as research."
+        "Search apps, app IDs, or developer names."
       ),
       {
       target: { value: "123" },

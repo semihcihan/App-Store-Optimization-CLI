@@ -52,7 +52,7 @@ export function AddAppDialog(props: AddAppDialogProps) {
               id="add-app-input"
               ref={props.inputRef}
               type="text"
-              placeholder="Search apps, app IDs, or developer names. You can also add this text as research."
+              placeholder="Search apps, app IDs, or developer names."
               value={props.searchTerm}
               disabled={props.isBusy || props.isColdStart}
               onChange={(event) => props.onSearchTermChange(event.target.value)}
