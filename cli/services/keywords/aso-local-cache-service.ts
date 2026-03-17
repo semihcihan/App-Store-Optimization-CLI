@@ -46,6 +46,12 @@ export async function getAsoAppDocsLocal(
 export async function refreshAsoKeywordOrderLocal(
   country: string,
   keyword: string
-): Promise<{ keyword: string; normalizedKeyword: string; appCount: number; orderedAppIds: string[] }> {
+): Promise<{
+  keyword: string;
+  normalizedKeyword: string;
+  appCount: number;
+  orderedAppIds: string[];
+  appDocs?: AsoAppDocItem[];
+}> {
   return refreshKeywordOrder({ country, keyword });
 }

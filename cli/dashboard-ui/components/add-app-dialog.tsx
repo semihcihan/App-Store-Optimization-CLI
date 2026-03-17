@@ -16,6 +16,7 @@ type AddAppDialogProps = {
   selectedCount: number;
   isSearching: boolean;
   searchError: string;
+  searchWarning: string;
   trimmedSearchTerm: string;
   isBusy: boolean;
   isColdStart: boolean;
@@ -126,6 +127,13 @@ export function AddAppDialog(props: AddAppDialogProps) {
               {props.trimmedSearchTerm &&
               !props.isSearching &&
               !props.searchError &&
+              props.searchWarning ? (
+                <p className="dialog-message">{props.searchWarning}</p>
+              ) : null}
+              {props.trimmedSearchTerm &&
+              !props.isSearching &&
+              !props.searchError &&
+              !props.searchWarning &&
               props.candidates.length === 1 ? (
                 <p className="dialog-message">
                   No app results found. You can still add this research name.

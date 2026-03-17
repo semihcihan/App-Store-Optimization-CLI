@@ -314,6 +314,7 @@ export function App() {
     addAppSearchTerm,
     addAppSearchInputRef,
     addAppSearchError,
+    addAppSearchWarning,
     isAddAppSearching,
     selectedAddCandidates,
     selectedAddCandidateList,
@@ -1831,6 +1832,7 @@ export function App() {
         selectedCount={selectedAddCandidateList.length}
         isSearching={isAddAppSearching}
         searchError={addAppSearchError}
+        searchWarning={addAppSearchWarning}
         trimmedSearchTerm={trimmedAddAppSearchTerm}
         isBusy={isAnyAppMutationInFlight}
         isColdStart={isColdStart}

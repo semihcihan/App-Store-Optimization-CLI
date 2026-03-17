@@ -724,21 +724,21 @@ describe("dashboard server routes", () => {
       normalizedKeyword: "focus",
       appCount: 2,
       orderedAppIds: ["a1", "a2"],
-    });
-    mockGetAsoAppDocsLocal.mockResolvedValueOnce([
-      {
-        appId: "a1",
-        country: "US",
-        name: "Focus One",
-        icon: { template: "https://example.com/a1/{w}x{h}.{f}" },
-      },
-      {
-        appId: "a2",
-        country: "US",
-        name: "Focus Two",
-        iconArtwork: { url: "https://example.com/a2.png" },
-      },
-    ] as any);
+      appDocs: [
+        {
+          appId: "a1",
+          country: "US",
+          name: "Focus One",
+          icon: { template: "https://example.com/a1/{w}x{h}.{f}" },
+        },
+        {
+          appId: "a2",
+          country: "US",
+          name: "Focus Two",
+          iconArtwork: { url: "https://example.com/a2.png" },
+        },
+      ],
+    } as any);
 
     const searchByTerm = await request({
       method: "GET",
@@ -762,20 +762,15 @@ describe("dashboard server routes", () => {
       ],
     });
     expect(mockRefreshAsoKeywordOrderLocal).toHaveBeenCalledWith("US", "focus");
+    expect(mockGetAsoAppDocsLocal).not.toHaveBeenCalled();
 
     mockRefreshAsoKeywordOrderLocal.mockResolvedValueOnce({
       keyword: "123",
       normalizedKeyword: "123",
       appCount: 0,
       orderedAppIds: [],
-    });
-    mockGetAsoAppDocsLocal.mockResolvedValueOnce([
-      {
-        appId: "123",
-        country: "US",
-        name: "Lookup Result",
-      },
-    ] as any);
+      appDocs: [],
+    } as any);
 
     const searchById = await request({
       method: "GET",
@@ -787,10 +782,33 @@ describe("dashboard server routes", () => {
       appDocs: [
         {
           appId: "123",
-          name: "Lookup Result",
+          name: "123",
         },
       ],
     });
+  });
+
+  it("returns no app candidates when only fallback ordered ids are available", async () => {
+    mockRefreshAsoKeywordOrderLocal.mockResolvedValue({
+      keyword: "focus",
+      normalizedKeyword: "focus",
+      appCount: 2,
+      orderedAppIds: ["a1", "a2"],
+      appDocs: [],
+    } as any);
+
+    const response = await request({
+      method: "GET",
+      path: "/api/aso/apps/search?country=US&term=focus&limit=10",
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json?.data).toEqual({
+      term: "focus",
+      appDocs: [],
+      warning: "Search failed",
+    });
+    expect(mockGetAsoAppDocsLocal).not.toHaveBeenCalled();
   });
 
   it("serves competitor apps endpoint and delete keyword endpoint", async () => {

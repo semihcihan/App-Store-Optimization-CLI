@@ -308,10 +308,12 @@ export async function refreshKeywordOrder(params: {
   normalizedKeyword: string;
   appCount: number;
   orderedAppIds: string[];
+  appDocs: AsoAppDoc[];
 }> {
   const country = params.country.toUpperCase();
   const normalizedKeyword = normalizeKeyword(params.keyword);
   let orderedAppIds: string[] = [];
+  let appDocs: AsoAppDoc[] = [];
 
   try {
     const searchPageData = await fetchSearchPageOrderedData({
@@ -319,6 +321,7 @@ export async function refreshKeywordOrder(params: {
       country,
     });
     orderedAppIds = searchPageData.orderedAppIds;
+    appDocs = searchPageData.appDocs;
     logger.debug(
       `ASO order refresh: search page HTML succeeded for keyword="${params.keyword}" country=${params.country}`
     );
@@ -347,6 +350,7 @@ export async function refreshKeywordOrder(params: {
       keyword: normalizedKeyword,
       country,
     });
+    appDocs = [];
   }
 
   return {
@@ -354,6 +358,7 @@ export async function refreshKeywordOrder(params: {
     normalizedKeyword,
     appCount: orderedAppIds.length,
     orderedAppIds,
+    appDocs,
   };
 }
 
