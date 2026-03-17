@@ -1,7 +1,11 @@
 import * as http from "http";
 import * as path from "path";
 import { logger } from "../utils/logger";
-import { listApps } from "../db/apps";
+import {
+  listOwnedAppIdsByKind,
+  listOwnedApps,
+  upsertOwnedAppSnapshots,
+} from "../db/owned-apps";
 import { listKeywords } from "../db/aso-keywords";
 import {
   listAllAppKeywords,
@@ -28,7 +32,6 @@ import {
 } from "./startup-refresh-manager";
 import {
   createAsoRouteHandlers,
-  fetchAsoAppDocsFromApi,
 } from "./routes/aso-routes";
 import { sendApiError, sendJson, parseJsonBody } from "./http-utils";
 import {
@@ -42,6 +45,8 @@ import {
   createAppsHandlers,
   ensureDefaultResearchAppExists,
 } from "./apps-handler";
+import { fetchOwnedAppSnapshotsFromApi } from "./owned-app-details";
+import { readAsoEnv } from "../shared/aso-env";
 
 const DEFAULT_PORT = 3456;
 const DEFAULT_APP_DOCS_HYDRATION_COUNTRY = DEFAULT_ASO_COUNTRY;
@@ -101,6 +106,7 @@ const startupRefreshManager = createStartupRefreshManager({
   country: DEFAULT_ASO_COUNTRY,
   listKeywords,
   listAppKeywords: listAllAppKeywords,
+  listOwnedAppIds: () => new Set(listOwnedAppIdsByKind("owned")),
   enrichKeywords: (country, items) =>
     keywordPipelineService.refreshStartup(country, items),
   isForegroundBusy: () => foregroundMutationCount > 0,
@@ -160,7 +166,7 @@ const appsHandlers = createAppsHandlers({
   sendJson,
   sendApiError,
   reportDashboardError,
-  fetchAsoAppDocsFromApi,
+  fetchOwnedAppSnapshotsFromApi,
   hydrationCountry: DEFAULT_APP_DOCS_HYDRATION_COUNTRY,
 });
 
@@ -231,10 +237,53 @@ export function createServerRequestHandler(): http.RequestListener {
 
       if (req.method === "GET" && pathname === "/api/apps") {
         ensureDefaultResearchAppExists();
+        let apps = listOwnedApps();
+        const nowMs = Date.now();
+        const refreshMaxAgeMs = readAsoEnv().ownedAppDocRefreshMaxAgeMs;
+        const staleOwnedAppIds = apps
+          .filter((app) => app.kind === "owned")
+          .map((app) => {
+            const fetchedAtMs = Date.parse(app.lastFetchedAt ?? "");
+            if (!Number.isFinite(fetchedAtMs) || nowMs - fetchedAtMs >= refreshMaxAgeMs) {
+              return app.id;
+            }
+            return null;
+          })
+          .filter((id): id is string => id != null);
+
+        if (staleOwnedAppIds.length > 0) {
+          try {
+            const snapshots = await fetchOwnedAppSnapshotsFromApi(
+              DEFAULT_APP_DOCS_HYDRATION_COUNTRY,
+              staleOwnedAppIds
+            );
+            if (snapshots.length > 0) {
+              upsertOwnedAppSnapshots(snapshots);
+            }
+            apps = listOwnedApps();
+          } catch (error) {
+            reportDashboardError(error, {
+              method: "GET",
+              path: "/api/apps",
+              phase: "owned-app-refresh",
+              staleOwnedAppCount: staleOwnedAppIds.length,
+            });
+          }
+        }
         const appLastAddedAt = getAppLastKeywordAddedAtMap(DEFAULT_ASO_COUNTRY);
-        const apps = listApps()
+        const payload = apps
           .map((app) => ({
-            ...app,
+            id: app.id,
+            kind: app.kind,
+            name: app.name,
+            averageUserRating: app.averageUserRating,
+            userRatingCount: app.userRatingCount,
+            previousAverageUserRating: app.previousAverageUserRating,
+            previousUserRatingCount: app.previousUserRatingCount,
+            icon: app.icon,
+            expiresAt: app.expiresAt,
+            lastFetchedAt: app.lastFetchedAt,
+            previousFetchedAt: app.previousFetchedAt,
             lastKeywordAddedAt: appLastAddedAt.get(app.id) ?? null,
           }))
           .sort((a, b) => {
@@ -245,7 +294,7 @@ export function createServerRequestHandler(): http.RequestListener {
             if (!ad && bd) return 1;
             return a.name.localeCompare(b.name);
           });
-        sendJson(res, 200, { success: true, data: apps });
+        sendJson(res, 200, { success: true, data: payload });
         return;
       }
 

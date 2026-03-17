@@ -1,6 +1,6 @@
 import { jest } from "@jest/globals";
 import { createAppKeywords } from "../../db/app-keywords";
-import { getAppById, upsertApps } from "../../db/apps";
+import { getOwnedAppById, upsertOwnedApps } from "../../db/owned-apps";
 import {
   DEFAULT_RESEARCH_APP_ID,
   DEFAULT_RESEARCH_APP_NAME,
@@ -14,31 +14,31 @@ jest.mock("../../db/app-keywords", () => ({
   createAppKeywords: jest.fn(),
 }));
 
-jest.mock("../../db/apps", () => ({
-  getAppById: jest.fn(),
-  upsertApps: jest.fn(),
+jest.mock("../../db/owned-apps", () => ({
+  getOwnedAppById: jest.fn(),
+  upsertOwnedApps: jest.fn(),
 }));
 
 describe("saveKeywordsToDefaultResearchApp", () => {
   const mockCreateAppKeywords = jest.mocked(createAppKeywords);
-  const mockGetAppById = jest.mocked(getAppById);
-  const mockUpsertApps = jest.mocked(upsertApps);
+  const mockGetOwnedAppById = jest.mocked(getOwnedAppById);
+  const mockUpsertOwnedApps = jest.mocked(upsertOwnedApps);
 
   beforeEach(() => {
     jest.clearAllMocks();
-    mockGetAppById.mockReturnValue(null);
+    mockGetOwnedAppById.mockReturnValue(null);
   });
 
   it("returns 0 for empty keyword input", () => {
     expect(saveKeywordsToDefaultResearchApp([], "US")).toBe(0);
     expect(mockCreateAppKeywords).not.toHaveBeenCalled();
-    expect(mockUpsertApps).not.toHaveBeenCalled();
+    expect(mockUpsertOwnedApps).not.toHaveBeenCalled();
   });
 
   it("returns 0 when normalized keywords are empty", () => {
     expect(saveKeywordsToDefaultResearchApp(["  ", "\n"], "US")).toBe(0);
     expect(mockCreateAppKeywords).not.toHaveBeenCalled();
-    expect(mockUpsertApps).not.toHaveBeenCalled();
+    expect(mockUpsertOwnedApps).not.toHaveBeenCalled();
   });
 
   it("normalizes/dedupes keywords and creates research app when missing", () => {
@@ -48,9 +48,10 @@ describe("saveKeywordsToDefaultResearchApp", () => {
     );
 
     expect(savedCount).toBe(2);
-    expect(mockUpsertApps).toHaveBeenCalledWith([
+    expect(mockUpsertOwnedApps).toHaveBeenCalledWith([
       {
         id: DEFAULT_RESEARCH_APP_ID,
+        kind: "research",
         name: DEFAULT_RESEARCH_APP_NAME,
       },
     ]);
@@ -62,7 +63,7 @@ describe("saveKeywordsToDefaultResearchApp", () => {
   });
 
   it("does not create app row when research app already exists", () => {
-    mockGetAppById.mockReturnValue({
+    mockGetOwnedAppById.mockReturnValue({
       id: DEFAULT_RESEARCH_APP_ID,
       name: DEFAULT_RESEARCH_APP_NAME,
     } as any);
@@ -70,7 +71,7 @@ describe("saveKeywordsToDefaultResearchApp", () => {
     const savedCount = saveKeywordsToDefaultResearchApp(["term"], "US");
 
     expect(savedCount).toBe(1);
-    expect(mockUpsertApps).not.toHaveBeenCalled();
+    expect(mockUpsertOwnedApps).not.toHaveBeenCalled();
     expect(mockCreateAppKeywords).toHaveBeenCalledWith(
       DEFAULT_RESEARCH_APP_ID,
       ["term"],
@@ -82,9 +83,10 @@ describe("saveKeywordsToDefaultResearchApp", () => {
     const savedCount = saveKeywordsToResearchApp(["term"], "US", "123");
 
     expect(savedCount).toBe(1);
-    expect(mockUpsertApps).toHaveBeenCalledWith([
+    expect(mockUpsertOwnedApps).toHaveBeenCalledWith([
       {
         id: "123",
+        kind: "owned",
         name: "123",
       },
     ]);
@@ -92,7 +94,7 @@ describe("saveKeywordsToDefaultResearchApp", () => {
   });
 
   it("uses numeric app id when input is id-prefixed and numeric app exists", () => {
-    mockGetAppById.mockImplementation((id: string) => {
+    mockGetOwnedAppById.mockImplementation((id: string) => {
       if (id === "123") {
         return { id: "123", name: "Owned App" } as any;
       }
@@ -102,12 +104,12 @@ describe("saveKeywordsToDefaultResearchApp", () => {
     const savedCount = saveKeywordsToResearchApp(["term"], "US", "id123");
 
     expect(savedCount).toBe(1);
-    expect(mockUpsertApps).not.toHaveBeenCalled();
+    expect(mockUpsertOwnedApps).not.toHaveBeenCalled();
     expect(mockCreateAppKeywords).toHaveBeenCalledWith("123", ["term"], "US");
   });
 
   it("falls back to id-prefixed app id when numeric app id does not exist", () => {
-    mockGetAppById.mockImplementation((id: string) => {
+    mockGetOwnedAppById.mockImplementation((id: string) => {
       if (id === "id123") {
         return { id: "id123", name: "Prefixed App" } as any;
       }
@@ -117,7 +119,7 @@ describe("saveKeywordsToDefaultResearchApp", () => {
     const savedCount = saveKeywordsToResearchApp(["term"], "US", "id123");
 
     expect(savedCount).toBe(1);
-    expect(mockUpsertApps).not.toHaveBeenCalled();
+    expect(mockUpsertOwnedApps).not.toHaveBeenCalled();
     expect(mockCreateAppKeywords).toHaveBeenCalledWith("id123", ["term"], "US");
   });
 });

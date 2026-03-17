@@ -1,9 +1,10 @@
 import {
   DEFAULT_RESEARCH_APP_ID,
   DEFAULT_RESEARCH_APP_NAME,
+  isResearchAppId,
 } from "../../shared/aso-research";
 import { createAppKeywords } from "../../db/app-keywords";
-import { getAppById, upsertApps } from "../../db/apps";
+import { getOwnedAppById, upsertOwnedApps } from "../../db/owned-apps";
 
 function resolveTargetAppId(appId: string): string {
   const normalizedAppId = appId.trim() || DEFAULT_RESEARCH_APP_ID;
@@ -13,7 +14,7 @@ function resolveTargetAppId(appId: string): string {
   }
 
   const numericAppId = idPrefixedNumeric[1];
-  if (getAppById(numericAppId)) {
+  if (getOwnedAppById(numericAppId)) {
     return numericAppId;
   }
 
@@ -41,14 +42,16 @@ export function saveKeywordsToResearchApp(
   }
 
   const targetAppId = resolveTargetAppId(appId);
-  if (!getAppById(targetAppId)) {
+  if (!getOwnedAppById(targetAppId)) {
+    const kind = isResearchAppId(targetAppId) ? "research" : "owned";
     const appName =
       targetAppId === DEFAULT_RESEARCH_APP_ID
         ? DEFAULT_RESEARCH_APP_NAME
         : targetAppId;
-    upsertApps([
+    upsertOwnedApps([
       {
         id: targetAppId,
+        kind,
         name: appName,
       },
     ]);

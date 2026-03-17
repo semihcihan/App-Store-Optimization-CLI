@@ -92,6 +92,7 @@ describe("startup-refresh-manager", () => {
         buildAssociation({ appId: "research:ideas", keyword: "research-only" }),
         buildAssociation({ appId: "app-1", keyword: "no-popularity" }),
       ],
+      ownedAppIds: new Set(["app-1"]),
       nowMs: now,
     });
 
@@ -131,6 +132,7 @@ describe("startup-refresh-manager", () => {
         buildAssociation({ keyword: "k2", appId: "app-1" }),
         buildAssociation({ keyword: "k3", appId: "app-1" }),
       ],
+      listOwnedAppIds: () => new Set(["app-1"]),
       enrichKeywords: async (_country, items) => {
         enrichCalls.push(items);
         if (enrichCalls.length === 1) {
@@ -172,6 +174,7 @@ describe("startup-refresh-manager", () => {
         }),
       ],
       listAppKeywords: () => [buildAssociation({ keyword: "k1", appId: "app-1" })],
+      listOwnedAppIds: () => new Set(["app-1"]),
       enrichKeywords: async () => {
         throw new Error("always fails");
       },

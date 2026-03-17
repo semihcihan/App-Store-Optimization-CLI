@@ -19,10 +19,21 @@ function initializeDatabase(database: Database.Database): void {
   database.pragma("journal_mode = WAL");
   database.pragma("foreign_keys = ON");
   database.exec(`
-    CREATE TABLE IF NOT EXISTS apps (
+    CREATE TABLE IF NOT EXISTS owned_apps (
       id TEXT PRIMARY KEY,
-      name TEXT NOT NULL
+      kind TEXT NOT NULL CHECK (kind IN ('owned', 'research')),
+      name TEXT NOT NULL,
+      average_user_rating REAL,
+      user_rating_count INTEGER,
+      previous_average_user_rating REAL,
+      previous_user_rating_count INTEGER,
+      icon_json TEXT,
+      expires_at TEXT,
+      last_fetched_at TEXT,
+      previous_fetched_at TEXT
     );
+    CREATE INDEX IF NOT EXISTS idx_owned_apps_kind
+      ON owned_apps(kind);
 
     CREATE TABLE IF NOT EXISTS aso_keywords (
       country TEXT NOT NULL,
@@ -44,23 +55,18 @@ function initializeDatabase(database: Database.Database): void {
       ON aso_keywords(country, order_expires_at);
 
     CREATE TABLE IF NOT EXISTS aso_apps (
-      bucket TEXT NOT NULL,
       country TEXT NOT NULL,
       app_id TEXT NOT NULL,
       name TEXT NOT NULL,
       subtitle TEXT,
       average_user_rating REAL NOT NULL,
       user_rating_count INTEGER NOT NULL,
-      previous_average_user_rating REAL,
-      previous_user_rating_count INTEGER,
       release_date TEXT,
       current_version_release_date TEXT,
       icon_json TEXT,
       icon_artwork_json TEXT,
       expires_at TEXT,
-      last_fetched_at TEXT,
-      previous_fetched_at TEXT,
-      PRIMARY KEY (bucket, country, app_id)
+      PRIMARY KEY (country, app_id)
     );
 
     CREATE TABLE IF NOT EXISTS app_keywords (
@@ -100,30 +106,6 @@ function initializeDatabase(database: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_aso_keyword_failures_country_stage
       ON aso_keyword_failures(country, stage);
   `);
-
-  const existingColumns = new Set(
-    (
-      database
-        .prepare("PRAGMA table_info(aso_apps)")
-        .all() as Array<{ name?: string }>
-    )
-      .map((row) => row.name)
-      .filter((name): name is string => typeof name === "string")
-  );
-
-  if (!existingColumns.has("previous_average_user_rating")) {
-    database.exec("ALTER TABLE aso_apps ADD COLUMN previous_average_user_rating REAL");
-  }
-  if (!existingColumns.has("previous_user_rating_count")) {
-    database.exec("ALTER TABLE aso_apps ADD COLUMN previous_user_rating_count INTEGER");
-  }
-  if (!existingColumns.has("last_fetched_at")) {
-    database.exec("ALTER TABLE aso_apps ADD COLUMN last_fetched_at TEXT");
-  }
-  if (!existingColumns.has("previous_fetched_at")) {
-    database.exec("ALTER TABLE aso_apps ADD COLUMN previous_fetched_at TEXT");
-  }
-
 }
 
 export function getDbPath(): string {

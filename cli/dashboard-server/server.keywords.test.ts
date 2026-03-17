@@ -4,10 +4,12 @@ import { createAppKeywords, listByApp } from "../db/app-keywords";
 import { keywordPipelineService } from "../services/keywords/keyword-pipeline-service";
 import { createServerRequestHandler } from "./server";
 
-jest.mock("../db/apps", () => ({
-  getAppById: jest.fn(() => null),
-  listApps: jest.fn(() => []),
-  upsertApps: jest.fn(),
+jest.mock("../db/owned-apps", () => ({
+  getOwnedAppById: jest.fn(() => null),
+  listOwnedApps: jest.fn(() => []),
+  listOwnedAppIdsByKind: jest.fn(() => []),
+  upsertOwnedApps: jest.fn(),
+  upsertOwnedAppSnapshots: jest.fn(),
 }));
 
 jest.mock("../db/aso-keywords", () => ({
@@ -17,9 +19,7 @@ jest.mock("../db/aso-keywords", () => ({
 
 jest.mock("../db/aso-apps", () => ({
   getCompetitorAppDocs: jest.fn(() => []),
-  getOwnedAppDocs: jest.fn(() => []),
   upsertCompetitorAppDocs: jest.fn(),
-  upsertOwnedAppDocs: jest.fn(),
 }));
 
 jest.mock("../db/app-keywords", () => ({

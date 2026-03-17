@@ -3,9 +3,7 @@ import * as os from "os";
 import * as path from "path";
 import {
   getCompetitorAppDocs,
-  getOwnedAppDocs,
   upsertCompetitorAppDocs,
-  upsertOwnedAppDocs,
 } from "./aso-apps";
 import { closeDbForTests } from "./store";
 
@@ -38,24 +36,6 @@ describe("aso-apps", () => {
     delete process.env.ASO_DB_PATH;
   });
 
-  it("stores and reads owned app docs", () => {
-    upsertOwnedAppDocs("US", [
-      {
-        appId: "owned1",
-        name: "Owned App",
-        subtitle: "Sub",
-        averageUserRating: 4.1,
-        userRatingCount: 55,
-        icon: { color: "blue" },
-      },
-    ]);
-    const docs = getOwnedAppDocs("US", ["owned1"]);
-    expect(docs).toHaveLength(1);
-    expect(docs[0].name).toBe("Owned App");
-    expect(docs[0].country).toBe("US");
-    expect(docs[0].icon).toEqual({ color: "blue" });
-  });
-
   it("stores and reads competitor app docs", () => {
     upsertCompetitorAppDocs("US", [
       {
@@ -67,33 +47,19 @@ describe("aso-apps", () => {
     ]);
     const docs = getCompetitorAppDocs("US", ["comp1"]);
     expect(docs).toHaveLength(1);
-    expect(docs[0].name).toBe("Competitor App");
-    expect(docs[0].country).toBe("US");
-  });
-
-  it("keeps owned and competitor buckets isolated for same app id", () => {
-    upsertOwnedAppDocs("US", [
-      {
-        appId: "same-id",
-        name: "Owned",
-        averageUserRating: 4,
-        userRatingCount: 1,
-      },
-    ]);
-    upsertCompetitorAppDocs("US", [
-      {
-        appId: "same-id",
-        name: "Competitor",
-        averageUserRating: 5,
-        userRatingCount: 2,
-      },
-    ]);
-    expect(getOwnedAppDocs("US", ["same-id"])[0].name).toBe("Owned");
-    expect(getCompetitorAppDocs("US", ["same-id"])[0].name).toBe("Competitor");
+    expect(docs[0]).toEqual(
+      expect.objectContaining({
+        appId: "comp1",
+        name: "Competitor App",
+        country: "US",
+        averageUserRating: 4.7,
+        userRatingCount: 500,
+      })
+    );
   });
 
   it("keeps docs isolated for same app id across countries", () => {
-    upsertOwnedAppDocs("US", [
+    upsertCompetitorAppDocs("US", [
       {
         appId: "same-country-id",
         name: "US App",
@@ -101,7 +67,7 @@ describe("aso-apps", () => {
         userRatingCount: 100,
       },
     ]);
-    upsertOwnedAppDocs("GB", [
+    upsertCompetitorAppDocs("GB", [
       {
         appId: "same-country-id",
         name: "GB App",
@@ -110,14 +76,14 @@ describe("aso-apps", () => {
       },
     ]);
 
-    expect(getOwnedAppDocs("US", ["same-country-id"])[0]).toEqual(
+    expect(getCompetitorAppDocs("US", ["same-country-id"])[0]).toEqual(
       expect.objectContaining({
         name: "US App",
         country: "US",
         averageUserRating: 4,
       })
     );
-    expect(getOwnedAppDocs("GB", ["same-country-id"])[0]).toEqual(
+    expect(getCompetitorAppDocs("GB", ["same-country-id"])[0]).toEqual(
       expect.objectContaining({
         name: "GB App",
         country: "GB",
@@ -126,48 +92,32 @@ describe("aso-apps", () => {
     );
   });
 
-  it("tracks previous owned ratings per country", () => {
-    upsertOwnedAppDocs("US", [
+  it("upserts existing doc for same country and app id", () => {
+    upsertCompetitorAppDocs("US", [
       {
-        appId: "snapshot-id",
-        name: "Snapshot",
+        appId: "same-id",
+        name: "Initial",
         averageUserRating: 4,
-        userRatingCount: 100,
-      },
-    ]);
-    upsertOwnedAppDocs("US", [
-      {
-        appId: "snapshot-id",
-        name: "Snapshot",
-        averageUserRating: 4.5,
-        userRatingCount: 200,
-      },
-    ]);
-    upsertOwnedAppDocs("GB", [
-      {
-        appId: "snapshot-id",
-        name: "Snapshot GB",
-        averageUserRating: 3.2,
-        userRatingCount: 50,
+        userRatingCount: 10,
       },
     ]);
 
-    const usDoc = getOwnedAppDocs("US", ["snapshot-id"])[0];
-    const gbDoc = getOwnedAppDocs("GB", ["snapshot-id"])[0];
-    expect(usDoc).toEqual(
-      expect.objectContaining({
+    upsertCompetitorAppDocs("US", [
+      {
+        appId: "same-id",
+        name: "Updated",
         averageUserRating: 4.5,
-        userRatingCount: 200,
-        previousAverageUserRating: 4,
-        previousUserRatingCount: 100,
-      })
-    );
-    expect(gbDoc).toEqual(
+        userRatingCount: 40,
+        releaseDate: "2026-01-01",
+      },
+    ]);
+
+    expect(getCompetitorAppDocs("US", ["same-id"])[0]).toEqual(
       expect.objectContaining({
-        averageUserRating: 3.2,
-        userRatingCount: 50,
-        previousAverageUserRating: null,
-        previousUserRatingCount: null,
+        name: "Updated",
+        averageUserRating: 4.5,
+        userRatingCount: 40,
+        releaseDate: "2026-01-01",
       })
     );
   });

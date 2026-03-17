@@ -1,5 +1,4 @@
 import type { StoredAppKeyword, StoredAsoKeyword } from "../db/types";
-import { isResearchAppId } from "../shared/aso-research";
 import { normalizeKeyword } from "../shared/aso-keyword-utils";
 import {
   isCompleteStoredAsoKeyword,
@@ -36,6 +35,7 @@ type StartupRefreshDeps = {
   country: string;
   listKeywords: (country: string) => StoredAsoKeyword[];
   listAppKeywords: (country: string) => StoredAppKeyword[];
+  listOwnedAppIds: () => Set<string>;
   enrichKeywords: (
     country: string,
     items: KeywordRefreshItem[]
@@ -55,11 +55,12 @@ export type StartupRefreshManager = {
 export function selectKeywordRefreshCandidates(params: {
   keywords: StoredAsoKeyword[];
   appKeywords: StoredAppKeyword[];
+  ownedAppIds: Set<string>;
   nowMs: number;
 }): KeywordRefreshItem[] {
   const associatedKeywords = new Set(
     params.appKeywords
-      .filter((row) => !isResearchAppId(row.appId))
+      .filter((row) => params.ownedAppIds.has(row.appId))
       .map((row) => normalizeKeyword(row.keyword))
       .filter(Boolean)
   );
@@ -159,6 +160,7 @@ export function createStartupRefreshManager(
     const items = selectKeywordRefreshCandidates({
       keywords: deps.listKeywords(deps.country),
       appKeywords: deps.listAppKeywords(deps.country),
+      ownedAppIds: deps.listOwnedAppIds(),
       nowMs: nowMs(),
     });
     state.counters.eligibleKeywordCount = items.length;

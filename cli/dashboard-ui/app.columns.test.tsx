@@ -10,6 +10,14 @@ type MockPayload = {
   body: unknown;
 };
 
+type AppKind = "owned" | "research";
+
+type AppRow = {
+  id: string;
+  name: string;
+  kind?: AppKind;
+};
+
 function jsonResponse(payload: MockPayload) {
   return {
     ok: payload.status >= 200 && payload.status < 300,
@@ -35,9 +43,23 @@ function setupMatchMediaMock(): void {
 }
 
 type FetchMockOptions = {
-  apps: Array<{ id: string; name: string }>;
+  apps: AppRow[];
   keywordsByAppId: Record<string, unknown[]>;
 };
+
+function withAppKinds(apps: AppRow[]): Array<AppRow & { kind: AppKind }> {
+  return apps.map((app) => {
+    const kind =
+      app.kind ??
+      (app.id === DEFAULT_RESEARCH_APP_ID || app.id.startsWith("research:")
+        ? "research"
+        : "owned");
+    return {
+      ...app,
+      kind,
+    };
+  });
+}
 
 function buildFetchMock(options: FetchMockOptions) {
   return jest.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -45,7 +67,10 @@ function buildFetchMock(options: FetchMockOptions) {
     const method = (init?.method ?? "GET").toUpperCase();
 
     if (method === "GET" && url === "/api/apps") {
-      return jsonResponse({ status: 200, body: { success: true, data: options.apps } });
+      return jsonResponse({
+        status: 200,
+        body: { success: true, data: withAppKinds(options.apps) },
+      });
     }
 
     if (method === "GET" && url.startsWith("/api/aso/apps?")) {

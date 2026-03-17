@@ -4,7 +4,7 @@ import {
   normalizeKeyword,
   normalizeTextForKeywordMatch,
 } from "./aso-keyword-utils";
-import { fetchAppStoreTitleAndSubtitle } from "./aso-app-store-details";
+import { fetchAppStoreLocalizedAppData } from "./aso-app-store-details";
 import { fetchAppStoreLookupAppDocs } from "./aso-app-doc-service";
 import type { AsoAppDoc, AsoAppDocIcon } from "./aso-types";
 import { asoAppleGet } from "./aso-apple-client";
@@ -419,15 +419,23 @@ async function buildAppDocsFromLookup(params: {
       const lookupDoc = byId.get(id);
       if (!lookupDoc) return null;
       try {
-        const details = await fetchAppStoreTitleAndSubtitle(
+        const details = await fetchAppStoreLocalizedAppData(
           id,
           params.country,
           "en-us"
         );
+        const averageUserRating =
+          details?.ratingAverage ?? lookupDoc.averageUserRating;
+        const userRatingCount =
+          details?.totalNumberOfRatings == null
+            ? lookupDoc.userRatingCount
+            : parseRatingCount(details.totalNumberOfRatings);
         return {
           ...lookupDoc,
           name: details?.title || lookupDoc.name || "Unknown",
           subtitle: details?.subtitle ?? undefined,
+          averageUserRating,
+          userRatingCount,
         };
       } catch {
         return lookupDoc;

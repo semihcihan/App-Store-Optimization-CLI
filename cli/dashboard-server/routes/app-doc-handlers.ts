@@ -3,9 +3,7 @@ import { logger } from "../../utils/logger";
 import { getKeyword } from "../../db/aso-keywords";
 import {
   getCompetitorAppDocs,
-  getOwnedAppDocs,
   upsertCompetitorAppDocs,
-  upsertOwnedAppDocs,
 } from "../../db/aso-apps";
 import {
   getAsoAppDocsLocal,
@@ -16,41 +14,11 @@ import {
   DEFAULT_ASO_COUNTRY,
   normalizeCountry,
 } from "../../domain/keywords/policy";
-import { readAsoEnv } from "../../shared/aso-env";
 import type { AsoApiAppDoc, AsoRouteDeps } from "./aso-route-types";
 
 const ASO_APP_DOCS_MAX_BATCH_SIZE = 50;
 const ASO_APP_SEARCH_DEFAULT_LIMIT = 20;
 const ASO_APP_SEARCH_MAX_LIMIT = 50;
-function getStaleOwnedAppIds(
-  orderedIds: string[],
-  docs: Array<{
-    appId: string;
-    expiresAt?: string;
-    releaseDate?: string | null;
-    currentVersionReleaseDate?: string | null;
-    lastFetchedAt?: string | null;
-  }>,
-  nowMs: number = Date.now()
-): string[] {
-  const refreshMaxAgeMs = readAsoEnv().ownedAppDocRefreshMaxAgeMs;
-  const missingOrExpired = new Set(getMissingOrExpiredAppIds(orderedIds, docs, nowMs));
-  const byId = new Map(docs.map((doc) => [doc.appId, doc]));
-  const staleIds: string[] = [];
-
-  for (const appId of orderedIds) {
-    if (missingOrExpired.has(appId)) {
-      staleIds.push(appId);
-      continue;
-    }
-    const doc = byId.get(appId);
-    const fetchedAtMs = Date.parse(doc?.lastFetchedAt ?? "");
-    if (!Number.isFinite(fetchedAtMs) || nowMs - fetchedAtMs >= refreshMaxAgeMs) {
-      staleIds.push(appId);
-    }
-  }
-  return staleIds;
-}
 
 function mergeHydratedCompetitorDoc(
   existing: AsoApiAppDoc | undefined,
@@ -327,8 +295,8 @@ export function createAppDocHandlers(deps: AsoRouteDeps) {
       return Promise.resolve();
     }
 
-    const docs = getOwnedAppDocs(country, ids);
-    const staleIds = forceRefresh ? ids : getStaleOwnedAppIds(ids, docs);
+    const docs = getCompetitorAppDocs(country, ids);
+    const staleIds = forceRefresh ? ids : getMissingOrExpiredAppIds(ids, docs);
 
     if (staleIds.length === 0) {
       logger.debug("[aso-dashboard] response", {
@@ -345,9 +313,31 @@ export function createAppDocHandlers(deps: AsoRouteDeps) {
     return fetchAsoAppDocsFromApi(country, staleIds, { forceLookup: true })
       .then((lookupDocs) => {
         if (lookupDocs.length > 0) {
-          upsertOwnedAppDocs(country, lookupDocs);
+          const cachedById = new Map(docs.map((doc) => [doc.appId, doc]));
+          upsertCompetitorAppDocs(
+            country,
+            lookupDocs.map((doc) => {
+              const merged = mergeHydratedCompetitorDoc(cachedById.get(doc.appId), {
+                ...doc,
+                averageUserRating: doc.averageUserRating ?? 0,
+                userRatingCount: doc.userRatingCount ?? 0,
+              });
+              return {
+                appId: merged.appId,
+                name: merged.name,
+                subtitle: merged.subtitle,
+                averageUserRating: merged.averageUserRating,
+                userRatingCount: merged.userRatingCount,
+                releaseDate: merged.releaseDate ?? null,
+                currentVersionReleaseDate: merged.currentVersionReleaseDate ?? null,
+                icon: merged.icon,
+                iconArtwork: merged.iconArtwork,
+                expiresAt: merged.expiresAt,
+              };
+            })
+          );
         }
-        const merged = getOwnedAppDocs(country, ids);
+        const merged = getCompetitorAppDocs(country, ids);
         logger.debug("[aso-dashboard] response", {
           method: "GET",
           path: "/api/aso/apps",

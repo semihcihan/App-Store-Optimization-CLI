@@ -34,9 +34,12 @@ Define failure boundaries, retry rules, and recovery behavior across CLI, dashbo
   - If auth is invalid in stage 1, return `AUTH_REQUIRED` (no interactive prompt in request path).
 - If stage-2 enrichment fails, stage-1 writes remain; caller can retry later.
 - Dashboard retry-failed endpoint retries only failed keywords for selected app/country and returns `{ retriedCount, succeededCount, failedCount }`.
-- Top-app and app-doc hydration:
-  - Missing/expired docs trigger backend fetch.
-  - On hydration failure, return available cached data when possible.
+- Top-app and competitor app-doc hydration (`/api/aso/top-apps`, `/api/aso/apps`):
+  - Missing/expired competitor docs trigger backend fetch.
+  - On hydration failure, return available cached competitor data when possible.
+- Owned app list hydration (`/api/apps`):
+  - Stale owned rows trigger localized app-page fetch.
+  - On hydration failure, keep cached owned row and continue serving `/api/apps`.
 - Dashboard app search (`GET /api/aso/apps/search`):
   - Empty search terms return an empty list.
   - If search-order lookup fails, numeric app-id input can still hydrate via direct lookup.
@@ -60,7 +63,7 @@ Define failure boundaries, retry rules, and recovery behavior across CLI, dashbo
   - App Store search page parsing
   - MZSearch order payload parsing
   - App lookup payload parsing
-  - App title/subtitle page parsing
+  - Localized app-page `serialized-server-data` parsing (title/subtitle/rating/ratingCount)
 - Contract-drift events are deduped for `15` minutes per unique signature (`provider + operation + endpoint + drift kind + status bucket`) to reduce alert spam during repeated failures.
 - Bugsnag redaction is centralized at SDK startup via global `redactedKeys` and `onError` sanitization before event delivery (including nested metadata and keychain command-arg payloads such as `spawnargs` values after `-w`).
 - Dashboard server reports failures with structured metadata (path, phase, counts).

@@ -1,10 +1,14 @@
 import * as http from "http";
-import { getAppById, upsertApps } from "../db/apps";
-import { upsertOwnedAppDocs } from "../db/aso-apps";
+import {
+  getOwnedAppById,
+  upsertOwnedApps,
+  upsertOwnedAppSnapshots,
+} from "../db/owned-apps";
 import {
   DEFAULT_RESEARCH_APP_ID,
   DEFAULT_RESEARCH_APP_NAME,
 } from "../shared/aso-research";
+import type { OwnedAppSnapshot } from "./owned-app-details";
 
 type ManualAppAddRequest =
   | {
@@ -32,20 +36,10 @@ type CreateAppsHandlersDeps = {
     error: unknown,
     metadata: Record<string, unknown>
   ) => void;
-  fetchAsoAppDocsFromApi: (country: string, appIds: string[]) => Promise<
-    Array<{
-      appId: string;
-      name: string;
-      subtitle?: string;
-      averageUserRating: number;
-      userRatingCount: number;
-      releaseDate?: string | null;
-      currentVersionReleaseDate?: string | null;
-      icon?: Record<string, unknown>;
-      iconArtwork?: { url?: string; [key: string]: unknown };
-      expiresAt?: string;
-    }>
-  >;
+  fetchOwnedAppSnapshotsFromApi: (
+    country: string,
+    appIds: string[]
+  ) => Promise<OwnedAppSnapshot[]>;
   hydrationCountry: string;
 };
 
@@ -69,13 +63,13 @@ function slugifyResearchName(name: string): string {
 
 function nextResearchAppId(slug: string): string {
   const baseId = `research:${slug}`;
-  if (!getAppById(baseId)) {
+  if (!getOwnedAppById(baseId)) {
     return baseId;
   }
   let suffix = 2;
   while (true) {
     const candidate = `${baseId}-${suffix}`;
-    if (!getAppById(candidate)) {
+    if (!getOwnedAppById(candidate)) {
       return candidate;
     }
     suffix += 1;
@@ -83,12 +77,13 @@ function nextResearchAppId(slug: string): string {
 }
 
 export function ensureDefaultResearchAppExists(): void {
-  if (getAppById(DEFAULT_RESEARCH_APP_ID)) {
+  if (getOwnedAppById(DEFAULT_RESEARCH_APP_ID)) {
     return;
   }
-  upsertApps([
+  upsertOwnedApps([
     {
       id: DEFAULT_RESEARCH_APP_ID,
+      kind: "research",
       name: DEFAULT_RESEARCH_APP_NAME,
     },
   ]);
@@ -122,16 +117,15 @@ export function createAppsHandlers(deps: CreateAppsHandlersDeps) {
       }
 
       const country = deps.hydrationCountry;
-      upsertApps([{ id: appId, name: appId }]);
+      upsertOwnedApps([{ id: appId, kind: "owned", name: appId }]);
       let hydratedName = appId;
       try {
-        const docs = await deps.fetchAsoAppDocsFromApi(country, [appId]);
-        if (docs.length > 0) {
-          upsertOwnedAppDocs(country, docs);
-          const first = docs[0];
+        const snapshots = await deps.fetchOwnedAppSnapshotsFromApi(country, [appId]);
+        if (snapshots.length > 0) {
+          upsertOwnedAppSnapshots(snapshots);
+          const first = snapshots[0];
           if (first?.name?.trim()) {
             hydratedName = first.name.trim();
-            upsertApps([{ id: appId, name: hydratedName }]);
           }
         }
       } catch (error) {
@@ -163,7 +157,7 @@ export function createAppsHandlers(deps: CreateAppsHandlersDeps) {
     const slug = slugifyResearchName(name);
     ensureDefaultResearchAppExists();
     const id = nextResearchAppId(slug);
-    upsertApps([{ id, name }]);
+    upsertOwnedApps([{ id, kind: "research", name }]);
     deps.sendJson(res, 201, {
       success: true,
       data: {
