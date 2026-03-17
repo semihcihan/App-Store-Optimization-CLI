@@ -1,6 +1,11 @@
 import { PassThrough } from "stream";
 import { jest } from "@jest/globals";
-import { getAppById, listApps, upsertApps } from "../db/apps";
+import {
+  getOwnedAppById,
+  listOwnedApps,
+  upsertOwnedApps,
+  upsertOwnedAppSnapshots,
+} from "../db/owned-apps";
 import {
   deleteAppKeywords,
   getAppLastKeywordAddedAtMap,
@@ -12,9 +17,7 @@ import {
 } from "../db/aso-keyword-failures";
 import {
   getCompetitorAppDocs,
-  getOwnedAppDocs,
   upsertCompetitorAppDocs,
-  upsertOwnedAppDocs,
 } from "../db/aso-apps";
 import {
   getAsoAppDocsLocal,
@@ -23,13 +26,15 @@ import {
 import { asoAuthService } from "../services/auth/aso-auth-service";
 import { keywordPipelineService } from "../services/keywords/keyword-pipeline-service";
 import { isAsoAuthReauthRequiredError } from "../services/keywords/aso-popularity-service";
+import { fetchOwnedAppSnapshotsFromApi } from "./owned-app-details";
 import { createServerRequestHandler } from "./server";
 import { DEFAULT_RESEARCH_APP_ID } from "../shared/aso-research";
 
-jest.mock("../db/apps", () => ({
-  getAppById: jest.fn(() => null),
-  listApps: jest.fn(() => []),
-  upsertApps: jest.fn(),
+jest.mock("../db/owned-apps", () => ({
+  getOwnedAppById: jest.fn(() => null),
+  listOwnedApps: jest.fn(() => []),
+  upsertOwnedApps: jest.fn(),
+  upsertOwnedAppSnapshots: jest.fn(),
 }));
 
 jest.mock("../db/app-keywords", () => ({
@@ -43,15 +48,12 @@ jest.mock("../db/app-keywords", () => ({
 jest.mock("../db/aso-keywords", () => ({
   listKeywords: jest.fn(() => []),
   getKeyword: jest.fn(() => null),
-  getKeywordFailures: jest.fn(() => []),
   upsertKeywords: jest.fn(),
 }));
 
 jest.mock("../db/aso-apps", () => ({
   getCompetitorAppDocs: jest.fn(() => []),
-  getOwnedAppDocs: jest.fn(() => []),
   upsertCompetitorAppDocs: jest.fn(),
-  upsertOwnedAppDocs: jest.fn(),
 }));
 
 jest.mock("../db/aso-keyword-failures", () => ({
@@ -108,6 +110,10 @@ jest.mock("../services/keywords/aso-local-cache-service", () => ({
     appCount: 0,
     orderedAppIds: [],
   })),
+}));
+
+jest.mock("./owned-app-details", () => ({
+  fetchOwnedAppSnapshotsFromApi: jest.fn(async () => []),
 }));
 
 jest.mock("../utils/logger", () => ({
@@ -180,9 +186,10 @@ async function request(params: {
 }
 
 describe("dashboard server routes", () => {
-  const mockGetAppById = jest.mocked(getAppById);
-  const mockListApps = jest.mocked(listApps);
-  const mockUpsertApps = jest.mocked(upsertApps);
+  const mockGetOwnedAppById = jest.mocked(getOwnedAppById);
+  const mockListOwnedApps = jest.mocked(listOwnedApps);
+  const mockUpsertOwnedApps = jest.mocked(upsertOwnedApps);
+  const mockUpsertOwnedAppSnapshots = jest.mocked(upsertOwnedAppSnapshots);
   const mockGetAppLastKeywordAddedAtMap = jest.mocked(getAppLastKeywordAddedAtMap);
   const mockListKeywords = jest.mocked(listKeywords);
   const mockListAllAppKeywords = jest.mocked(listAllAppKeywords);
@@ -191,8 +198,7 @@ describe("dashboard server routes", () => {
   const mockGetKeyword = jest.mocked(getKeyword);
   const mockGetCompetitorAppDocs = jest.mocked(getCompetitorAppDocs);
   const mockUpsertCompetitorAppDocs = jest.mocked(upsertCompetitorAppDocs);
-  const mockGetOwnedAppDocs = jest.mocked(getOwnedAppDocs);
-  const mockUpsertOwnedAppDocs = jest.mocked(upsertOwnedAppDocs);
+  const mockFetchOwnedAppSnapshotsFromApi = jest.mocked(fetchOwnedAppSnapshotsFromApi);
   const mockGetAsoAppDocsLocal = jest.mocked(getAsoAppDocsLocal);
   const mockRefreshAsoKeywordOrderLocal = jest.mocked(refreshAsoKeywordOrderLocal);
   const mockReAuthenticate = jest.mocked(asoAuthService.reAuthenticate);
@@ -204,8 +210,8 @@ describe("dashboard server routes", () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    mockGetAppById.mockReturnValue(null);
-    mockListApps.mockReturnValue([]);
+    mockGetOwnedAppById.mockReturnValue(null);
+    mockListOwnedApps.mockReturnValue([]);
     mockGetAppLastKeywordAddedAtMap.mockReturnValue(new Map());
     mockListKeywords.mockReturnValue([]);
     mockListAllAppKeywords.mockReturnValue([]);
@@ -213,7 +219,8 @@ describe("dashboard server routes", () => {
     mockDeleteAppKeywords.mockReturnValue(0);
     mockGetKeyword.mockReturnValue(null);
     mockGetCompetitorAppDocs.mockReturnValue([]);
-    mockGetOwnedAppDocs.mockReturnValue([]);
+    mockFetchOwnedAppSnapshotsFromApi.mockResolvedValue([]);
+    mockUpsertOwnedAppSnapshots.mockImplementation(() => {});
     mockGetAsoAppDocsLocal.mockResolvedValue([]);
     mockRefreshAsoKeywordOrderLocal.mockResolvedValue({
       keyword: "",
@@ -269,9 +276,9 @@ describe("dashboard server routes", () => {
   });
 
   it("returns apps sorted and ensures default research app", async () => {
-    mockListApps.mockReturnValue([
-      { id: "2", name: "Beta" } as any,
-      { id: "1", name: "Alpha" } as any,
+    mockListOwnedApps.mockReturnValue([
+      { id: "2", kind: "owned", name: "Beta", lastFetchedAt: null } as any,
+      { id: "1", kind: "owned", name: "Alpha", lastFetchedAt: null } as any,
     ]);
     mockGetAppLastKeywordAddedAtMap.mockReturnValue(
       new Map([
@@ -283,8 +290,8 @@ describe("dashboard server routes", () => {
     const response = await request({ method: "GET", path: "/api/apps" });
 
     expect(response.statusCode).toBe(200);
-    expect(mockUpsertApps).toHaveBeenCalledWith([
-      { id: DEFAULT_RESEARCH_APP_ID, name: "Research" },
+    expect(mockUpsertOwnedApps).toHaveBeenCalledWith([
+      { id: DEFAULT_RESEARCH_APP_ID, kind: "research", name: "Research" },
     ]);
     expect(response.json?.data.map((item: any) => item.id)).toEqual(["2", "1"]);
   });
@@ -336,7 +343,7 @@ describe("dashboard server routes", () => {
   });
 
   it("creates research app with slug collision suffix", async () => {
-    mockGetAppById.mockImplementation((id: string) => {
+    mockGetOwnedAppById.mockImplementation((id: string) => {
       if (id === DEFAULT_RESEARCH_APP_ID) return { id, name: "Research" } as any;
       if (id === "research:my-ideas") return { id, name: "My Ideas" } as any;
       return null;
@@ -356,19 +363,19 @@ describe("dashboard server routes", () => {
         name: "My Ideas",
       },
     });
-    expect(mockUpsertApps).toHaveBeenCalledWith([
-      { id: "research:my-ideas-2", name: "My Ideas" },
+    expect(mockUpsertOwnedApps).toHaveBeenCalledWith([
+      { id: "research:my-ideas-2", kind: "research", name: "My Ideas" },
     ]);
   });
 
   it("creates manual app and hydrates name from app docs", async () => {
-    mockGetAsoAppDocsLocal.mockResolvedValue([
+    mockFetchOwnedAppSnapshotsFromApi.mockResolvedValue([
       {
-        appId: "123",
-        country: "US",
+        id: "123",
         name: "Hydrated Name",
         averageUserRating: 4.4,
         userRatingCount: 100,
+        expiresAt: "2099-01-01T00:00:00.000Z",
       },
     ] as any);
 
@@ -386,7 +393,18 @@ describe("dashboard server routes", () => {
         name: "Hydrated Name",
       },
     });
-    expect(mockUpsertOwnedAppDocs).toHaveBeenCalled();
+    expect(mockUpsertOwnedApps).toHaveBeenCalledWith([
+      { id: "123", kind: "owned", name: "123" },
+    ]);
+    expect(mockUpsertOwnedAppSnapshots).toHaveBeenCalledWith([
+      {
+        id: "123",
+        name: "Hydrated Name",
+        averageUserRating: 4.4,
+        userRatingCount: 100,
+        expiresAt: "2099-01-01T00:00:00.000Z",
+      },
+    ]);
   });
 
   it("returns auth status and tty-required auth-start error", async () => {
@@ -706,21 +724,21 @@ describe("dashboard server routes", () => {
       normalizedKeyword: "focus",
       appCount: 2,
       orderedAppIds: ["a1", "a2"],
-    });
-    mockGetAsoAppDocsLocal.mockResolvedValueOnce([
-      {
-        appId: "a1",
-        country: "US",
-        name: "Focus One",
-        icon: { template: "https://example.com/a1/{w}x{h}.{f}" },
-      },
-      {
-        appId: "a2",
-        country: "US",
-        name: "Focus Two",
-        iconArtwork: { url: "https://example.com/a2.png" },
-      },
-    ] as any);
+      appDocs: [
+        {
+          appId: "a1",
+          country: "US",
+          name: "Focus One",
+          icon: { template: "https://example.com/a1/{w}x{h}.{f}" },
+        },
+        {
+          appId: "a2",
+          country: "US",
+          name: "Focus Two",
+          iconArtwork: { url: "https://example.com/a2.png" },
+        },
+      ],
+    } as any);
 
     const searchByTerm = await request({
       method: "GET",
@@ -744,20 +762,15 @@ describe("dashboard server routes", () => {
       ],
     });
     expect(mockRefreshAsoKeywordOrderLocal).toHaveBeenCalledWith("US", "focus");
+    expect(mockGetAsoAppDocsLocal).not.toHaveBeenCalled();
 
     mockRefreshAsoKeywordOrderLocal.mockResolvedValueOnce({
       keyword: "123",
       normalizedKeyword: "123",
       appCount: 0,
       orderedAppIds: [],
-    });
-    mockGetAsoAppDocsLocal.mockResolvedValueOnce([
-      {
-        appId: "123",
-        country: "US",
-        name: "Lookup Result",
-      },
-    ] as any);
+      appDocs: [],
+    } as any);
 
     const searchById = await request({
       method: "GET",
@@ -769,13 +782,36 @@ describe("dashboard server routes", () => {
       appDocs: [
         {
           appId: "123",
-          name: "Lookup Result",
+          name: "123",
         },
       ],
     });
   });
 
-  it("serves owned apps endpoint and delete keyword endpoint", async () => {
+  it("returns no app candidates when only fallback ordered ids are available", async () => {
+    mockRefreshAsoKeywordOrderLocal.mockResolvedValue({
+      keyword: "focus",
+      normalizedKeyword: "focus",
+      appCount: 2,
+      orderedAppIds: ["a1", "a2"],
+      appDocs: [],
+    } as any);
+
+    const response = await request({
+      method: "GET",
+      path: "/api/aso/apps/search?country=US&term=focus&limit=10",
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json?.data).toEqual({
+      term: "focus",
+      appDocs: [],
+      warning: "Search failed",
+    });
+    expect(mockGetAsoAppDocsLocal).not.toHaveBeenCalled();
+  });
+
+  it("serves competitor apps endpoint and delete keyword endpoint", async () => {
     const emptyApps = await request({
       method: "GET",
       path: "/api/aso/apps?country=US",
@@ -783,7 +819,7 @@ describe("dashboard server routes", () => {
     expect(emptyApps.statusCode).toBe(200);
     expect(emptyApps.json?.data).toEqual([]);
 
-    mockGetOwnedAppDocs
+    mockGetCompetitorAppDocs
       .mockReturnValueOnce([
         {
           appId: "a1",
@@ -816,7 +852,7 @@ describe("dashboard server routes", () => {
     expect(mockGetAsoAppDocsLocal).toHaveBeenCalledWith("US", ["a1"], {
       forceLookup: true,
     });
-    expect(mockUpsertOwnedAppDocs).toHaveBeenCalled();
+    expect(mockUpsertCompetitorAppDocs).toHaveBeenCalled();
 
     const deleteInvalid = await request({
       method: "DELETE",
@@ -838,8 +874,8 @@ describe("dashboard server routes", () => {
     });
   });
 
-  it("falls back to cached owned app docs when hydration fails", async () => {
-    mockGetOwnedAppDocs.mockReturnValue([
+  it("falls back to cached competitor app docs when hydration fails", async () => {
+    mockGetCompetitorAppDocs.mockReturnValue([
       {
         appId: "a1",
         name: "Cached App",
@@ -860,98 +896,87 @@ describe("dashboard server routes", () => {
     });
   });
 
-  it("rehydrates owned app docs when last fetch is older than 24 hours", async () => {
-    const now = Date.parse("2026-03-16T12:00:00.000Z");
-    const nowSpy = jest.spyOn(Date, "now").mockReturnValue(now);
-    try {
-      mockGetOwnedAppDocs
-        .mockReturnValueOnce([
-          {
-            appId: "a1",
-            name: "Cached App",
-            expiresAt: "2099-01-01T00:00:00.000Z",
-            releaseDate: "2025-01-01",
-            currentVersionReleaseDate: "2026-01-01",
-            lastFetchedAt: "2026-03-15T11:59:59.000Z",
-          },
-        ] as any)
-        .mockReturnValue([
-          {
-            appId: "a1",
-            name: "Hydrated App",
-            averageUserRating: 4.7,
-            userRatingCount: 900,
-            expiresAt: "2099-01-01T00:00:00.000Z",
-            releaseDate: "2025-01-01",
-            currentVersionReleaseDate: "2026-01-01",
-            lastFetchedAt: "2026-03-16T12:00:00.000Z",
-          },
-        ] as any);
-      mockGetAsoAppDocsLocal.mockResolvedValueOnce([
+  it("rehydrates competitor app docs when release dates are missing", async () => {
+    mockGetCompetitorAppDocs
+      .mockReturnValueOnce([
         {
           appId: "a1",
-          country: "US",
+          name: "Cached App",
+          averageUserRating: 4.4,
+          userRatingCount: 320,
+          expiresAt: "2099-01-01T00:00:00.000Z",
+          releaseDate: null,
+          currentVersionReleaseDate: null,
+        },
+      ] as any)
+      .mockReturnValue([
+        {
+          appId: "a1",
           name: "Hydrated App",
           averageUserRating: 4.7,
           userRatingCount: 900,
+          expiresAt: "2099-12-31T00:00:00.000Z",
           releaseDate: "2025-01-01",
           currentVersionReleaseDate: "2026-01-01",
         },
       ] as any);
+    mockGetAsoAppDocsLocal.mockResolvedValueOnce([
+      {
+        appId: "a1",
+        country: "US",
+        name: "Hydrated App",
+        averageUserRating: 4.7,
+        userRatingCount: 900,
+        releaseDate: "2025-01-01",
+        currentVersionReleaseDate: "2026-01-01",
+      },
+    ] as any);
 
-      const response = await request({
-        method: "GET",
-        path: "/api/aso/apps?country=US&ids=a1",
-      });
+    const response = await request({
+      method: "GET",
+      path: "/api/aso/apps?country=US&ids=a1",
+    });
 
-      expect(response.statusCode).toBe(200);
-      expect(mockGetAsoAppDocsLocal).toHaveBeenCalledWith("US", ["a1"], {
-        forceLookup: true,
-      });
-      expect(mockUpsertOwnedAppDocs).toHaveBeenCalled();
-      expect(response.json?.data).toEqual([
-        expect.objectContaining({
-          appId: "a1",
-          name: "Hydrated App",
-        }),
-      ]);
-    } finally {
-      nowSpy.mockRestore();
-    }
+    expect(response.statusCode).toBe(200);
+    expect(mockGetAsoAppDocsLocal).toHaveBeenCalledWith("US", ["a1"], {
+      forceLookup: true,
+    });
+    expect(mockUpsertCompetitorAppDocs).toHaveBeenCalled();
+    expect(response.json?.data).toEqual([
+      expect.objectContaining({
+        appId: "a1",
+        name: "Hydrated App",
+      }),
+    ]);
   });
 
-  it("keeps owned app docs cached when last fetch is within 24 hours", async () => {
-    const now = Date.parse("2026-03-16T12:00:00.000Z");
-    const nowSpy = jest.spyOn(Date, "now").mockReturnValue(now);
-    try {
-      mockGetOwnedAppDocs.mockReturnValue([
-        {
-          appId: "a1",
-          name: "Cached App",
-          expiresAt: "2099-01-01T00:00:00.000Z",
-          releaseDate: "2025-01-01",
-          currentVersionReleaseDate: "2026-01-01",
-          lastFetchedAt: "2026-03-16T10:00:00.000Z",
-        },
-      ] as any);
+  it("keeps competitor app docs cached when docs are fresh and complete", async () => {
+    mockGetCompetitorAppDocs.mockReturnValue([
+      {
+        appId: "a1",
+        name: "Cached App",
+        averageUserRating: 4.2,
+        userRatingCount: 200,
+        expiresAt: "2099-01-01T00:00:00.000Z",
+        releaseDate: "2025-01-01",
+        currentVersionReleaseDate: "2026-01-01",
+      },
+    ] as any);
 
-      const response = await request({
-        method: "GET",
-        path: "/api/aso/apps?country=US&ids=a1",
-      });
+    const response = await request({
+      method: "GET",
+      path: "/api/aso/apps?country=US&ids=a1",
+    });
 
-      expect(response.statusCode).toBe(200);
-      expect(mockGetAsoAppDocsLocal).not.toHaveBeenCalled();
-      expect(mockUpsertOwnedAppDocs).not.toHaveBeenCalled();
-      expect(response.json?.data).toEqual([
-        expect.objectContaining({
-          appId: "a1",
-          name: "Cached App",
-        }),
-      ]);
-    } finally {
-      nowSpy.mockRestore();
-    }
+    expect(response.statusCode).toBe(200);
+    expect(mockGetAsoAppDocsLocal).not.toHaveBeenCalled();
+    expect(mockUpsertCompetitorAppDocs).not.toHaveBeenCalled();
+    expect(response.json?.data).toEqual([
+      expect.objectContaining({
+        appId: "a1",
+        name: "Cached App",
+      }),
+    ]);
   });
 
   it("maps add-keywords errors to public API error codes", async () => {

@@ -1,9 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Badge, Button, Card, Input } from "./ui-react";
-import {
-  DEFAULT_RESEARCH_APP_ID,
-  isResearchAppId,
-} from "../shared/aso-research";
+import { DEFAULT_RESEARCH_APP_ID } from "../shared/aso-research";
 import {
   APP_STORE_ICON_IMAGE_URL,
   DEFAULT_ASO_COUNTRY,
@@ -38,7 +35,22 @@ import { AuthDialog } from "./components/auth-dialog";
 import { KeywordActionMenu } from "./components/keyword-action-menu";
 import { AddAppDialog } from "./components/add-app-dialog";
 
-type AppItem = { id: string; name: string; lastKeywordAddedAt?: string | null };
+type AppKind = "owned" | "research";
+
+type AppItem = {
+  id: string;
+  kind: AppKind;
+  name: string;
+  averageUserRating?: number | null;
+  userRatingCount?: number | null;
+  previousAverageUserRating?: number | null;
+  previousUserRatingCount?: number | null;
+  icon?: Record<string, unknown>;
+  expiresAt?: string | null;
+  lastFetchedAt?: string | null;
+  previousFetchedAt?: string | null;
+  lastKeywordAddedAt?: string | null;
+};
 type AppDoc = {
   appId: string;
   name: string;
@@ -198,7 +210,6 @@ function isSidebarSelectionControlTarget(target: EventTarget | null): boolean {
 
 export function App() {
   const [apps, setApps] = useState<AppItem[]>([]);
-  const [appDocsById, setAppDocsById] = useState<Record<string, AppDoc>>({});
   const [selectedAppId, setSelectedAppId] = useState(() => {
     if (typeof window === "undefined") return DEFAULT_RESEARCH_APP_ID;
     try {
@@ -243,10 +254,15 @@ export function App() {
   const autoRetryInFlightRef = useRef(false);
   const startupAppSyncAtRef = useRef<string | null>(null);
 
+  const appById = useMemo(
+    () => new Map(apps.map((app) => [app.id, app])),
+    [apps]
+  );
+  const selectedApp = appById.get(selectedAppId);
   const selectedAppName =
-    apps.find((app) => app.id === selectedAppId)?.name ??
-    (isResearchAppId(selectedAppId) ? "Research" : selectedAppId);
-  const isSelectedAppResearch = isResearchAppId(selectedAppId);
+    selectedApp?.name ??
+    (selectedAppId === DEFAULT_RESEARCH_APP_ID ? "Research" : selectedAppId);
+  const isSelectedAppResearch = selectedApp?.kind === "research";
   const showRankingColumns = !isSelectedAppResearch;
   const {
     keywordFilter,
@@ -298,6 +314,7 @@ export function App() {
     addAppSearchTerm,
     addAppSearchInputRef,
     addAppSearchError,
+    addAppSearchWarning,
     isAddAppSearching,
     selectedAddCandidates,
     selectedAddCandidateList,
@@ -309,8 +326,8 @@ export function App() {
     toggleAddCandidateSelection,
     removeSelectedCandidates,
   } = useAddAppSearch();
-  const researchApps = apps.filter((app) => isResearchAppId(app.id));
-  const ownedApps = apps.filter((app) => !isResearchAppId(app.id));
+  const researchApps = apps.filter((app) => app.kind === "research");
+  const ownedApps = apps.filter((app) => app.kind === "owned");
   const existingOwnedAppIds = useMemo(
     () => new Set(ownedApps.map((app) => app.id)),
     [ownedApps]
@@ -320,44 +337,11 @@ export function App() {
       ? "No keywords yet for this app."
       : "No keywords match the current search/filters.";
 
-  const refreshAppDocs = useCallback(async (
-    list: AppItem[],
-    options?: { forceRefresh?: boolean }
-  ): Promise<void> => {
-    const owned = list.filter((app) => !isResearchAppId(app.id));
-    if (owned.length === 0) {
-      setAppDocsById({});
-      return;
-    }
-    const ids = owned.map((a) => a.id).join(",");
-    const refreshParam = options?.forceRefresh ? "&refresh=true" : "";
-    const docs = await apiGet<AppDoc[]>(
-      `/api/aso/apps?country=${DEFAULT_ASO_COUNTRY}&ids=${encodeURIComponent(ids)}${refreshParam}`
-    );
-    setAppDocsById(Object.fromEntries(docs.map((d) => [d.appId, d])));
-  }, []);
-
-  const loadApps = useCallback(async (options?: {
-    forceRefreshDocs?: boolean;
-    refreshDocsInBackground?: boolean;
-  }): Promise<AppItem[]> => {
+  const loadApps = useCallback(async (): Promise<AppItem[]> => {
     const list = await apiGet<AppItem[]>(`/api/apps`);
     setApps(list);
-    setAppDocsById((prev) => {
-      if (!prev || Object.keys(prev).length === 0) return prev;
-      const keepIds = new Set(list.filter((app) => !isResearchAppId(app.id)).map((app) => app.id));
-      const nextEntries = Object.entries(prev).filter(([appId]) => keepIds.has(appId));
-      return Object.fromEntries(nextEntries);
-    });
-
-    const refreshDocsInBackground = options?.refreshDocsInBackground ?? false;
-    if (refreshDocsInBackground) {
-      void refreshAppDocs(list, { forceRefresh: options?.forceRefreshDocs }).catch(() => {});
-    } else {
-      await refreshAppDocs(list, { forceRefresh: options?.forceRefreshDocs });
-    }
     return list;
-  }, [refreshAppDocs]);
+  }, []);
 
   const loadKeywords = useCallback(async (appId: string) => {
     const requestId = ++keywordLoadRequestIdRef.current;
@@ -388,14 +372,14 @@ export function App() {
     void (async () => {
       try {
         setLoadingText("Loading dashboard...");
-        const list = await loadApps({ refreshDocsInBackground: true });
+        const list = await loadApps();
         setHasCachedData(true);
         let activeAppId = selectedAppIdRef.current;
         if (
           activeAppId === DEFAULT_RESEARCH_APP_ID &&
           !list.some((a) => a.id === activeAppId)
         ) {
-          const firstResearch = list.find((a) => isResearchAppId(a.id));
+          const firstResearch = list.find((a) => a.kind === "research");
           if (firstResearch) {
             activeAppId = firstResearch.id;
             setSelectedAppId(firstResearch.id);
@@ -1274,25 +1258,30 @@ export function App() {
             <p className="apps-section-title">Apps</p>
             {ownedApps.map((app) => {
               const isSelected = selectedAppId === app.id;
-              const appDoc = appDocsById[app.id];
-              const iconUrl = getIconUrl(appDoc);
+              const iconUrl = getIconUrl({
+                appId: app.id,
+                name: app.name,
+                icon: app.icon,
+              });
               const initials = app.name.slice(0, 2).toUpperCase();
-              const hasRatingSnapshot = appDoc != null;
+              const hasRatingSnapshot =
+                typeof app.averageUserRating === "number" ||
+                typeof app.userRatingCount === "number";
               const ratingValue =
-                typeof appDoc?.averageUserRating === "number"
-                  ? formatRatingValue(appDoc.averageUserRating, displayLocale)
+                typeof app.averageUserRating === "number"
+                  ? formatRatingValue(app.averageUserRating, displayLocale)
                   : "-";
               const ratingsCount =
-                typeof appDoc?.userRatingCount === "number"
-                  ? formatCount(appDoc.userRatingCount, displayLocale)
+                typeof app.userRatingCount === "number"
+                  ? formatCount(app.userRatingCount, displayLocale)
                   : "-";
               const ratingDelta = getNumberDelta(
-                appDoc?.averageUserRating,
-                appDoc?.previousAverageUserRating
+                app.averageUserRating,
+                app.previousAverageUserRating
               );
               const ratingsCountDelta = getNumberDelta(
-                appDoc?.userRatingCount,
-                appDoc?.previousUserRatingCount
+                app.userRatingCount,
+                app.previousUserRatingCount
               );
               const roundedRatingDelta =
                 ratingDelta == null ? null : roundTo(ratingDelta, 1);
@@ -1843,6 +1832,7 @@ export function App() {
         selectedCount={selectedAddCandidateList.length}
         isSearching={isAddAppSearching}
         searchError={addAppSearchError}
+        searchWarning={addAppSearchWarning}
         trimmedSearchTerm={trimmedAddAppSearchTerm}
         isBusy={isAnyAppMutationInFlight}
         isColdStart={isColdStart}

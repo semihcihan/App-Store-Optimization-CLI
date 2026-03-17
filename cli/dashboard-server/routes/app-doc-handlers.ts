@@ -3,9 +3,7 @@ import { logger } from "../../utils/logger";
 import { getKeyword } from "../../db/aso-keywords";
 import {
   getCompetitorAppDocs,
-  getOwnedAppDocs,
   upsertCompetitorAppDocs,
-  upsertOwnedAppDocs,
 } from "../../db/aso-apps";
 import {
   getAsoAppDocsLocal,
@@ -16,41 +14,12 @@ import {
   DEFAULT_ASO_COUNTRY,
   normalizeCountry,
 } from "../../domain/keywords/policy";
-import { readAsoEnv } from "../../shared/aso-env";
 import type { AsoApiAppDoc, AsoRouteDeps } from "./aso-route-types";
 
 const ASO_APP_DOCS_MAX_BATCH_SIZE = 50;
 const ASO_APP_SEARCH_DEFAULT_LIMIT = 20;
 const ASO_APP_SEARCH_MAX_LIMIT = 50;
-function getStaleOwnedAppIds(
-  orderedIds: string[],
-  docs: Array<{
-    appId: string;
-    expiresAt?: string;
-    releaseDate?: string | null;
-    currentVersionReleaseDate?: string | null;
-    lastFetchedAt?: string | null;
-  }>,
-  nowMs: number = Date.now()
-): string[] {
-  const refreshMaxAgeMs = readAsoEnv().ownedAppDocRefreshMaxAgeMs;
-  const missingOrExpired = new Set(getMissingOrExpiredAppIds(orderedIds, docs, nowMs));
-  const byId = new Map(docs.map((doc) => [doc.appId, doc]));
-  const staleIds: string[] = [];
-
-  for (const appId of orderedIds) {
-    if (missingOrExpired.has(appId)) {
-      staleIds.push(appId);
-      continue;
-    }
-    const doc = byId.get(appId);
-    const fetchedAtMs = Date.parse(doc?.lastFetchedAt ?? "");
-    if (!Number.isFinite(fetchedAtMs) || nowMs - fetchedAtMs >= refreshMaxAgeMs) {
-      staleIds.push(appId);
-    }
-  }
-  return staleIds;
-}
+const ASO_APP_SEARCH_FALLBACK_WARNING = "Search failed";
 
 function mergeHydratedCompetitorDoc(
   existing: AsoApiAppDoc | undefined,
@@ -154,14 +123,34 @@ export function createAppDocHandlers(deps: AsoRouteDeps) {
       return;
     }
 
-    const candidateIds: string[] = [];
-    if (/^\d+$/.test(term)) {
-      candidateIds.push(term);
-    }
-
+    const isNumericTerm = /^\d+$/.test(term);
+    let orderedAppIds: string[] = [];
+    let searchPageAppDocs: Array<{
+      appId: string;
+      name: string;
+      icon?: Record<string, unknown>;
+      iconArtwork?: { url?: string; [key: string]: unknown };
+    }> = [];
     try {
       const orderData = await refreshAsoKeywordOrderLocal(country, term);
-      candidateIds.push(...orderData.orderedAppIds);
+      orderedAppIds = orderData.orderedAppIds;
+      searchPageAppDocs = [];
+      for (const doc of orderData.appDocs ?? []) {
+        const appId = `${doc.appId ?? ""}`.trim();
+        if (!appId) continue;
+        searchPageAppDocs.push({
+          appId,
+          name: doc.name?.trim() || appId,
+          icon:
+            doc.icon && typeof doc.icon === "object"
+              ? (doc.icon as Record<string, unknown>)
+              : undefined,
+          iconArtwork:
+            doc.iconArtwork && typeof doc.iconArtwork === "object"
+              ? (doc.iconArtwork as { url?: string; [key: string]: unknown })
+              : undefined,
+        });
+      }
     } catch (error) {
       deps.reportDashboardError(error, {
         method: "GET",
@@ -172,46 +161,91 @@ export function createAppDocHandlers(deps: AsoRouteDeps) {
       });
     }
 
-    const ids = Array.from(new Set(candidateIds)).slice(0, limit);
-    if (ids.length === 0) {
-      deps.sendJson(res, 200, { success: true, data: { term, appDocs: [] } });
-      return;
-    }
+    const docsById = new Map(
+      searchPageAppDocs.map((doc) => [doc.appId, doc] as const)
+    );
+    const orderOnlyFallback =
+      orderedAppIds.length > 0 && searchPageAppDocs.length === 0;
 
-    try {
-      const docs = await fetchAsoAppDocsFromApi(country, ids);
-      const appDocs = docs.map((doc) => ({
-        appId: doc.appId,
-        name: doc.name,
-        icon: doc.icon,
-        iconArtwork: doc.iconArtwork,
-      }));
+    if (orderOnlyFallback) {
       logger.debug("[aso-dashboard] response", {
         method: "GET",
         path: "/api/aso/apps/search",
         status: 200,
         term,
-        idsCount: ids.length,
-        appDocCount: appDocs.length,
+        idsCount: orderedAppIds.length,
+        appDocCount: 0,
+        mode: "order-only-fallback",
       });
       deps.sendJson(res, 200, {
         success: true,
         data: {
           term,
-          appDocs,
+          appDocs: [],
+          warning: ASO_APP_SEARCH_FALLBACK_WARNING,
         },
       });
-    } catch (error) {
-      deps.reportDashboardError(error, {
-        method: "GET",
-        path: "/api/aso/apps/search",
-        country,
-        term,
-        idsCount: ids.length,
-        context: "apps-search-hydration",
-      });
-      deps.sendApiError(res, 500, "NETWORK_ERROR", "Failed to search apps.");
+      return;
     }
+
+    const appDocs: Array<{
+      appId: string;
+      name: string;
+      icon?: Record<string, unknown>;
+      iconArtwork?: { url?: string; [key: string]: unknown };
+    }> = [];
+    const seen = new Set<string>();
+    const appendDoc = (doc: {
+      appId: string;
+      name: string;
+      icon?: Record<string, unknown>;
+      iconArtwork?: { url?: string; [key: string]: unknown };
+    }) => {
+      if (appDocs.length >= limit) return;
+      if (!doc.appId || seen.has(doc.appId)) return;
+      seen.add(doc.appId);
+      appDocs.push(doc);
+    };
+
+    if (isNumericTerm) {
+      const existing = docsById.get(term);
+      if (existing) {
+        appendDoc(existing);
+      } else {
+        appendDoc({
+          appId: term,
+          name: term,
+        });
+      }
+    }
+
+    for (const appId of orderedAppIds) {
+      const doc = docsById.get(appId);
+      if (!doc) continue;
+      appendDoc(doc);
+      if (appDocs.length >= limit) break;
+    }
+
+    if (appDocs.length === 0) {
+      deps.sendJson(res, 200, { success: true, data: { term, appDocs: [] } });
+      return;
+    }
+
+    logger.debug("[aso-dashboard] response", {
+      method: "GET",
+      path: "/api/aso/apps/search",
+      status: 200,
+      term,
+      idsCount: orderedAppIds.length,
+      appDocCount: appDocs.length,
+    });
+    deps.sendJson(res, 200, {
+      success: true,
+      data: {
+        term,
+        appDocs,
+      },
+    });
   }
 
   async function handleApiAsoTopAppsGet(
@@ -327,8 +361,8 @@ export function createAppDocHandlers(deps: AsoRouteDeps) {
       return Promise.resolve();
     }
 
-    const docs = getOwnedAppDocs(country, ids);
-    const staleIds = forceRefresh ? ids : getStaleOwnedAppIds(ids, docs);
+    const docs = getCompetitorAppDocs(country, ids);
+    const staleIds = forceRefresh ? ids : getMissingOrExpiredAppIds(ids, docs);
 
     if (staleIds.length === 0) {
       logger.debug("[aso-dashboard] response", {
@@ -345,9 +379,31 @@ export function createAppDocHandlers(deps: AsoRouteDeps) {
     return fetchAsoAppDocsFromApi(country, staleIds, { forceLookup: true })
       .then((lookupDocs) => {
         if (lookupDocs.length > 0) {
-          upsertOwnedAppDocs(country, lookupDocs);
+          const cachedById = new Map(docs.map((doc) => [doc.appId, doc]));
+          upsertCompetitorAppDocs(
+            country,
+            lookupDocs.map((doc) => {
+              const merged = mergeHydratedCompetitorDoc(cachedById.get(doc.appId), {
+                ...doc,
+                averageUserRating: doc.averageUserRating ?? 0,
+                userRatingCount: doc.userRatingCount ?? 0,
+              });
+              return {
+                appId: merged.appId,
+                name: merged.name,
+                subtitle: merged.subtitle,
+                averageUserRating: merged.averageUserRating,
+                userRatingCount: merged.userRatingCount,
+                releaseDate: merged.releaseDate ?? null,
+                currentVersionReleaseDate: merged.currentVersionReleaseDate ?? null,
+                icon: merged.icon,
+                iconArtwork: merged.iconArtwork,
+                expiresAt: merged.expiresAt,
+              };
+            })
+          );
         }
-        const merged = getOwnedAppDocs(country, ids);
+        const merged = getCompetitorAppDocs(country, ids);
         logger.debug("[aso-dashboard] response", {
           method: "GET",
           path: "/api/aso/apps",

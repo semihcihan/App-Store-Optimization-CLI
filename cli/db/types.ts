@@ -3,6 +3,22 @@ export interface StoredApp {
   name: string;
 }
 
+export type OwnedAppKind = "owned" | "research";
+
+export interface StoredOwnedApp {
+  id: string;
+  kind: OwnedAppKind;
+  name: string;
+  averageUserRating: number | null;
+  userRatingCount: number | null;
+  previousAverageUserRating: number | null;
+  previousUserRatingCount: number | null;
+  icon?: Record<string, unknown>;
+  expiresAt: string | null;
+  lastFetchedAt: string | null;
+  previousFetchedAt: string | null;
+}
+
 export interface StoredAsoKeyword {
   keyword: string;
   normalizedKeyword: string;
@@ -40,15 +56,11 @@ export interface StoredAsoApp {
   subtitle?: string;
   averageUserRating: number;
   userRatingCount: number;
-  previousAverageUserRating?: number | null;
-  previousUserRatingCount?: number | null;
   releaseDate?: string | null;
   currentVersionReleaseDate?: string | null;
   icon?: Record<string, unknown>;
   iconArtwork?: { url?: string; [key: string]: unknown };
   expiresAt?: string;
-  lastFetchedAt?: string | null;
-  previousFetchedAt?: string | null;
   country: string;
 }
 
@@ -61,9 +73,8 @@ export interface StoredAppKeyword {
 }
 
 export interface AsoDbSchema {
-  apps: StoredApp[];
+  ownedApps: StoredOwnedApp[];
   asoKeywords: Record<string, StoredAsoKeyword>;
-  ownedAsoApps: Record<string, StoredAsoApp>;
-  competitorAsoApps: Record<string, StoredAsoApp>;
+  asoApps: Record<string, StoredAsoApp>;
   appKeywords: StoredAppKeyword[];
 }

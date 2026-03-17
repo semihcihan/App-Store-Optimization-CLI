@@ -5,7 +5,13 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import { App } from "./App";
 import { DEFAULT_RESEARCH_APP_ID } from "../shared/aso-research";
 
-type AppRow = { id: string; name: string };
+type AppKind = "owned" | "research";
+type AppRow = {
+  id: string;
+  name: string;
+  kind?: AppKind;
+  [key: string]: unknown;
+};
 
 function jsonResponse(status: number, body: unknown): Response {
   return {
@@ -31,6 +37,20 @@ function setupMatchMediaMock(): void {
   });
 }
 
+function withAppKinds(apps: AppRow[]): Array<AppRow & { kind: AppKind }> {
+  return apps.map((app) => {
+    const kind =
+      app.kind ??
+      (app.id === DEFAULT_RESEARCH_APP_ID || app.id.startsWith("research:")
+        ? "research"
+        : "owned");
+    return {
+      ...app,
+      kind,
+    };
+  });
+}
+
 function buildFetchMock(params: {
   apps: AppRow[];
   keywordsByAppId: Record<string, unknown[]>;
@@ -44,7 +64,7 @@ function buildFetchMock(params: {
     const body = init?.body ? JSON.parse(String(init.body)) : undefined;
 
     if (method === "GET" && url === "/api/apps") {
-      return jsonResponse(200, { success: true, data: params.apps });
+      return jsonResponse(200, { success: true, data: withAppKinds(params.apps) });
     }
 
     if (method === "GET" && url.startsWith("/api/aso/apps?")) {
@@ -504,7 +524,17 @@ describe("dashboard app behaviors", () => {
     const fetchMock = buildFetchMock({
       apps: [
         { id: DEFAULT_RESEARCH_APP_ID, name: "Research" },
-        { id: "111", name: "Owned App" },
+        {
+          id: "111",
+          name: "Owned App",
+          averageUserRating: 4.5,
+          previousAverageUserRating: 4.2,
+          userRatingCount: 1200,
+          previousUserRatingCount: 1000,
+          icon: {
+            template: "https://example.com/icon/{w}x{h}.{f}",
+          },
+        },
       ],
       appDocsById: {
         "111": {

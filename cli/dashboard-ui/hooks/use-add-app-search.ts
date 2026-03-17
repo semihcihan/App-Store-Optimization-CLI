@@ -18,6 +18,7 @@ type AppSearchDoc = {
 type AppSearchResponsePayload = {
   term: string;
   appDocs: AppSearchDoc[];
+  warning?: string;
 };
 
 export type AddCandidate = {
@@ -35,6 +36,7 @@ export function useAddAppSearch() {
   const [addAppSearchTerm, setAddAppSearchTerm] = useState("");
   const [addAppSearchResults, setAddAppSearchResults] = useState<AppSearchDoc[]>([]);
   const [addAppSearchError, setAddAppSearchError] = useState("");
+  const [addAppSearchWarning, setAddAppSearchWarning] = useState("");
   const [isAddAppSearching, setIsAddAppSearching] = useState(false);
   const [selectedAddCandidates, setSelectedAddCandidates] = useState<
     Record<string, AddCandidate>
@@ -81,6 +83,7 @@ export function useAddAppSearch() {
     setAddAppSearchTerm("");
     setAddAppSearchResults([]);
     setAddAppSearchError("");
+    setAddAppSearchWarning("");
     setIsAddAppSearching(false);
     setSelectedAddCandidates({});
   }, []);
@@ -135,12 +138,14 @@ export function useAddAppSearch() {
     if (!term) {
       setAddAppSearchResults([]);
       setAddAppSearchError("");
+      setAddAppSearchWarning("");
       setIsAddAppSearching(false);
       return;
     }
 
     setIsAddAppSearching(true);
     setAddAppSearchError("");
+    setAddAppSearchWarning("");
     setAddAppSearchResults([]);
 
     const debounceTimer = window.setTimeout(() => {
@@ -150,10 +155,12 @@ export function useAddAppSearch() {
         .then((payload) => {
           if (requestId !== addAppSearchRequestIdRef.current) return;
           setAddAppSearchResults(payload.appDocs);
+          setAddAppSearchWarning(payload.warning ?? "");
         })
         .catch((error) => {
           if (requestId !== addAppSearchRequestIdRef.current) return;
           setAddAppSearchResults([]);
+          setAddAppSearchWarning("");
           setAddAppSearchError(toActionableErrorMessage(error, "Failed to search apps"));
         })
         .finally(() => {
@@ -170,6 +177,7 @@ export function useAddAppSearch() {
     addAppSearchTerm,
     addAppSearchInputRef,
     addAppSearchError,
+    addAppSearchWarning,
     isAddAppSearching,
     selectedAddCandidates,
     selectedAddCandidateList,

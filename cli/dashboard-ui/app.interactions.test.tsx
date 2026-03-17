@@ -5,7 +5,8 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import { App } from "./App";
 import { DEFAULT_RESEARCH_APP_ID } from "../shared/aso-research";
 
-type AppRow = { id: string; name: string };
+type AppKind = "owned" | "research";
+type AppRow = { id: string; name: string; kind?: AppKind };
 
 function jsonResponse(status: number, body: unknown): Response {
   return {
@@ -31,6 +32,20 @@ function setupMatchMediaMock(): void {
   });
 }
 
+function withAppKinds(apps: AppRow[]): Array<AppRow & { kind: AppKind }> {
+  return apps.map((app) => {
+    const kind =
+      app.kind ??
+      (app.id === DEFAULT_RESEARCH_APP_ID || app.id.startsWith("research:")
+        ? "research"
+        : "owned");
+    return {
+      ...app,
+      kind,
+    };
+  });
+}
+
 function buildFetchMock(params: {
   initialApps: AppRow[];
   afterAddApps?: AppRow[];
@@ -52,10 +67,11 @@ function buildFetchMock(params: {
       appsCallCount += 1;
       return jsonResponse(200, {
         success: true,
-        data:
+        data: withAppKinds(
           appsCallCount > 1 && params.afterAddApps
             ? params.afterAddApps
-            : params.initialApps,
+            : params.initialApps
+        ),
       });
     }
 
@@ -204,7 +220,7 @@ describe("dashboard app interactions", () => {
 
     fireEvent.change(
       screen.getByPlaceholderText(
-        "Search apps, app IDs, or developer names. You can also add this text as research."
+        "Search apps, app IDs, or developer names."
       ),
       {
       target: { value: "123" },

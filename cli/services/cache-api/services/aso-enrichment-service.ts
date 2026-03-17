@@ -4,7 +4,7 @@ import {
   normalizeKeyword,
   normalizeTextForKeywordMatch,
 } from "./aso-keyword-utils";
-import { fetchAppStoreTitleAndSubtitle } from "./aso-app-store-details";
+import { fetchAppStoreLocalizedAppData } from "./aso-app-store-details";
 import { fetchAppStoreLookupAppDocs } from "./aso-app-doc-service";
 import type { AsoAppDoc, AsoAppDocIcon } from "./aso-types";
 import { asoAppleGet } from "./aso-apple-client";
@@ -308,10 +308,12 @@ export async function refreshKeywordOrder(params: {
   normalizedKeyword: string;
   appCount: number;
   orderedAppIds: string[];
+  appDocs: AsoAppDoc[];
 }> {
   const country = params.country.toUpperCase();
   const normalizedKeyword = normalizeKeyword(params.keyword);
   let orderedAppIds: string[] = [];
+  let appDocs: AsoAppDoc[] = [];
 
   try {
     const searchPageData = await fetchSearchPageOrderedData({
@@ -319,6 +321,7 @@ export async function refreshKeywordOrder(params: {
       country,
     });
     orderedAppIds = searchPageData.orderedAppIds;
+    appDocs = searchPageData.appDocs;
     logger.debug(
       `ASO order refresh: search page HTML succeeded for keyword="${params.keyword}" country=${params.country}`
     );
@@ -347,6 +350,7 @@ export async function refreshKeywordOrder(params: {
       keyword: normalizedKeyword,
       country,
     });
+    appDocs = [];
   }
 
   return {
@@ -354,6 +358,7 @@ export async function refreshKeywordOrder(params: {
     normalizedKeyword,
     appCount: orderedAppIds.length,
     orderedAppIds,
+    appDocs,
   };
 }
 
@@ -419,15 +424,23 @@ async function buildAppDocsFromLookup(params: {
       const lookupDoc = byId.get(id);
       if (!lookupDoc) return null;
       try {
-        const details = await fetchAppStoreTitleAndSubtitle(
+        const details = await fetchAppStoreLocalizedAppData(
           id,
           params.country,
           "en-us"
         );
+        const averageUserRating =
+          details?.ratingAverage ?? lookupDoc.averageUserRating;
+        const userRatingCount =
+          details?.totalNumberOfRatings == null
+            ? lookupDoc.userRatingCount
+            : parseRatingCount(details.totalNumberOfRatings);
         return {
           ...lookupDoc,
           name: details?.title || lookupDoc.name || "Unknown",
           subtitle: details?.subtitle ?? undefined,
+          averageUserRating,
+          userRatingCount,
         };
       } catch {
         return lookupDoc;
