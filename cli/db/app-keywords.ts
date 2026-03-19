@@ -142,3 +142,14 @@ export function getAppLastKeywordAddedAtMap(
   }
   return out;
 }
+
+export function deleteAppKeywordsByAppId(appId: string): number {
+  const db = getDb();
+  const result = db
+    .prepare(
+      `DELETE FROM app_keywords
+       WHERE app_id = ?`
+    )
+    .run(appId);
+  return result.changes;
+}

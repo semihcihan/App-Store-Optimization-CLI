@@ -54,6 +54,7 @@ function buildFetchMock(params: {
   topAppsByKeyword?: Record<string, unknown>;
   appSearchByTerm?: Record<string, { appDocs: unknown[] }>;
   onPostApps?: (payload: any) => void;
+  onDeleteApps?: (payload: any) => void;
   onDeleteKeywords?: (payload: any) => void;
   onRetryFailed?: (payload: any) => void;
 }) {
@@ -135,6 +136,17 @@ function buildFetchMock(params: {
         data: {
           id: body.type === "app" ? body.appId : "research:new-research",
           name: body.type === "app" ? "Owned App" : body.name,
+        },
+      });
+    }
+
+    if (method === "DELETE" && url === "/api/apps") {
+      params.onDeleteApps?.(body);
+      return jsonResponse(200, {
+        success: true,
+        data: {
+          id: body.appId,
+          removedKeywordCount: 0,
         },
       });
     }
@@ -392,5 +404,65 @@ describe("dashboard app interactions", () => {
       })
     );
     expect(confirmSpy).toHaveBeenCalled();
+    confirmSpy.mockRestore();
+  });
+
+  it("deletes an app from sidebar using right-click action", async () => {
+    let deleteAppBody: any = null;
+    const confirmSpy = jest.spyOn(window, "confirm").mockReturnValue(true);
+    const fetchMock = buildFetchMock({
+      initialApps: [
+        { id: DEFAULT_RESEARCH_APP_ID, name: "Research" },
+        { id: "111", name: "Owned App" },
+      ],
+      afterAddApps: [{ id: DEFAULT_RESEARCH_APP_ID, name: "Research" }],
+      keywordsByAppId: {
+        [DEFAULT_RESEARCH_APP_ID]: [],
+        "111": [],
+      },
+      onDeleteApps: (payload) => {
+        deleteAppBody = payload;
+      },
+    });
+    global.fetch = fetchMock as typeof fetch;
+    localStorage.setItem("aso-dashboard:selected-app-id", "111");
+
+    render(<App />);
+
+    const appName = await screen.findByText("Owned App");
+    fireEvent.contextMenu(appName.closest(".app-item") as HTMLElement, {
+      clientX: 72,
+      clientY: 90,
+    });
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Delete" }));
+
+    await waitFor(() => expect(deleteAppBody).toEqual({ appId: "111" }));
+    expect(confirmSpy).toHaveBeenCalledWith('Delete "Owned App"?');
+    await screen.findByText('Deleted "Owned App".');
+    expect(screen.queryByText("Owned App")).toBeNull();
+    confirmSpy.mockRestore();
+  });
+
+  it("collapses and expands the research section", async () => {
+    const fetchMock = buildFetchMock({
+      initialApps: [
+        { id: DEFAULT_RESEARCH_APP_ID, name: "Research" },
+        { id: "research:ideas", name: "Ideas" },
+      ],
+      keywordsByAppId: {
+        [DEFAULT_RESEARCH_APP_ID]: [],
+        "research:ideas": [],
+      },
+    });
+    global.fetch = fetchMock as typeof fetch;
+
+    render(<App />);
+
+    await screen.findByRole("tab", { name: "Ideas" });
+    fireEvent.click(screen.getByRole("button", { name: "Collapse Research section" }));
+    expect(screen.queryByRole("tab", { name: "Ideas" })).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Expand Research section" }));
+    await screen.findByRole("tab", { name: "Ideas" });
   });
 });

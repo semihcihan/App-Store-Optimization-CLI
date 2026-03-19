@@ -304,6 +304,13 @@ export function createServerRequestHandler(): http.RequestListener {
         return;
       }
 
+      if (req.method === "DELETE" && pathname === "/api/apps") {
+        await runAsForegroundMutation(() =>
+          appsHandlers.handleApiAppsDelete(req, res)
+        );
+        return;
+      }
+
       if (req.method === "GET" && pathname === "/api/aso/auth/status") {
         handleApiAsoAuthStatusGet(res);
         return;

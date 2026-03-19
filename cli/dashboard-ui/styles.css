@@ -1694,12 +1694,42 @@ body::before {
   margin-top: 10px;
 }
 
+.apps-section-header {
+  margin: 2px 0 6px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
 .apps-section-title {
-  margin: 2px 6px 6px;
+  margin: 0;
   color: #666666;
   font-size: 10px;
   letter-spacing: 0.14em;
   text-transform: uppercase;
+}
+
+.apps-section-toggle {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  border: 0;
+  background: transparent;
+  color: #6f6f6f;
+  line-height: 1;
+  padding: 0;
+}
+
+.apps-section-toggle:hover,
+.apps-section-toggle:focus-visible {
+  color: #a0caf1;
+}
+
+.apps-section-toggle-icon {
+  font-size: 12px;
 }
 
 .app-item {
@@ -2288,6 +2318,10 @@ td.updated-value {
 .app-shell.sidebar-collapsed .sidebar-subtitle,
 .app-shell.sidebar-collapsed .apps-section-title,
 .app-shell.sidebar-collapsed .app-meta {
+  display: none;
+}
+
+.app-shell.sidebar-collapsed .apps-section-header {
   display: none;
 }
 

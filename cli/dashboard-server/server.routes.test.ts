@@ -1,6 +1,7 @@
 import { PassThrough } from "stream";
 import { jest } from "@jest/globals";
 import {
+  deleteOwnedAppById,
   getOwnedAppById,
   listOwnedApps,
   upsertOwnedApps,
@@ -8,6 +9,7 @@ import {
 } from "../db/owned-apps";
 import {
   deleteAppKeywords,
+  deleteAppKeywordsByAppId,
   getAppLastKeywordAddedAtMap,
   listAllAppKeywords,
 } from "../db/app-keywords";
@@ -31,6 +33,7 @@ import { createServerRequestHandler } from "./server";
 import { DEFAULT_RESEARCH_APP_ID } from "../shared/aso-research";
 
 jest.mock("../db/owned-apps", () => ({
+  deleteOwnedAppById: jest.fn(() => 0),
   getOwnedAppById: jest.fn(() => null),
   listOwnedApps: jest.fn(() => []),
   upsertOwnedApps: jest.fn(),
@@ -42,6 +45,7 @@ jest.mock("../db/app-keywords", () => ({
   listByApp: jest.fn(() => []),
   createAppKeywords: jest.fn(),
   deleteAppKeywords: jest.fn(() => 0),
+  deleteAppKeywordsByAppId: jest.fn(() => 0),
   getAppLastKeywordAddedAtMap: jest.fn(() => new Map()),
 }));
 
@@ -187,6 +191,7 @@ async function request(params: {
 
 describe("dashboard server routes", () => {
   const mockGetOwnedAppById = jest.mocked(getOwnedAppById);
+  const mockDeleteOwnedAppById = jest.mocked(deleteOwnedAppById);
   const mockListOwnedApps = jest.mocked(listOwnedApps);
   const mockUpsertOwnedApps = jest.mocked(upsertOwnedApps);
   const mockUpsertOwnedAppSnapshots = jest.mocked(upsertOwnedAppSnapshots);
@@ -195,6 +200,7 @@ describe("dashboard server routes", () => {
   const mockListAllAppKeywords = jest.mocked(listAllAppKeywords);
   const mockGetKeywordFailures = jest.mocked(getKeywordFailures);
   const mockDeleteAppKeywords = jest.mocked(deleteAppKeywords);
+  const mockDeleteAppKeywordsByAppId = jest.mocked(deleteAppKeywordsByAppId);
   const mockGetKeyword = jest.mocked(getKeyword);
   const mockGetCompetitorAppDocs = jest.mocked(getCompetitorAppDocs);
   const mockUpsertCompetitorAppDocs = jest.mocked(upsertCompetitorAppDocs);
@@ -211,12 +217,14 @@ describe("dashboard server routes", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockGetOwnedAppById.mockReturnValue(null);
+    mockDeleteOwnedAppById.mockReturnValue(0);
     mockListOwnedApps.mockReturnValue([]);
     mockGetAppLastKeywordAddedAtMap.mockReturnValue(new Map());
     mockListKeywords.mockReturnValue([]);
     mockListAllAppKeywords.mockReturnValue([]);
     mockGetKeywordFailures.mockReturnValue([]);
     mockDeleteAppKeywords.mockReturnValue(0);
+    mockDeleteAppKeywordsByAppId.mockReturnValue(0);
     mockGetKeyword.mockReturnValue(null);
     mockGetCompetitorAppDocs.mockReturnValue([]);
     mockFetchOwnedAppSnapshotsFromApi.mockResolvedValue([]);
@@ -324,6 +332,46 @@ describe("dashboard server routes", () => {
       body: { type: "research", name: "  " },
     });
     expect(missingResearchName.statusCode).toBe(400);
+  });
+
+  it("deletes an app and clears its keyword associations", async () => {
+    mockGetOwnedAppById.mockReturnValue({
+      id: "123",
+      kind: "owned",
+      name: "Owned App",
+    } as any);
+    mockDeleteAppKeywordsByAppId.mockReturnValue(3);
+    mockDeleteOwnedAppById.mockReturnValue(1);
+
+    const response = await request({
+      method: "DELETE",
+      path: "/api/apps",
+      body: { appId: "123" },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(mockDeleteAppKeywordsByAppId).toHaveBeenCalledWith("123");
+    expect(mockDeleteOwnedAppById).toHaveBeenCalledWith("123");
+    expect(response.json).toEqual({
+      success: true,
+      data: {
+        id: "123",
+        removedKeywordCount: 3,
+      },
+    });
+  });
+
+  it("rejects deleting the default research app", async () => {
+    const response = await request({
+      method: "DELETE",
+      path: "/api/apps",
+      body: { appId: DEFAULT_RESEARCH_APP_ID },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json?.errorCode).toBe("INVALID_REQUEST");
+    expect(mockDeleteAppKeywordsByAppId).not.toHaveBeenCalled();
+    expect(mockDeleteOwnedAppById).not.toHaveBeenCalled();
   });
 
   it("rejects oversized JSON payloads", async () => {

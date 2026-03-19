@@ -21,7 +21,7 @@ Runtime flow contracts across CLI commands, local dashboard API, and ASO service
 - `aso auth`: run only Apple Search Ads reauthentication.
 - `aso reset-credentials`: clear saved ASO keychain credentials and local cookies.
 - MCP `aso_evaluate_keywords`: accept explicit keywords (max 100), run `aso keywords "<comma-separated-keywords>" --stdout`, return evaluated keyword results.
-- Dashboard API mutations: app add (single-item POST; UI may batch multiple selections), keyword add/delete, auth start.
+- Dashboard API mutations: app add (single-item POST; UI may batch multiple selections), app delete, keyword add/delete, auth start.
 
 ## Boundary Ownership
 - Domain policy (`cli/domain/keywords/*`, `cli/domain/errors/*`) is shared across CLI/server/UI for country guardrails, keyword normalization, limits, and dashboard-safe error/message mapping.
@@ -113,6 +113,13 @@ Runtime flow contracts across CLI commands, local dashboard API, and ASO service
 4. UI allows multi-select across search results and submits one `POST /api/apps` per selected entry (`type="app"` or `type="research"`).
 5. After submission, UI refreshes owned app list from `GET /api/apps` and selects the latest successfully added app when available.
 
+## Flow E3: Dashboard Delete Apps
+1. User right-clicks a sidebar app row (owned apps + non-default research apps) and chooses `Delete`.
+2. UI asks for confirmation before sending `DELETE /api/apps` with `{ appId }`.
+3. Server rejects deletion for the default research app (`id="research"`).
+4. Server removes the app row from `owned_apps` and clears related `app_keywords` associations for that app id.
+5. UI refreshes app list + keyword list and falls back to an existing research app selection when the deleted app was selected.
+
 ## Rank Delta Contract
 - `app_keywords.previous_position` stores prior rank per `(app, keyword, country)`.
 - Before keyword overwrite, previous positions are updated from existing `ordered_app_ids`.
@@ -127,6 +134,8 @@ Runtime flow contracts across CLI commands, local dashboard API, and ASO service
 - Dashboard keyword sort is global (`localStorage`) across apps. On startup, restore the last valid sort; fallback to `Updated` descending (newest first) when missing/invalid or when the selected sort column is unavailable in the current workspace.
 - Dashboard keyword table shortcuts: `Cmd/Ctrl+A` selects all visible keywords, `Cmd/Ctrl+C` copies selected visible keywords as comma-separated text, `Cmd/Ctrl+V` pastes clipboard text into the add-keywords input when focus is outside editable fields, and `Delete`/`Backspace` opens the delete confirmation for selected visible keywords when focus is outside editable fields.
 - Sidebar app rows treat click targets consistently: clicking row text/icon content selects the app, while explicit app-ID copy controls keep copy behavior and do not trigger app switching.
+- Sidebar app rows support right-click app actions; delete is available for owned apps and non-default research apps only.
+- Research section in the sidebar can be collapsed/expanded from its section header toggle.
 - Dashboard first-run onboarding highlights:
   - highlight the add-keywords input until the user successfully adds at least one keyword.
   - highlight the add-app button until the user has at least one non-default app (`id !== "research"`), including research apps created by user.

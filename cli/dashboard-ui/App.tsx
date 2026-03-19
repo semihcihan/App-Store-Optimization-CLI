@@ -33,6 +33,7 @@ import { StatusBanners } from "./components/status-banners";
 import { AuthDialog } from "./components/auth-dialog";
 import { KeywordActionMenu } from "./components/keyword-action-menu";
 import { AddAppDialog } from "./components/add-app-dialog";
+import { AppActionMenu } from "./components/app-action-menu";
 
 type AppKind = "owned" | "research";
 
@@ -84,6 +85,12 @@ type KeywordActionMenuState = {
   x: number;
   y: number;
   keywords: string[];
+};
+type AppActionMenuState = {
+  x: number;
+  y: number;
+  appId: string;
+  appName: string;
 };
 
 type Row = {
@@ -237,6 +244,8 @@ export function App() {
   const [failedKeywordCount, setFailedKeywordCount] = useState(0);
   const [openFilterMenu, setOpenFilterMenu] = useState<FilterMenuKey | null>(null);
   const [keywordActionMenu, setKeywordActionMenu] = useState<KeywordActionMenuState | null>(null);
+  const [appActionMenu, setAppActionMenu] = useState<AppActionMenuState | null>(null);
+  const [researchSectionCollapsed, setResearchSectionCollapsed] = useState(false);
 
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [isCompactLayout, setIsCompactLayout] = useState(() => {
@@ -528,6 +537,25 @@ export function App() {
   }, [keywordActionMenu]);
 
   useEffect(() => {
+    if (!appActionMenu) return;
+    const onPointerDown = (event: MouseEvent) => {
+      const target = event.target;
+      if (!(target instanceof Element)) return;
+      if (target.closest(".app-action-menu")) return;
+      setAppActionMenu(null);
+    };
+    const onEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setAppActionMenu(null);
+    };
+    document.addEventListener("mousedown", onPointerDown);
+    document.addEventListener("keydown", onEscape);
+    return () => {
+      document.removeEventListener("mousedown", onPointerDown);
+      document.removeEventListener("keydown", onEscape);
+    };
+  }, [appActionMenu]);
+
+  useEffect(() => {
     if (!topAppsKeyword) return;
     const onEscape = (event: KeyboardEvent) => {
       if (event.key === "Escape") setTopAppsKeyword(null);
@@ -590,6 +618,7 @@ export function App() {
 
   const selectSidebarApp = useCallback((appId: string) => {
     if (selectedAppId === appId) return;
+    setAppActionMenu(null);
     setSelectedAppId(appId);
     setSelectedKeywords(new Set());
     setSelectionAnchor(null);
@@ -616,6 +645,7 @@ export function App() {
     rowIndex: number,
     event: React.MouseEvent<HTMLTableRowElement>
   ) => {
+    setAppActionMenu(null);
     setKeywordActionMenu(null);
     onSelectKeywordRow(rowKeyword, rowIndex, event);
   };
@@ -644,6 +674,67 @@ export function App() {
       setLoadingText("");
     }
   };
+
+  const onDeleteSidebarApp = useCallback(
+    async (appId: string, appName: string) => {
+      if (!window.confirm(`Delete "${appName}"?`)) return;
+
+      try {
+        setErrorText("");
+        setSuccessText("");
+        setLoadingText(`Deleting "${appName}"...`);
+        await apiWrite("DELETE", "/api/apps", { appId });
+        setAppActionMenu(null);
+        setSelectedKeywords(new Set());
+        setSelectionAnchor(null);
+
+        const list = await loadApps();
+        let nextSelectedAppId = selectedAppIdRef.current;
+        if (!list.some((app) => app.id === nextSelectedAppId) || nextSelectedAppId === appId) {
+          const fallbackApp =
+            list.find((app) => app.id === DEFAULT_RESEARCH_APP_ID) ??
+            list.find((app) => app.kind === "research") ??
+            list[0];
+          nextSelectedAppId = fallbackApp?.id ?? DEFAULT_RESEARCH_APP_ID;
+          setSelectedAppId(nextSelectedAppId);
+        }
+        await loadKeywords(nextSelectedAppId);
+        setSuccessText(`Deleted "${appName}".`);
+      } catch (error) {
+        setErrorText(toActionableErrorMessage(error, "Failed to delete app"));
+      } finally {
+        setLoadingText("");
+      }
+    },
+    [loadApps, loadKeywords]
+  );
+
+  const onSidebarAppContextMenuOpen = useCallback(
+    (event: React.MouseEvent<HTMLElement>, app: AppItem) => {
+      if (app.id === DEFAULT_RESEARCH_APP_ID) return;
+      if (isSidebarSelectionControlTarget(event.target)) return;
+      event.preventDefault();
+      event.stopPropagation();
+
+      const menuWidth = 170;
+      const menuHeight = 58;
+      const padding = 8;
+      const maxX = Math.max(padding, window.innerWidth - menuWidth - padding);
+      const maxY = Math.max(padding, window.innerHeight - menuHeight - padding);
+      const x = Math.min(Math.max(event.clientX, padding), maxX);
+      const y = Math.min(Math.max(event.clientY, padding), maxY);
+
+      setOpenFilterMenu(null);
+      setKeywordActionMenu(null);
+      setAppActionMenu({
+        x,
+        y,
+        appId: app.id,
+        appName: app.name,
+      });
+    },
+    []
+  );
 
   const onContextCopy = useCallback(async (selected: string[]) => {
     try {
@@ -763,6 +854,7 @@ export function App() {
       setSelectedKeywords(new Set(selected));
       setSelectionAnchor(rowKeyword);
       setOpenFilterMenu(null);
+      setAppActionMenu(null);
 
       const menuWidth = 190;
       const menuHeight = 96;
@@ -787,8 +879,14 @@ export function App() {
       }
       await onContextDelete(selected);
     },
-    [keywordActionMenu, onContextCopy]
+    [keywordActionMenu, onContextCopy, onContextDelete]
   );
+
+  const onAppContextDelete = useCallback(async () => {
+    if (!appActionMenu) return;
+    const { appId, appName } = appActionMenu;
+    await onDeleteSidebarApp(appId, appName);
+  }, [appActionMenu, onDeleteSidebarApp]);
 
   const submitKeywords = useCallback(
     async (kws: string[]): Promise<boolean> => {
@@ -1240,49 +1338,75 @@ export function App() {
 
         <div className="apps-list" role="tablist" aria-label="Applications">
           <section className="apps-section">
-            <p className="apps-section-title">Research</p>
-            {researchApps.length === 0 ? (
+            <div className="apps-section-header">
               <button
-                className={`app-item ${selectedAppId === DEFAULT_RESEARCH_APP_ID ? "active" : ""}`}
-                data-app-id={DEFAULT_RESEARCH_APP_ID}
-                role="tab"
-                aria-selected={selectedAppId === DEFAULT_RESEARCH_APP_ID}
-                onClickCapture={(event) =>
-                  onSidebarAppClickCapture(event, DEFAULT_RESEARCH_APP_ID)
+                type="button"
+                className="apps-section-toggle"
+                aria-expanded={!researchSectionCollapsed}
+                aria-label={
+                  researchSectionCollapsed
+                    ? "Expand Research section"
+                    : "Collapse Research section"
+                }
+                onClick={() =>
+                  setResearchSectionCollapsed((prev) => !prev)
                 }
               >
-                <span className="research-icon" aria-hidden="true">
-                  <svg viewBox="0 0 24 24" fill="none">
-                    <path d="M12 3l2.7 5.3L20 11l-5.3 2.7L12 19l-2.7-5.3L4 11l5.3-2.7L12 3z" strokeWidth="1.6" />
-                  </svg>
-                </span>
-                <span className="app-meta">
-                  <span className="app-name">Research</span>
+                <span className="apps-section-title">Research</span>
+                <span className="apps-section-toggle-icon" aria-hidden="true">
+                  {researchSectionCollapsed ? "▸" : "▾"}
                 </span>
               </button>
+            </div>
+            {!researchSectionCollapsed ? (
+              <>
+                {researchApps.length === 0 ? (
+                  <button
+                    className={`app-item ${selectedAppId === DEFAULT_RESEARCH_APP_ID ? "active" : ""}`}
+                    data-app-id={DEFAULT_RESEARCH_APP_ID}
+                    role="tab"
+                    aria-selected={selectedAppId === DEFAULT_RESEARCH_APP_ID}
+                    onClickCapture={(event) =>
+                      onSidebarAppClickCapture(event, DEFAULT_RESEARCH_APP_ID)
+                    }
+                  >
+                    <span className="research-icon" aria-hidden="true">
+                      <svg viewBox="0 0 24 24" fill="none">
+                        <path d="M12 3l2.7 5.3L20 11l-5.3 2.7L12 19l-2.7-5.3L4 11l5.3-2.7L12 3z" strokeWidth="1.6" />
+                      </svg>
+                    </span>
+                    <span className="app-meta">
+                      <span className="app-name">Research</span>
+                    </span>
+                  </button>
+                ) : null}
+                {researchApps.map((app) => {
+                  const isSelected = selectedAppId === app.id;
+                  return (
+                    <button
+                      key={app.id}
+                      className={`app-item ${isSelected ? "active" : ""}`}
+                      data-app-id={app.id}
+                      role="tab"
+                      aria-selected={isSelected}
+                      onClickCapture={(event) => onSidebarAppClickCapture(event, app.id)}
+                      onContextMenu={(event) =>
+                        onSidebarAppContextMenuOpen(event, app)
+                      }
+                    >
+                      <span className="research-icon" aria-hidden="true">
+                        <svg viewBox="0 0 24 24" fill="none">
+                          <path d="M12 3l2.7 5.3L20 11l-5.3 2.7L12 19l-2.7-5.3L4 11l5.3-2.7L12 3z" strokeWidth="1.6" />
+                        </svg>
+                      </span>
+                      <span className="app-meta">
+                        <span className="app-name">{app.name}</span>
+                      </span>
+                    </button>
+                  );
+                })}
+              </>
             ) : null}
-            {researchApps.map((app) => {
-              const isSelected = selectedAppId === app.id;
-              return (
-                <button
-                  key={app.id}
-                  className={`app-item ${isSelected ? "active" : ""}`}
-                  data-app-id={app.id}
-                  role="tab"
-                  aria-selected={isSelected}
-                  onClickCapture={(event) => onSidebarAppClickCapture(event, app.id)}
-                >
-                  <span className="research-icon" aria-hidden="true">
-                    <svg viewBox="0 0 24 24" fill="none">
-                      <path d="M12 3l2.7 5.3L20 11l-5.3 2.7L12 19l-2.7-5.3L4 11l5.3-2.7L12 3z" strokeWidth="1.6" />
-                    </svg>
-                  </span>
-                  <span className="app-meta">
-                    <span className="app-name">{app.name}</span>
-                  </span>
-                </button>
-              );
-            })}
           </section>
 
           <section className="apps-section">
@@ -1349,6 +1473,7 @@ export function App() {
                   tabIndex={0}
                   aria-selected={isSelected}
                   onClickCapture={(event) => onSidebarAppClickCapture(event, app.id)}
+                  onContextMenu={(event) => onSidebarAppContextMenuOpen(event, app)}
                   onKeyDown={(event) => {
                     if (event.key !== "Enter" && event.key !== " ") return;
                     event.preventDefault();
@@ -1726,6 +1851,15 @@ export function App() {
           }}
           onDelete={() => {
             void onContextAction("delete");
+          }}
+        />
+      ) : null}
+      {appActionMenu ? (
+        <AppActionMenu
+          x={appActionMenu.x}
+          y={appActionMenu.y}
+          onDelete={() => {
+            void onAppContextDelete();
           }}
         />
       ) : null}

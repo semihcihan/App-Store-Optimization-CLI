@@ -1,9 +1,11 @@
 import * as http from "http";
 import {
+  deleteOwnedAppById,
   getOwnedAppById,
   upsertOwnedApps,
   upsertOwnedAppSnapshots,
 } from "../db/owned-apps";
+import { deleteAppKeywordsByAppId } from "../db/app-keywords";
 import {
   DEFAULT_RESEARCH_APP_ID,
   DEFAULT_RESEARCH_APP_NAME,
@@ -41,6 +43,10 @@ type CreateAppsHandlersDeps = {
     appIds: string[]
   ) => Promise<OwnedAppSnapshot[]>;
   hydrationCountry: string;
+};
+
+type DeleteAppRequest = {
+  appId?: string;
 };
 
 function normalizeAppId(input: string | undefined): string {
@@ -167,7 +173,55 @@ export function createAppsHandlers(deps: CreateAppsHandlersDeps) {
     });
   }
 
+  async function handleApiAppsDelete(
+    req: http.IncomingMessage,
+    res: http.ServerResponse
+  ): Promise<void> {
+    const body = await deps.parseJsonBody<DeleteAppRequest>(req, res);
+    if (!body) {
+      return;
+    }
+
+    const appId = normalizeAppId(body.appId);
+    if (!appId) {
+      deps.sendApiError(res, 400, "INVALID_REQUEST", "App ID is required.");
+      return;
+    }
+
+    if (appId === DEFAULT_RESEARCH_APP_ID) {
+      deps.sendApiError(
+        res,
+        400,
+        "INVALID_REQUEST",
+        "Default Research app cannot be deleted."
+      );
+      return;
+    }
+
+    const existing = getOwnedAppById(appId, deps.hydrationCountry);
+    if (!existing) {
+      deps.sendApiError(res, 404, "NOT_FOUND", "App not found.");
+      return;
+    }
+
+    const removedKeywordCount = deleteAppKeywordsByAppId(appId);
+    const removedAppCount = deleteOwnedAppById(appId);
+    if (removedAppCount === 0) {
+      deps.sendApiError(res, 404, "NOT_FOUND", "App not found.");
+      return;
+    }
+
+    deps.sendJson(res, 200, {
+      success: true,
+      data: {
+        id: appId,
+        removedKeywordCount,
+      },
+    });
+  }
+
   return {
     handleApiAppsPost,
+    handleApiAppsDelete,
   };
 }

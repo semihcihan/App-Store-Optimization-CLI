@@ -249,3 +249,14 @@ export function upsertOwnedAppSnapshots(
 
   tx();
 }
+
+export function deleteOwnedAppById(id: string): number {
+  const db = getDb();
+  const result = db
+    .prepare(
+      `DELETE FROM owned_apps
+       WHERE id = ?`
+    )
+    .run(id);
+  return result.changes;
+}
