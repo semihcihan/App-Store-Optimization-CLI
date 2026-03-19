@@ -1,6 +1,7 @@
 import { normalizeCountry } from "../domain/keywords/policy";
 import { fetchAppStoreLocalizedAppData } from "../services/cache-api/services/aso-app-store-details";
 import { computeAppExpiryIsoForApp } from "../services/cache-api/services/aso-keyword-utils";
+import { getStorefrontDefaultLanguage } from "../shared/aso-storefront-localizations";
 
 export type OwnedAppSnapshot = {
   id: string;
@@ -14,9 +15,11 @@ export type OwnedAppSnapshot = {
 export async function fetchOwnedAppSnapshotsFromApi(
   country: string,
   appIds: string[],
-  language: string = "en-us"
+  language?: string
 ): Promise<OwnedAppSnapshot[]> {
   const normalizedCountry = normalizeCountry(country);
+  const resolvedLanguage =
+    language == null ? getStorefrontDefaultLanguage(normalizedCountry) : language;
   const uniqueIds = Array.from(new Set(appIds.map((id) => id.trim()).filter(Boolean)));
   if (uniqueIds.length === 0) return [];
 
@@ -26,7 +29,7 @@ export async function fetchOwnedAppSnapshotsFromApi(
         const localized = await fetchAppStoreLocalizedAppData(
           appId,
           normalizedCountry,
-          language
+          resolvedLanguage
         );
         if (!localized) return null;
         return {

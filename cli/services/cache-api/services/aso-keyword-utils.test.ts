@@ -26,6 +26,10 @@ describe("aso-keyword-utils", () => {
     expect(normalizeTextForKeywordMatch("  Best, Game!!!\nNow ")).toBe(
       "best game now"
     );
+    expect(normalizeTextForKeywordMatch("  دوولينجو، تطبيق! ")).toBe(
+      "دوولينجو تطبيق"
+    );
+    expect(normalizeTextForKeywordMatch(" 多邻国（学习） ")).toBe("多邻国 学习");
     expect(sanitizeKeywords([" Foo ", "foo", "", "  ", "Bar"])).toEqual([
       "foo",
       "bar",

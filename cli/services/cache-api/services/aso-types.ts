@@ -13,6 +13,11 @@ export interface AsoAppDocIconArtwork {
   [key: string]: unknown;
 }
 
+export type AsoAppLocalization = {
+  title: string;
+  subtitle?: string;
+};
+
 export interface AsoAppDoc {
   appId: string;
   country: string;
@@ -24,6 +29,7 @@ export interface AsoAppDoc {
   currentVersionReleaseDate?: string | null;
   icon?: AsoAppDocIcon;
   iconArtwork?: AsoAppDocIconArtwork;
+  additionalLocalizations?: Record<string, AsoAppLocalization>;
   expiresAt?: string;
 }
 

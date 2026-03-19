@@ -10,7 +10,8 @@ export function normalizeKeyword(keyword: string): string {
 
 export function normalizeTextForKeywordMatch(text: string): string {
   return text
-    .replace(/[^\w\s]/g, " ")
+    .normalize("NFKC")
+    .replace(/[^\p{L}\p{N}\p{M}\s]/gu, " ")
     .toLowerCase()
     .trim()
     .replace(/\s+/g, " ");

@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Badge, Button, Card, Input } from "./ui-react";
 import { DEFAULT_RESEARCH_APP_ID } from "../shared/aso-research";
 import {
-  APP_STORE_ICON_IMAGE_URL,
   DEFAULT_ASO_COUNTRY,
   apiGet,
   apiWrite,
@@ -194,6 +193,21 @@ function CheckIcon() {
         strokeLinecap="round"
         strokeLinejoin="round"
       />
+    </svg>
+  );
+}
+
+function OpenInNewTabIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">
+      <path
+        d="M14 5h5v5M13 11l6-6"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <rect x="5" y="8" width="11" height="11" rx="2" stroke="currentColor" strokeWidth="1.8" />
     </svg>
   );
 }
@@ -1796,16 +1810,16 @@ export function App() {
                                 ))}
                               </div>
                               <div className="top-app-actions">
-                                <Button
-                                  type="button"
-                                  size="sm"
-                                  variant="outline"
-                                  className="top-app-store-button"
+                                <a
+                                  href={appStoreUrl}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="ui-btn ui-btn--outline ui-btn--sm top-app-store-button"
                                   aria-label="Open in App Store"
-                                  onClick={() => window.open(appStoreUrl, "_blank", "noopener,noreferrer")}
+                                  title="Open in App Store"
                                 >
-                                  <img src={APP_STORE_ICON_IMAGE_URL} alt="" className="top-app-store-icon-image" />
-                                </Button>
+                                  <OpenInNewTabIcon />
+                                </a>
                               </div>
                             </div>
                           </div>

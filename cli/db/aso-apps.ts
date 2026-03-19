@@ -11,6 +11,7 @@ type AppDocInput = {
   currentVersionReleaseDate?: string | null;
   icon?: Record<string, unknown>;
   iconArtwork?: { url?: string; [key: string]: unknown };
+  additionalLocalizations?: Record<string, { title: string; subtitle?: string }>;
   expiresAt?: string;
 };
 
@@ -24,13 +25,50 @@ type AsoAppRow = {
   current_version_release_date: string | null;
   icon_json: string | null;
   icon_artwork_json: string | null;
+  additional_localizations_json: string | null;
   expires_at: string | null;
   country: string;
 };
 
+function parseAdditionalLocalizations(
+  raw: string | null
+): Record<string, { title: string; subtitle?: string }> | undefined {
+  if (!raw) return undefined;
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return undefined;
+    }
+
+    const result: Record<string, { title: string; subtitle?: string }> = {};
+    for (const [language, value] of Object.entries(parsed)) {
+      if (!language || !value || typeof value !== "object" || Array.isArray(value)) {
+        continue;
+      }
+      const title = typeof value.title === "string" ? value.title.trim() : "";
+      const subtitle =
+        typeof value.subtitle === "string" && value.subtitle.trim()
+          ? value.subtitle.trim()
+          : undefined;
+      if (!title && !subtitle) continue;
+      result[language] = {
+        title,
+        ...(subtitle ? { subtitle } : {}),
+      };
+    }
+
+    return Object.keys(result).length > 0 ? result : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 function toStoredApp(row: AsoAppRow): StoredAsoApp {
   let icon: Record<string, unknown> | undefined;
   let iconArtwork: { url?: string; [key: string]: unknown } | undefined;
+  const additionalLocalizations = parseAdditionalLocalizations(
+    row.additional_localizations_json
+  );
   if (row.icon_json) {
     try {
       icon = JSON.parse(row.icon_json) as Record<string, unknown>;
@@ -58,6 +96,7 @@ function toStoredApp(row: AsoAppRow): StoredAsoApp {
     currentVersionReleaseDate: row.current_version_release_date,
     icon,
     iconArtwork,
+    additionalLocalizations,
     expiresAt: row.expires_at ?? undefined,
     country: row.country,
   };
@@ -74,7 +113,8 @@ export function getCompetitorAppDocs(
     .prepare(
       `SELECT app_id, name, subtitle, average_user_rating, user_rating_count,
               release_date, current_version_release_date,
-              icon_json, icon_artwork_json, expires_at, country
+              icon_json, icon_artwork_json, additional_localizations_json,
+              expires_at, country
        FROM aso_apps
        WHERE country = ? AND app_id IN (${placeholders})`
     )
@@ -96,16 +136,43 @@ export function upsertCompetitorAppDocs(
 ): void {
   if (docs.length === 0) return;
   const db = getDb();
+  const appIds = Array.from(
+    new Set(docs.map((doc) => doc.appId.trim()).filter(Boolean))
+  );
+  const existingByAppId = new Map<
+    string,
+    Record<string, { title: string; subtitle?: string }> | undefined
+  >();
+  if (appIds.length > 0) {
+    const placeholders = appIds.map(() => "?").join(",");
+    const existingRows = db
+      .prepare(
+        `SELECT app_id, additional_localizations_json
+         FROM aso_apps
+         WHERE country = ? AND app_id IN (${placeholders})`
+      )
+      .all(country, ...appIds) as Array<{
+      app_id: string;
+      additional_localizations_json: string | null;
+    }>;
+    for (const row of existingRows) {
+      existingByAppId.set(
+        row.app_id,
+        parseAdditionalLocalizations(row.additional_localizations_json)
+      );
+    }
+  }
+
   const upsertStmt = db.prepare(`
     INSERT INTO aso_apps (
       country, app_id, name, subtitle, average_user_rating,
       user_rating_count, release_date, current_version_release_date,
-      icon_json, icon_artwork_json, expires_at
+      icon_json, icon_artwork_json, additional_localizations_json, expires_at
     )
     VALUES (
       @country, @appId, @name, @subtitle, @averageUserRating,
       @userRatingCount, @releaseDate, @currentVersionReleaseDate,
-      @iconJson, @iconArtworkJson, @expiresAt
+      @iconJson, @iconArtworkJson, @additionalLocalizationsJson, @expiresAt
     )
     ON CONFLICT(country, app_id) DO UPDATE SET
       name = excluded.name,
@@ -116,11 +183,18 @@ export function upsertCompetitorAppDocs(
       current_version_release_date = excluded.current_version_release_date,
       icon_json = excluded.icon_json,
       icon_artwork_json = excluded.icon_artwork_json,
+      additional_localizations_json = excluded.additional_localizations_json,
       expires_at = excluded.expires_at
   `);
 
   const tx = db.transaction(() => {
     for (const doc of docs) {
+      const additionalLocalizations =
+        doc.additionalLocalizations ?? existingByAppId.get(doc.appId);
+      const additionalLocalizationsJson =
+        additionalLocalizations && Object.keys(additionalLocalizations).length > 0
+          ? JSON.stringify(additionalLocalizations)
+          : null;
       upsertStmt.run({
         country,
         appId: doc.appId,
@@ -132,6 +206,7 @@ export function upsertCompetitorAppDocs(
         currentVersionReleaseDate: doc.currentVersionReleaseDate ?? null,
         iconJson: doc.icon ? JSON.stringify(doc.icon) : null,
         iconArtworkJson: doc.iconArtwork ? JSON.stringify(doc.iconArtwork) : null,
+        additionalLocalizationsJson,
         expiresAt: doc.expiresAt ?? null,
       });
     }

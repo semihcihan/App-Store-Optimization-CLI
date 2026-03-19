@@ -43,6 +43,12 @@ describe("aso-apps", () => {
         name: "Competitor App",
         averageUserRating: 4.7,
         userRatingCount: 500,
+        additionalLocalizations: {
+          "es-MX": {
+            title: "App Competidora",
+            subtitle: "Subtitulo",
+          },
+        },
       },
     ]);
     const docs = getCompetitorAppDocs("US", ["comp1"]);
@@ -54,6 +60,12 @@ describe("aso-apps", () => {
         country: "US",
         averageUserRating: 4.7,
         userRatingCount: 500,
+        additionalLocalizations: {
+          "es-MX": {
+            title: "App Competidora",
+            subtitle: "Subtitulo",
+          },
+        },
       })
     );
   });
@@ -99,6 +111,11 @@ describe("aso-apps", () => {
         name: "Initial",
         averageUserRating: 4,
         userRatingCount: 10,
+        additionalLocalizations: {
+          "fr-FR": {
+            title: "Initiale",
+          },
+        },
       },
     ]);
 
@@ -118,6 +135,11 @@ describe("aso-apps", () => {
         averageUserRating: 4.5,
         userRatingCount: 40,
         releaseDate: "2026-01-01",
+        additionalLocalizations: {
+          "fr-FR": {
+            title: "Initiale",
+          },
+        },
       })
     );
   });

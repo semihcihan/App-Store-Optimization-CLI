@@ -4,16 +4,21 @@ import {
   normalizeKeyword,
   normalizeTextForKeywordMatch,
 } from "./aso-keyword-utils";
-import { fetchAppStoreLocalizedAppData } from "./aso-app-store-details";
+import {
+  fetchAppStoreAdditionalLocalizations,
+  fetchAppStoreLocalizedAppData,
+} from "./aso-app-store-details";
 import { fetchAppStoreLookupAppDocs } from "./aso-app-doc-service";
 import type { AsoAppDoc, AsoAppDocIcon } from "./aso-types";
 import { asoAppleGet } from "./aso-apple-client";
 import { reportAppleContractChange } from "../../keywords/apple-http-trace";
+import { getStorefrontDefaultLanguage } from "../../../shared/aso-storefront-localizations";
 import {
   DIFFICULTY_DETAIL_LIMIT,
   type KeywordMatchType,
   calculateAppDifficultyBreakdown,
   calculateKeywordDifficultyBreakdown,
+  keywordMatchToScore,
 } from "./aso-difficulty";
 
 interface MzSearchResponse {
@@ -123,6 +128,33 @@ function detectKeywordMatchType(
   return "none";
 }
 
+function detectBestKeywordMatchType(app: AsoAppDoc, keyword: string): KeywordMatchType {
+  const localizations: Array<{ title: string; subtitle?: string }> = [
+    { title: app.name, subtitle: app.subtitle },
+  ];
+  for (const localized of Object.values(app.additionalLocalizations ?? {})) {
+    localizations.push({
+      title: localized.title,
+      subtitle: localized.subtitle,
+    });
+  }
+
+  let bestMatch: KeywordMatchType = "none";
+  let bestScore = 0;
+  for (const localized of localizations) {
+    const match = detectKeywordMatchType(localized.title, localized.subtitle, keyword);
+    const score = keywordMatchToScore(match);
+    if (score > bestScore) {
+      bestMatch = match;
+      bestScore = score;
+      if (bestScore >= 1) {
+        break;
+      }
+    }
+  }
+  return bestMatch;
+}
+
 function appCompetitiveScore(app: AsoAppDoc, keyword: string): number {
   const ratingCount = app.userRatingCount || 0;
   const avgRating = app.averageUserRating ?? 0;
@@ -130,7 +162,7 @@ function appCompetitiveScore(app: AsoAppDoc, keyword: string): number {
   const firstRelease = app.releaseDate;
   const daysSinceLastRelease = safeDaysSince(lastRelease ?? undefined);
   const daysSinceFirstRelease = safeDaysSince(firstRelease ?? undefined);
-  const keywordMatch = detectKeywordMatchType(app.name, app.subtitle, keyword);
+  const keywordMatch = detectBestKeywordMatchType(app, keyword);
 
   return calculateAppDifficultyBreakdown({
     averageUserRating: avgRating,
@@ -408,6 +440,7 @@ async function buildAppDocsFromLookup(params: {
   appIds: string[];
   country: string;
 }): Promise<AsoAppDoc[]> {
+  const defaultLanguage = getStorefrontDefaultLanguage(params.country);
   let lookupDocs: AsoAppDoc[] = [];
   try {
     lookupDocs = await fetchAppStoreLookupAppDocs({
@@ -427,7 +460,11 @@ async function buildAppDocsFromLookup(params: {
         const details = await fetchAppStoreLocalizedAppData(
           id,
           params.country,
-          "en-us"
+          defaultLanguage
+        );
+        const additionalLocalizations = await fetchAppStoreAdditionalLocalizations(
+          id,
+          params.country
         );
         const averageUserRating =
           details?.ratingAverage ?? lookupDoc.averageUserRating;
@@ -441,6 +478,9 @@ async function buildAppDocsFromLookup(params: {
           subtitle: details?.subtitle ?? undefined,
           averageUserRating,
           userRatingCount,
+          ...(Object.keys(additionalLocalizations).length > 0
+            ? { additionalLocalizations }
+            : {}),
         };
       } catch {
         return lookupDoc;
@@ -472,6 +512,43 @@ function normalizeCountryOnAppDocs(country: string, appDocs: AsoAppDoc[]): AsoAp
     ...doc,
     country: normalizedCountry,
   }));
+}
+
+async function hydrateMissingAdditionalLocalizations(params: {
+  appDocs: AsoAppDoc[];
+  appIds: string[];
+  country: string;
+}): Promise<AsoAppDoc[]> {
+  if (params.appIds.length === 0 || params.appDocs.length === 0) {
+    return params.appDocs;
+  }
+
+  const docsById = new Map(params.appDocs.map((doc) => [doc.appId, doc] as const));
+  await Promise.all(
+    params.appIds.map(async (appId) => {
+      const existing = docsById.get(appId);
+      if (!existing) return;
+      if (
+        existing.additionalLocalizations &&
+        Object.keys(existing.additionalLocalizations).length > 0
+      ) {
+        return;
+      }
+      const additionalLocalizations = await fetchAppStoreAdditionalLocalizations(
+        appId,
+        params.country
+      );
+      if (Object.keys(additionalLocalizations).length === 0) {
+        return;
+      }
+      docsById.set(appId, {
+        ...existing,
+        additionalLocalizations,
+      });
+    })
+  );
+
+  return params.appDocs.map((doc) => docsById.get(doc.appId) ?? doc);
 }
 
 export async function enrichKeyword(
@@ -628,12 +705,17 @@ export async function enrichKeyword(
     }
   }
   appDocs = normalizeCountryOnAppDocs(country, appDocs);
+  appDocs = await hydrateMissingAdditionalLocalizations({
+    appDocs,
+    appIds: firstFiveIds,
+    country,
+  });
 
   const docsForDifficulty = firstFiveIds
     .map((id) => appDocs.find((d) => d.appId === id))
     .filter((d): d is AsoAppDoc => d != null);
   const keywordIncluded = docsForDifficulty.reduce((count, app) => {
-    const keywordMatch = detectKeywordMatchType(app.name, app.subtitle, params.keyword);
+    const keywordMatch = detectBestKeywordMatchType(app, params.keyword);
     return count + (keywordMatch === "none" ? 0 : 1);
   }, 0);
 

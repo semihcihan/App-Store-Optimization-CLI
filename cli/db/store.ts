@@ -54,6 +54,7 @@ function initializeDatabase(database: Database.Database): void {
       current_version_release_date TEXT,
       icon_json TEXT,
       icon_artwork_json TEXT,
+      additional_localizations_json TEXT,
       expires_at TEXT,
       PRIMARY KEY (country, app_id)
     );

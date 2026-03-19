@@ -41,6 +41,7 @@ function toAsoAppDoc(row: ReturnType<typeof getCompetitorAppDocs>[number]): AsoA
     currentVersionReleaseDate: row.currentVersionReleaseDate,
     icon: row.icon,
     iconArtwork: row.iconArtwork,
+    additionalLocalizations: row.additionalLocalizations,
     expiresAt: row.expiresAt,
   };
 }
@@ -114,6 +115,7 @@ export class LocalAsoCacheRepository implements AsoCacheRepository {
           iconArtwork: app.iconArtwork as
             | { url?: string; [key: string]: unknown }
             | undefined,
+          additionalLocalizations: app.additionalLocalizations,
           expiresAt: app.expiresAt,
         }))
       );

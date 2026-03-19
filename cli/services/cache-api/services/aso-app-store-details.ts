@@ -1,8 +1,11 @@
 import { asoAppleGet } from "./aso-apple-client";
 import { reportAppleContractChange } from "../../keywords/apple-http-trace";
+import {
+  getStorefrontAdditionalLanguages,
+  getStorefrontDefaultLanguage,
+} from "../../../shared/aso-storefront-localizations";
 
 const APP_STORE_BASE = "https://apps.apple.com";
-const DEFAULT_LANGUAGE = "en-us";
 
 type LocalizedAppPageData = {
   title: string;
@@ -31,14 +34,6 @@ type SerializedServerData = {
     };
   }>;
 };
-
-function getRequestCountry(language: string, defaultCountry: string): string {
-  if (language && language.toLowerCase().startsWith("zh-")) {
-    const part = language.split("-")[1];
-    return part ? part.toLowerCase() : defaultCountry.toLowerCase();
-  }
-  return defaultCountry.toLowerCase();
-}
 
 function cleanText(text: unknown): string {
   if (typeof text !== "string") return "";
@@ -113,26 +108,29 @@ function mapLocalizedData(payload: SerializedServerData): LocalizedAppPageData |
 export async function fetchAppStoreLocalizedAppData(
   appId: string,
   country: string,
-  language: string = DEFAULT_LANGUAGE
+  language?: string
 ): Promise<LocalizedAppPageData | null> {
-  const requestCountry = getRequestCountry(language, country);
-  const url = `${APP_STORE_BASE}/${requestCountry}/app/id${appId}${language ? `?l=${language}` : ""}`;
+  const normalizedCountry = country.toUpperCase();
+  const resolvedLanguage =
+    language == null ? getStorefrontDefaultLanguage(normalizedCountry) : language.trim();
+  const requestCountry = normalizedCountry.toLowerCase();
+  const languageParam = resolvedLanguage ? `?l=${resolvedLanguage}` : "";
+  const url = `${APP_STORE_BASE}/${requestCountry}/app/id${appId}${languageParam}`;
   const response = await asoAppleGet<string>(url, {
     operation: "appstore.localized-app-page",
     headers: {
       "User-Agent":
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2.1 Safari/605.1.15",
-      Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+          Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
       Host: "apps.apple.com",
-      "Accept-Language": "en-US,en;q=0.9",
+      "Accept-Language": resolvedLanguage
+        ? `${resolvedLanguage},en-US;q=0.9`
+        : "en-US,en;q=0.9",
     },
     timeout: 30000,
     validateStatus: (status) => status === 200 || status === 404,
   });
 
-  if (response.status === 404 && requestCountry !== country.toLowerCase()) {
-    return null;
-  }
   if (response.status !== 200) {
     return null;
   }
@@ -150,7 +148,7 @@ export async function fetchAppStoreLocalizedAppData(
       context: {
         appId,
         country: requestCountry.toUpperCase(),
-        language,
+        language: resolvedLanguage || "<none>",
       },
       isTerminal: false,
       dedupeKey: "appstore-localized-page-payload-parse",
@@ -171,7 +169,7 @@ export async function fetchAppStoreLocalizedAppData(
       context: {
         appId,
         country: requestCountry.toUpperCase(),
-        language,
+        language: resolvedLanguage || "<none>",
       },
       isTerminal: false,
       dedupeKey: "appstore-localized-page-shape-missing",
@@ -180,4 +178,48 @@ export async function fetchAppStoreLocalizedAppData(
   }
 
   return mapped;
+}
+
+export type AppLocalizationTitleSubtitle = {
+  title: string;
+  subtitle?: string;
+};
+
+export async function fetchAppStoreAdditionalLocalizations(
+  appId: string,
+  country: string
+): Promise<Record<string, AppLocalizationTitleSubtitle>> {
+  const languages = getStorefrontAdditionalLanguages(country);
+  if (languages.length === 0) {
+    return {};
+  }
+
+  const localizedResults = await Promise.all(
+    languages.map(async (language) => {
+      try {
+        const localized = await fetchAppStoreLocalizedAppData(appId, country, language);
+        if (!localized) return null;
+        const title = cleanText(localized.title);
+        const subtitle = cleanText(localized.subtitle);
+        if (!title && !subtitle) return null;
+        return [
+          language,
+          {
+            title,
+            ...(subtitle ? { subtitle } : {}),
+          } satisfies AppLocalizationTitleSubtitle,
+        ] as const;
+      } catch {
+        return null;
+      }
+    })
+  );
+
+  const additionalLocalizations: Record<string, AppLocalizationTitleSubtitle> = {};
+  for (const entry of localizedResults) {
+    if (!entry) continue;
+    const [language, value] = entry;
+    additionalLocalizations[language] = value;
+  }
+  return additionalLocalizations;
 }

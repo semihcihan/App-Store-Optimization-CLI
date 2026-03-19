@@ -178,6 +178,11 @@ describe("aso-cache-local", () => {
         name: "Fresh App",
         averageUserRating: 4,
         userRatingCount: 100,
+        additionalLocalizations: {
+          "es-MX": {
+            title: "Fresh App ES",
+          },
+        },
         expiresAt: "2099-01-01T00:00:00.000Z",
       },
       {
@@ -200,6 +205,11 @@ describe("aso-cache-local", () => {
         appId: "fresh",
         country: "US",
         name: "Fresh App",
+        additionalLocalizations: {
+          "es-MX": {
+            title: "Fresh App ES",
+          },
+        },
       }),
     ]);
   });

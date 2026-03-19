@@ -2,6 +2,7 @@ import { jest } from "@jest/globals";
 import { enrichKeyword } from "./aso-enrichment-service";
 import { asoAppleGet } from "./aso-apple-client";
 import { fetchAppStoreLookupAppDocs } from "./aso-app-doc-service";
+import { fetchAppStoreAdditionalLocalizations } from "./aso-app-store-details";
 
 jest.mock("./aso-apple-client", () => ({
   asoAppleGet: jest.fn(),
@@ -9,6 +10,11 @@ jest.mock("./aso-apple-client", () => ({
 
 jest.mock("./aso-app-doc-service", () => ({
   fetchAppStoreLookupAppDocs: jest.fn(),
+}));
+
+jest.mock("./aso-app-store-details", () => ({
+  fetchAppStoreLocalizedAppData: jest.fn(),
+  fetchAppStoreAdditionalLocalizations: jest.fn(),
 }));
 
 jest.mock("./aso-keyword-utils", () => ({
@@ -21,6 +27,9 @@ jest.mock("./aso-keyword-utils", () => ({
 
 const mockedAsoAppleGet = jest.mocked(asoAppleGet);
 const mockedFetchAppStoreLookupAppDocs = jest.mocked(fetchAppStoreLookupAppDocs);
+const mockedFetchAppStoreAdditionalLocalizations = jest.mocked(
+  fetchAppStoreAdditionalLocalizations
+);
 
 function buildSearchHtml(): string {
   return buildSearchHtmlForIds(["1", "2", "3", "4", "5"]);
@@ -58,6 +67,7 @@ function buildSearchHtmlForIds(ids: string[]): string {
 describe("aso-enrichment-service", () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockedFetchAppStoreAdditionalLocalizations.mockResolvedValue({});
   });
 
   it("uses exact lookup rating count for first apps when lookup is used", async () => {
@@ -234,6 +244,86 @@ describe("aso-enrichment-service", () => {
         currentVersionReleaseDate: "2025-01-01T00:00:00.000Z",
       })
     );
+  });
+
+  it("matches keywords per localization and does not mix words across localizations", async () => {
+    mockedAsoAppleGet.mockResolvedValue({
+      data: buildSearchHtmlForIds(["1", "2", "3", "4", "5"]),
+    } as never);
+
+    const result = await enrichKeyword(
+      {
+        keyword: "app dormir",
+        country: "US",
+        popularity: 66,
+      },
+      {
+        getAppDocs: async () => [
+          {
+            appId: "1",
+            country: "US",
+            name: "Cached 1",
+            averageUserRating: 4.7,
+            userRatingCount: 1000,
+            expiresAt: "2099-01-01T00:00:00.000Z",
+            releaseDate: "2024-01-01T00:00:00.000Z",
+            currentVersionReleaseDate: "2025-01-01T00:00:00.000Z",
+            additionalLocalizations: {
+              "es-MX": {
+                title: "dormir rapido",
+              },
+            },
+          },
+          {
+            appId: "2",
+            country: "US",
+            name: "Cached 2",
+            averageUserRating: 4.6,
+            userRatingCount: 2000,
+            expiresAt: "2099-01-01T00:00:00.000Z",
+            releaseDate: "2024-01-01T00:00:00.000Z",
+            currentVersionReleaseDate: "2025-01-01T00:00:00.000Z",
+            additionalLocalizations: {
+              "es-MX": {
+                title: "app dormir rapido",
+              },
+            },
+          },
+          {
+            appId: "3",
+            country: "US",
+            name: "Cached 3",
+            averageUserRating: 4.5,
+            userRatingCount: 3000,
+            expiresAt: "2099-01-01T00:00:00.000Z",
+            releaseDate: "2024-01-01T00:00:00.000Z",
+            currentVersionReleaseDate: "2025-01-01T00:00:00.000Z",
+          },
+          {
+            appId: "4",
+            country: "US",
+            name: "Cached 4",
+            averageUserRating: 4.4,
+            userRatingCount: 4000,
+            expiresAt: "2099-01-01T00:00:00.000Z",
+            releaseDate: "2024-01-01T00:00:00.000Z",
+            currentVersionReleaseDate: "2025-01-01T00:00:00.000Z",
+          },
+          {
+            appId: "5",
+            country: "US",
+            name: "Cached 5",
+            averageUserRating: 4.3,
+            userRatingCount: 5000,
+            expiresAt: "2099-01-01T00:00:00.000Z",
+            releaseDate: "2024-01-01T00:00:00.000Z",
+            currentVersionReleaseDate: "2025-01-01T00:00:00.000Z",
+          },
+        ],
+      }
+    );
+
+    expect(result.keywordIncluded).toBe(1);
   });
 
   it("does not set expiresAt for non-top apps without app-specific lookup", async () => {

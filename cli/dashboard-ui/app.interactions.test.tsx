@@ -311,7 +311,6 @@ describe("dashboard app interactions", () => {
   it("opens top apps dialog and supports context delete", async () => {
     let deletedBody: any = null;
     const confirmSpy = jest.spyOn(window, "confirm").mockReturnValue(true);
-    const openSpy = jest.spyOn(window, "open").mockImplementation(() => null);
     const fetchMock = buildFetchMock({
       initialApps: [
         { id: DEFAULT_RESEARCH_APP_ID, name: "Research" },
@@ -361,12 +360,11 @@ describe("dashboard app interactions", () => {
     });
     await within(dialog).findByText("Calm App");
 
-    fireEvent.click(within(dialog).getByRole("button", { name: "Open in App Store" }));
-    expect(openSpy).toHaveBeenCalledWith(
-      expect.stringContaining("apps.apple.com"),
-      "_blank",
-      "noopener,noreferrer"
-    );
+    const appStoreLink = within(dialog).getByRole("link", { name: "Open in App Store" });
+    expect(appStoreLink).toHaveAttribute("href", expect.stringContaining("apps.apple.com"));
+    expect(appStoreLink).toHaveAttribute("target", "_blank");
+    expect(appStoreLink).toHaveAttribute("rel", expect.stringContaining("noopener"));
+    expect(appStoreLink).toHaveAttribute("rel", expect.stringContaining("noreferrer"));
 
     fireEvent.contextMenu(keywordCell.closest("tr") as HTMLElement, {
       clientX: 50,

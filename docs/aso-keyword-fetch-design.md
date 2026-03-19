@@ -6,6 +6,9 @@ Also covers MCP keyword evaluation entrypoint (`aso_evaluate_keywords`) that eva
 
 ## Constraints
 - Storefront: `US` only.
+- US locale set for difficulty localization enrichment:
+  - default: `en-US`
+  - additional: `ar`, `zh-Hans`, `zh-Hant`, `fr-FR`, `ko-KR`, `pt-BR`, `ru-RU`, `es-MX`, `vi`
 - Request size: max `100` keywords.
 - Popularity stage requires a valid Primary App ID accessible by the caller's Apple Ads account.
 - ASO research `keyword` means a search term candidate, which can be a single word or a multi-word long-tail phrase.
@@ -62,6 +65,7 @@ Also covers MCP keyword evaluation entrypoint (`aso_evaluate_keywords`) that eva
 - App detail sources:
   - App Store lookup payloads for competitor docs and release-date fields.
   - Localized app-page `serialized-server-data` JSON for `title`, `subtitle`, `icon`, `ratingAverage`, `totalNumberOfRatings`.
+  - During enrichment, top difficulty docs aggregate additional locale `title/subtitle` into `aso_apps.additionalLocalizations` for per-localization keyword matching.
 - Difficulty score uses top-result competitiveness signals plus app-count normalization.
 
 ### Difficulty Calculation
@@ -76,12 +80,13 @@ Per-app competitive score (for each of top 5 apps):
 - `normalizedRatingCount = clamp(userRatingCount / 10000, 0, 1)`
 - `normalizedAvgRating`: starts above rating `3`, scales toward `5`, and is damped for low rating counts (`<= 10`).
 - `normalizedAge = 1 - clamp(daysSinceLastRelease / 365, 0, 1)`
-- `keywordScore` from keyword presence in title/subtitle:
+- `keywordScore` from keyword presence in title/subtitle, evaluated per localization (default + additional locales) and choosing the best single-localization match:
   - exact title phrase: `1`
   - all keyword words in title or exact subtitle phrase: `0.7`
   - phrase in combined title+subtitle: `0.5`
   - all keyword words in subtitle: `0.4`
   - otherwise: `0`
+  - words are never mixed across different localizations (no cross-localization token merge).
 - `normalizedRatingPerDay`: rating velocity mapped to `[0,1]` with low-rate damping and high-rate saturation.
 - Weighted score:
   - `appCompetitiveScore = 0.2*normalizedRatingCount + 0.2*normalizedAvgRating + 0.1*normalizedAge + 0.3*keywordScore + 0.2*normalizedRatingPerDay`
@@ -128,6 +133,7 @@ Keyword-level difficulty:
 - Local DB stores `difficultyScore` and `minDifficultyScore` as rounded integers on write.
 - `owned_apps` stores sidebar/owned-app state (`kind`, rating snapshots, previous snapshots, fetch timestamps) and is independent from competitor `aso_apps`.
 - `aso_apps` stores competitor app-doc cache only (country scoped, no owned-app daily snapshot fields).
+- `aso_apps.additionalLocalizations` stores locale-keyed `{ title, subtitle? }` for additional country locales used by difficulty matching.
 - Interactive `aso keywords` runs (without `--stdout`) save requested keywords into `app_keywords` for the default research app (`research`) so failed terms stay visible in dashboard research workspace.
 - MCP `aso_evaluate_keywords` saves only accepted keywords into `app_keywords`: defaults to the research app association, or uses caller-provided `appId` when set.
 - Dashboard keyword reads include app-associated failures even when no `aso_keywords` cache row exists yet, marking those rows as failed for retry UX.

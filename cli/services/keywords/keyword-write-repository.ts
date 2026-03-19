@@ -40,6 +40,7 @@ type CompetitorAppDoc = {
   currentVersionReleaseDate?: string | null;
   icon?: Record<string, unknown>;
   iconArtwork?: { url?: string; [key: string]: unknown };
+  additionalLocalizations?: Record<string, { title: string; subtitle?: string }>;
   expiresAt?: string;
 };
 
@@ -154,6 +155,7 @@ export class KeywordWriteRepository {
         currentVersionReleaseDate: doc.currentVersionReleaseDate,
         icon: doc.icon as Record<string, unknown> | undefined,
         iconArtwork: doc.iconArtwork,
+        additionalLocalizations: doc.additionalLocalizations,
         expiresAt: doc.expiresAt,
       }))
     );

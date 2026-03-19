@@ -11,6 +11,7 @@ import {
   sanitizeTelemetryUrl,
   sanitizeTelemetryValue,
 } from "../shared/telemetry/trace-utils";
+import { getStorefrontDefaultLanguage } from "../shared/aso-storefront-localizations";
 
 export type AppDoc = {
   appId: string;
@@ -48,10 +49,6 @@ export type TopAppRow = AppDoc & {
 };
 
 export const DEFAULT_ASO_COUNTRY = DOMAIN_DEFAULT_ASO_COUNTRY;
-
-const APP_STORE_LANGUAGE_BY_COUNTRY: Record<string, string> = {
-  US: "en-us",
-};
 
 export const APP_STORE_ICON_IMAGE_URL =
   "https://support.apple.com/content/dam/edam/applecare/images/en_US/psp_content/content-block-sm-appstore-icon_2x.png";
@@ -341,11 +338,7 @@ export const getBrowserLocale = (): string | undefined => {
 };
 
 export const getAppStoreLanguageForCountry = (country: string): string => {
-  const normalizedCountry = country.toUpperCase();
-  return (
-    APP_STORE_LANGUAGE_BY_COUNTRY[normalizedCountry] ??
-    APP_STORE_LANGUAGE_BY_COUNTRY[DEFAULT_ASO_COUNTRY]
-  );
+  return getStorefrontDefaultLanguage(country);
 };
 
 export const buildAppStoreUrl = (appId: string, country: string): string => {
