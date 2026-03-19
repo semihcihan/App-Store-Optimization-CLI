@@ -16,7 +16,7 @@ export interface AsoAppDocIconArtwork {
 }
 
 export type AsoAppLocalization = {
-  title: string;
+  name: string;
   subtitle?: string;
 };
 

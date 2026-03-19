@@ -180,15 +180,15 @@ export async function fetchAppStoreLocalizedAppData(
   return mapped;
 }
 
-export type AppLocalizationTitleSubtitle = {
-  title: string;
+export type AppLocalizationNameSubtitle = {
+  name: string;
   subtitle?: string;
 };
 
 export async function fetchAppStoreAdditionalLocalizations(
   appId: string,
   country: string
-): Promise<Record<string, AppLocalizationTitleSubtitle>> {
+): Promise<Record<string, AppLocalizationNameSubtitle>> {
   const languages = getStorefrontAdditionalLanguages(country);
   if (languages.length === 0) {
     return {};
@@ -199,15 +199,15 @@ export async function fetchAppStoreAdditionalLocalizations(
       try {
         const localized = await fetchAppStoreLocalizedAppData(appId, country, language);
         if (!localized) return null;
-        const title = cleanText(localized.title);
+        const name = cleanText(localized.title);
         const subtitle = cleanText(localized.subtitle);
-        if (!title && !subtitle) return null;
+        if (!name && !subtitle) return null;
         return [
           language,
           {
-            title,
+            name,
             ...(subtitle ? { subtitle } : {}),
-          } satisfies AppLocalizationTitleSubtitle,
+          } satisfies AppLocalizationNameSubtitle,
         ] as const;
       } catch {
         return null;
@@ -215,7 +215,7 @@ export async function fetchAppStoreAdditionalLocalizations(
     })
   );
 
-  const additionalLocalizations: Record<string, AppLocalizationTitleSubtitle> = {};
+  const additionalLocalizations: Record<string, AppLocalizationNameSubtitle> = {};
   for (const entry of localizedResults) {
     if (!entry) continue;
     const [language, value] = entry;

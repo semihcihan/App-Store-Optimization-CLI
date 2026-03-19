@@ -44,7 +44,7 @@ Runtime flow contracts across CLI commands, local dashboard API, and ASO service
    - popularity fresh + difficulty complete + order expired -> order-only refresh.
 4. Persist popularity-only local rows for keywords awaiting full enrich.
 5. Enrich required keywords (`/aso/enrich`) and persist enriched keywords + competitor app docs.
-   - For top difficulty docs, enrichment fetches configured additional locales for the country and stores locale-keyed `title/subtitle` under competitor docs (`aso_apps.additionalLocalizations`) for per-localization keyword matching.
+   - For top difficulty docs, enrichment fetches configured additional locales for the country and stores locale-keyed `name/subtitle` under competitor docs (`aso_apps.additionalLocalizations`) for per-localization keyword matching.
 6. Refresh order-only keywords and persist updated `orderedAppIds` + `appCount` without refetching popularity.
    - Order refresh may include lightweight app metadata from search-page parsing, but Flow A persists only keyword order fields in this step; competitor doc cache (`aso_apps`) is hydrated later by Flow E endpoints when docs are missing/expired.
 7. In interactive CLI mode (without `--stdout`), associate requested keywords with the default research app (`research`) in `app_keywords` so failures remain visible for retry.

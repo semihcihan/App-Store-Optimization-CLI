@@ -270,7 +270,7 @@ describe("aso-enrichment-service", () => {
             currentVersionReleaseDate: "2025-01-01T00:00:00.000Z",
             additionalLocalizations: {
               "es-MX": {
-                title: "dormir rapido",
+                name: "dormir rapido",
               },
             },
           },
@@ -285,7 +285,7 @@ describe("aso-enrichment-service", () => {
             currentVersionReleaseDate: "2025-01-01T00:00:00.000Z",
             additionalLocalizations: {
               "es-MX": {
-                title: "app dormir rapido",
+                name: "app dormir rapido",
               },
             },
           },

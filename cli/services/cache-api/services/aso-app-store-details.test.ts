@@ -111,7 +111,7 @@ describe("aso-app-store-details", () => {
     const additional = await fetchAppStoreAdditionalLocalizations("123", "US");
 
     expect(additional).toEqual({
-      "fr-FR": { title: "Titre", subtitle: "Sous-titre" },
+      "fr-FR": { name: "Titre", subtitle: "Sous-titre" },
     });
     expect(mockedAsoAppleGet).toHaveBeenCalledWith(
       "https://apps.apple.com/us/app/id123?l=zh-Hans",

@@ -129,12 +129,12 @@ function detectKeywordMatchType(
 }
 
 function detectBestKeywordMatchType(app: AsoAppDoc, keyword: string): KeywordMatchType {
-  const localizations: Array<{ title: string; subtitle?: string }> = [
-    { title: app.name, subtitle: app.subtitle },
+  const localizations: Array<{ name: string; subtitle?: string }> = [
+    { name: app.name, subtitle: app.subtitle },
   ];
   for (const localized of Object.values(app.additionalLocalizations ?? {})) {
     localizations.push({
-      title: localized.title,
+      name: localized.name,
       subtitle: localized.subtitle,
     });
   }
@@ -142,7 +142,7 @@ function detectBestKeywordMatchType(app: AsoAppDoc, keyword: string): KeywordMat
   let bestMatch: KeywordMatchType = "none";
   let bestScore = 0;
   for (const localized of localizations) {
-    const match = detectKeywordMatchType(localized.title, localized.subtitle, keyword);
+    const match = detectKeywordMatchType(localized.name, localized.subtitle, keyword);
     const score = keywordMatchToScore(match);
     if (score > bestScore) {
       bestMatch = match;

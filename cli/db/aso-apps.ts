@@ -11,7 +11,7 @@ type AppDocInput = {
   currentVersionReleaseDate?: string | null;
   icon?: Record<string, unknown>;
   iconArtwork?: { url?: string; [key: string]: unknown };
-  additionalLocalizations?: Record<string, { title: string; subtitle?: string }>;
+  additionalLocalizations?: Record<string, { name: string; subtitle?: string }>;
   expiresAt?: string;
 };
 
@@ -32,7 +32,7 @@ type AsoAppRow = {
 
 function parseAdditionalLocalizations(
   raw: string | null
-): Record<string, { title: string; subtitle?: string }> | undefined {
+): Record<string, { name: string; subtitle?: string }> | undefined {
   if (!raw) return undefined;
   try {
     const parsed = JSON.parse(raw) as unknown;
@@ -40,19 +40,19 @@ function parseAdditionalLocalizations(
       return undefined;
     }
 
-    const result: Record<string, { title: string; subtitle?: string }> = {};
+    const result: Record<string, { name: string; subtitle?: string }> = {};
     for (const [language, value] of Object.entries(parsed)) {
       if (!language || !value || typeof value !== "object" || Array.isArray(value)) {
         continue;
       }
-      const title = typeof value.title === "string" ? value.title.trim() : "";
+      const name = typeof value.name === "string" ? value.name.trim() : "";
       const subtitle =
         typeof value.subtitle === "string" && value.subtitle.trim()
           ? value.subtitle.trim()
           : undefined;
-      if (!title && !subtitle) continue;
+      if (!name && !subtitle) continue;
       result[language] = {
-        title,
+        name,
         ...(subtitle ? { subtitle } : {}),
       };
     }
@@ -141,7 +141,7 @@ export function upsertCompetitorAppDocs(
   );
   const existingByAppId = new Map<
     string,
-    Record<string, { title: string; subtitle?: string }> | undefined
+    Record<string, { name: string; subtitle?: string }> | undefined
   >();
   if (appIds.length > 0) {
     const placeholders = appIds.map(() => "?").join(",");

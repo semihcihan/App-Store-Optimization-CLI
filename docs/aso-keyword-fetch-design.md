@@ -65,7 +65,7 @@ Also covers MCP keyword evaluation entrypoint (`aso_evaluate_keywords`) that eva
 - App detail sources:
   - App Store lookup payloads for competitor docs and release-date fields.
   - Localized app-page `serialized-server-data` JSON for `title`, `subtitle`, `icon`, `ratingAverage`, `totalNumberOfRatings`.
-  - During enrichment, top difficulty docs aggregate additional locale `title/subtitle` into `aso_apps.additionalLocalizations` for per-localization keyword matching.
+  - During enrichment, top difficulty docs aggregate additional locale `name/subtitle` into `aso_apps.additionalLocalizations` for per-localization keyword matching.
 - Difficulty score uses top-result competitiveness signals plus app-count normalization.
 
 ### Difficulty Calculation
@@ -135,7 +135,7 @@ Keyword-level difficulty:
 - `owned_apps` stores country-agnostic app identity/sidebar metadata (`id`, `kind`, `name`, `icon`) and is independent from competitor `aso_apps`.
 - `owned_app_country_ratings` stores country-scoped owned-app ratings (`averageUserRating`, `userRatingCount`, previous snapshots, fetch timestamp, TTL) keyed by `(app_id, country)`.
 - `aso_apps` stores competitor app-doc cache only (country scoped, no owned-app daily snapshot fields).
-- `aso_apps.additionalLocalizations` stores locale-keyed `{ title, subtitle? }` for additional country locales used by difficulty matching.
+- `aso_apps.additionalLocalizations` stores locale-keyed `{ name, subtitle? }` for additional country locales used by difficulty matching.
 - Interactive `aso keywords` runs (without `--stdout`) save requested keywords into `app_keywords` for the default research app (`research`) so failed terms stay visible in dashboard research workspace.
 - MCP `aso_evaluate_keywords` saves only accepted keywords into `app_keywords`: defaults to the research app association, or uses caller-provided `appId` when set.
 - Dashboard keyword reads include app-associated failures even when no `aso_keywords` cache row exists yet, marking those rows as failed for retry UX.

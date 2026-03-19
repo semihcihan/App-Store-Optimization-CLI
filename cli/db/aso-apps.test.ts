@@ -45,7 +45,7 @@ describe("aso-apps", () => {
         userRatingCount: 500,
         additionalLocalizations: {
           "es-MX": {
-            title: "App Competidora",
+            name: "App Competidora",
             subtitle: "Subtitulo",
           },
         },
@@ -62,7 +62,7 @@ describe("aso-apps", () => {
         userRatingCount: 500,
         additionalLocalizations: {
           "es-MX": {
-            title: "App Competidora",
+            name: "App Competidora",
             subtitle: "Subtitulo",
           },
         },
@@ -113,7 +113,7 @@ describe("aso-apps", () => {
         userRatingCount: 10,
         additionalLocalizations: {
           "fr-FR": {
-            title: "Initiale",
+            name: "Initiale",
           },
         },
       },
@@ -137,7 +137,7 @@ describe("aso-apps", () => {
         releaseDate: "2026-01-01",
         additionalLocalizations: {
           "fr-FR": {
-            title: "Initiale",
+            name: "Initiale",
           },
         },
       })

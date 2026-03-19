@@ -61,7 +61,7 @@ export interface StoredAsoApp {
   currentVersionReleaseDate?: string | null;
   icon?: Record<string, unknown>;
   iconArtwork?: { url?: string; [key: string]: unknown };
-  additionalLocalizations?: Record<string, { title: string; subtitle?: string }>;
+  additionalLocalizations?: Record<string, { name: string; subtitle?: string }>;
   expiresAt?: string;
   country: string;
 }

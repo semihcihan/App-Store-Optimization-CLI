@@ -160,7 +160,7 @@ Competitor app-doc cache only (country-scoped).
 | `current_version_release_date` | `TEXT` | `string \| null` | Yes | Current version release date |
 | `icon_json` | `TEXT` | `Record<string, unknown> \| null` | Yes | JSON-encoded icon payload |
 | `icon_artwork_json` | `TEXT` | `Record<string, unknown> \| null` | Yes | JSON-encoded icon artwork payload |
-| `additional_localizations_json` | `TEXT` | `Record<string, { title: string; subtitle?: string }> \| null` | Yes | JSON-encoded locale map used for keyword inclusion/difficulty matching (non-default locales) |
+| `additional_localizations_json` | `TEXT` | `Record<string, { name: string; subtitle?: string }> \| null` | Yes | JSON-encoded locale map used for keyword inclusion/difficulty matching (non-default locales) |
 | `expires_at` | `TEXT` | `string \| null` | Yes | ISO datetime TTL |
 
 Indexes:

@@ -180,7 +180,7 @@ describe("aso-cache-local", () => {
         userRatingCount: 100,
         additionalLocalizations: {
           "es-MX": {
-            title: "Fresh App ES",
+            name: "Fresh App ES",
           },
         },
         expiresAt: "2099-01-01T00:00:00.000Z",
@@ -207,7 +207,7 @@ describe("aso-cache-local", () => {
         name: "Fresh App",
         additionalLocalizations: {
           "es-MX": {
-            title: "Fresh App ES",
+            name: "Fresh App ES",
           },
         },
       }),
