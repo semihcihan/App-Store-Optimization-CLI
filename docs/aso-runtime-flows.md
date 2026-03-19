@@ -100,8 +100,8 @@ Runtime flow contracts across CLI commands, local dashboard API, and ASO service
 ## Flow E: App Doc Hydration
 - `GET /api/apps` (owned app list):
   - ensure default research app exists.
-  - return `owned_apps` rows (`kind`, rating snapshots, icons, fetch timestamps).
-  - refresh stale `kind=owned` rows when `last_fetched_at` exceeds `ASO_OWNED_APP_DOC_REFRESH_MAX_AGE_HOURS` (default `24`) using localized app-page `serialized-server-data` JSON.
+  - return `owned_apps` rows joined with `owned_app_country_ratings` for the hydration country (`kind`, rating snapshots, icons, fetch timestamps).
+  - refresh stale `kind=owned` rows when `owned_app_country_ratings.last_fetched_at` exceeds `ASO_OWNED_APP_DOC_REFRESH_MAX_AGE_HOURS` (default `24`) using localized app-page `serialized-server-data` JSON.
 - `GET /api/aso/top-apps`: read ordered IDs from keyword, return competitor docs, hydrate missing/expired competitor docs.
 - `GET /api/aso/apps`: competitor-doc endpoint for requested IDs (`aso_apps` only), hydrate missing/expired competitor docs (or force with `refresh=true`).
 - `GET /api/aso/apps/search`: resolve ordered IDs for a free-text term and hydrate competitor docs for the top IDs.

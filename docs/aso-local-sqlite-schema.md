@@ -10,14 +10,18 @@ erDiagram
     TEXT id PK
     TEXT kind
     TEXT name
+    TEXT icon_json
+  }
+
+  OWNED_APP_COUNTRY_RATINGS {
+    TEXT app_id PK
+    TEXT country PK
     REAL average_user_rating
     INTEGER user_rating_count
     REAL previous_average_user_rating
     INTEGER previous_user_rating_count
-    TEXT icon_json
     TEXT expires_at
     TEXT last_fetched_at
-    TEXT previous_fetched_at
   }
 
   ASO_KEYWORDS {
@@ -80,6 +84,7 @@ erDiagram
     TEXT updated_at
   }
 
+  OWNED_APPS ||--o{ OWNED_APP_COUNTRY_RATINGS : "app_id link"
   OWNED_APPS ||--o{ APP_KEYWORDS : "logical app_id link"
   ASO_KEYWORDS ||--o{ APP_KEYWORDS : "logical country+keyword link"
   ASO_KEYWORDS ||--o| ASO_KEYWORD_FAILURES : "logical country+normalized_keyword link"
@@ -94,18 +99,30 @@ erDiagram
 | `id` | `TEXT` | `string` | No | PK |
 | `kind` | `TEXT` | `"owned" \| "research"` | No | `CHECK(kind IN ('owned','research'))` |
 | `name` | `TEXT` | `string` | No | Display name |
-| `average_user_rating` | `REAL` | `number \| null` | Yes | Current rating snapshot |
-| `user_rating_count` | `INTEGER` | `number \| null` | Yes | Current rating-count snapshot |
-| `previous_average_user_rating` | `REAL` | `number \| null` | Yes | Previous rating snapshot |
-| `previous_user_rating_count` | `INTEGER` | `number \| null` | Yes | Previous rating-count snapshot |
 | `icon_json` | `TEXT` | `Record<string, unknown> \| null` | Yes | JSON-encoded icon payload |
-| `expires_at` | `TEXT` | `string \| null` | Yes | ISO datetime TTL |
-| `last_fetched_at` | `TEXT` | `string \| null` | Yes | ISO datetime latest owned-app fetch |
-| `previous_fetched_at` | `TEXT` | `string \| null` | Yes | ISO datetime previous fetch |
 
 Indexes:
 - PK: (`id`)
 - `idx_owned_apps_kind`: (`kind`)
+
+### `owned_app_country_ratings`
+Country-scoped owned-app rating snapshots.
+
+| Column | SQLite Type | TS Type | Nullable | Notes |
+|---|---|---|---|---|
+| `app_id` | `TEXT` | `string` | No | PK part; FK to `owned_apps.id` |
+| `country` | `TEXT` | `string` | No | PK part |
+| `average_user_rating` | `REAL` | `number \| null` | Yes | Current rating snapshot |
+| `user_rating_count` | `INTEGER` | `number \| null` | Yes | Current rating-count snapshot |
+| `previous_average_user_rating` | `REAL` | `number \| null` | Yes | Previous rating snapshot |
+| `previous_user_rating_count` | `INTEGER` | `number \| null` | Yes | Previous rating-count snapshot |
+| `expires_at` | `TEXT` | `string \| null` | Yes | ISO datetime TTL |
+| `last_fetched_at` | `TEXT` | `string \| null` | Yes | ISO datetime latest fetch for this app+country |
+
+Indexes:
+- PK: (`app_id`, `country`)
+- `idx_owned_app_country_ratings_country`: (`country`)
+- `idx_owned_app_country_ratings_app`: (`app_id`)
 
 ### `aso_keywords`
 | Column | SQLite Type | TS Type | Nullable | Notes |
@@ -195,4 +212,5 @@ Indexes:
 
 ## Notes
 - DB init applies `PRAGMA journal_mode = WAL` and `PRAGMA foreign_keys = ON`.
-- There are no foreign-key constraints between ASO tables; links are logical and enforced at service layer.
+- `owned_app_country_ratings.app_id` has FK to `owned_apps.id` (`ON DELETE CASCADE`).
+- ASO keyword/app-doc tables keep logical links enforced at service layer.

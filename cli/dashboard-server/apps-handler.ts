@@ -122,7 +122,7 @@ export function createAppsHandlers(deps: CreateAppsHandlersDeps) {
       try {
         const snapshots = await deps.fetchOwnedAppSnapshotsFromApi(country, [appId]);
         if (snapshots.length > 0) {
-          upsertOwnedAppSnapshots(snapshots);
+          upsertOwnedAppSnapshots(country, snapshots);
           const first = snapshots[0];
           if (first?.name?.trim()) {
             hydratedName = first.name.trim();

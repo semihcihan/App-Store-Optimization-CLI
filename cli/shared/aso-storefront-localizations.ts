@@ -2,6 +2,11 @@ import { DEFAULT_ASO_COUNTRY } from "../domain/keywords/policy";
 
 export type StorefrontLanguageConfig = {
   defaultLanguage: string;
+  additionalLanguages?: string[];
+};
+
+type NormalizedStorefrontLanguageConfig = {
+  defaultLanguage: string;
   additionalLanguages: string[];
 };
 
@@ -25,12 +30,19 @@ export const ASO_STOREFRONT_LANGUAGES_BY_COUNTRY: Record<
   },
 };
 
-export function getStorefrontLanguageConfig(country: string): StorefrontLanguageConfig {
+export function getStorefrontLanguageConfig(
+  country: string
+): NormalizedStorefrontLanguageConfig {
   const normalizedCountry = country.toUpperCase();
-  return (
+  const config =
     ASO_STOREFRONT_LANGUAGES_BY_COUNTRY[normalizedCountry] ??
-    ASO_STOREFRONT_LANGUAGES_BY_COUNTRY[DEFAULT_ASO_COUNTRY]
-  );
+    ASO_STOREFRONT_LANGUAGES_BY_COUNTRY[DEFAULT_ASO_COUNTRY];
+  return {
+    defaultLanguage: config.defaultLanguage,
+    additionalLanguages: Array.isArray(config.additionalLanguages)
+      ? config.additionalLanguages
+      : [],
+  };
 }
 
 export function getStorefrontDefaultLanguage(country: string): string {

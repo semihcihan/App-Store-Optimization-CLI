@@ -18,7 +18,6 @@ export interface StoredOwnedApp {
   icon?: Record<string, unknown>;
   expiresAt: string | null;
   lastFetchedAt: string | null;
-  previousFetchedAt: string | null;
 }
 
 export interface StoredAsoKeyword {

@@ -1,3 +1,4 @@
+import { DEFAULT_ASO_COUNTRY, normalizeCountry } from "../domain/keywords/policy";
 import type { OwnedAppKind, StoredOwnedApp } from "./types";
 import { getDb } from "./store";
 
@@ -5,14 +6,22 @@ type OwnedAppRow = {
   id: string;
   kind: string;
   name: string;
+  icon_json: string | null;
   average_user_rating: number | null;
   user_rating_count: number | null;
   previous_average_user_rating: number | null;
   previous_user_rating_count: number | null;
-  icon_json: string | null;
   expires_at: string | null;
   last_fetched_at: string | null;
-  previous_fetched_at: string | null;
+};
+
+type OwnedAppCountryRatingRow = {
+  average_user_rating: number | null;
+  user_rating_count: number | null;
+  previous_average_user_rating: number | null;
+  previous_user_rating_count: number | null;
+  expires_at: string | null;
+  last_fetched_at: string | null;
 };
 
 function parseJsonObject(
@@ -44,22 +53,25 @@ function toStoredOwnedApp(row: OwnedAppRow): StoredOwnedApp {
     icon: parseJsonObject(row.icon_json),
     expiresAt: row.expires_at,
     lastFetchedAt: row.last_fetched_at,
-    previousFetchedAt: row.previous_fetched_at,
   };
 }
 
-export function listOwnedApps(): StoredOwnedApp[] {
+export function listOwnedApps(country: string = DEFAULT_ASO_COUNTRY): StoredOwnedApp[] {
   const db = getDb();
+  const normalizedCountry = normalizeCountry(country);
   const rows = db
     .prepare(
-      `SELECT id, kind, name, average_user_rating, user_rating_count,
-              previous_average_user_rating, previous_user_rating_count,
-              icon_json,
-              expires_at, last_fetched_at, previous_fetched_at
-       FROM owned_apps
-       ORDER BY name COLLATE NOCASE ASC`
+      `SELECT app.id, app.kind, app.name, app.icon_json,
+              ratings.average_user_rating, ratings.user_rating_count,
+              ratings.previous_average_user_rating, ratings.previous_user_rating_count,
+              ratings.expires_at, ratings.last_fetched_at
+       FROM owned_apps app
+       LEFT JOIN owned_app_country_ratings ratings
+         ON ratings.app_id = app.id
+        AND ratings.country = ?
+       ORDER BY app.name COLLATE NOCASE ASC`
     )
-    .all() as OwnedAppRow[];
+    .all(normalizedCountry) as OwnedAppRow[];
   return rows.map(toStoredOwnedApp);
 }
 
@@ -75,18 +87,25 @@ export function listOwnedAppIdsByKind(kind: OwnedAppKind): string[] {
   return rows.map((row) => row.id);
 }
 
-export function getOwnedAppById(id: string): StoredOwnedApp | null {
+export function getOwnedAppById(
+  id: string,
+  country: string = DEFAULT_ASO_COUNTRY
+): StoredOwnedApp | null {
   const db = getDb();
+  const normalizedCountry = normalizeCountry(country);
   const row = db
     .prepare(
-      `SELECT id, kind, name, average_user_rating, user_rating_count,
-              previous_average_user_rating, previous_user_rating_count,
-              icon_json,
-              expires_at, last_fetched_at, previous_fetched_at
-       FROM owned_apps
-       WHERE id = ?`
+      `SELECT app.id, app.kind, app.name, app.icon_json,
+              ratings.average_user_rating, ratings.user_rating_count,
+              ratings.previous_average_user_rating, ratings.previous_user_rating_count,
+              ratings.expires_at, ratings.last_fetched_at
+       FROM owned_apps app
+       LEFT JOIN owned_app_country_ratings ratings
+         ON ratings.app_id = app.id
+        AND ratings.country = ?
+       WHERE app.id = ?`
     )
-    .get(id) as OwnedAppRow | undefined;
+    .get(normalizedCountry, id) as OwnedAppRow | undefined;
   return row ? toStoredOwnedApp(row) : null;
 }
 
@@ -116,6 +135,7 @@ export function upsertOwnedApps(
 }
 
 export function upsertOwnedAppSnapshots(
+  country: string,
   apps: Array<{
     id: string;
     name?: string;
@@ -128,88 +148,101 @@ export function upsertOwnedAppSnapshots(
 ): void {
   if (apps.length === 0) return;
   const db = getDb();
-  const selectStmt = db.prepare(
-    `SELECT id, kind, name, average_user_rating, user_rating_count,
-            previous_average_user_rating, previous_user_rating_count,
-            icon_json,
-            expires_at, last_fetched_at, previous_fetched_at
+  const normalizedCountry = normalizeCountry(country);
+  const selectOwnedStmt = db.prepare(
+    `SELECT id, kind, name, icon_json
      FROM owned_apps
      WHERE id = ?`
   );
-  const upsertStmt = db.prepare(
-    `INSERT INTO owned_apps (
-      id, kind, name,
+  const selectRatingStmt = db.prepare(
+    `SELECT average_user_rating, user_rating_count,
+            previous_average_user_rating, previous_user_rating_count,
+            expires_at, last_fetched_at
+     FROM owned_app_country_ratings
+     WHERE app_id = ? AND country = ?`
+  );
+  const upsertOwnedStmt = db.prepare(
+    `INSERT INTO owned_apps (id, kind, name, icon_json)
+     VALUES (@id, @kind, @name, @iconJson)
+     ON CONFLICT(id) DO UPDATE SET
+       kind = excluded.kind,
+       name = excluded.name,
+       icon_json = excluded.icon_json`
+  );
+  const upsertRatingsStmt = db.prepare(
+    `INSERT INTO owned_app_country_ratings (
+      app_id, country,
       average_user_rating, user_rating_count,
       previous_average_user_rating, previous_user_rating_count,
-      icon_json,
-      expires_at, last_fetched_at, previous_fetched_at
+      expires_at, last_fetched_at
     )
     VALUES (
-      @id, @kind, @name,
+      @appId, @country,
       @averageUserRating, @userRatingCount,
       @previousAverageUserRating, @previousUserRatingCount,
-      @iconJson,
-      @expiresAt, @lastFetchedAt, @previousFetchedAt
+      @expiresAt, @lastFetchedAt
     )
-    ON CONFLICT(id) DO UPDATE SET
-      kind = excluded.kind,
-      name = excluded.name,
+    ON CONFLICT(app_id, country) DO UPDATE SET
       average_user_rating = excluded.average_user_rating,
       user_rating_count = excluded.user_rating_count,
       previous_average_user_rating = excluded.previous_average_user_rating,
       previous_user_rating_count = excluded.previous_user_rating_count,
-      icon_json = excluded.icon_json,
       expires_at = excluded.expires_at,
-      last_fetched_at = excluded.last_fetched_at,
-      previous_fetched_at = excluded.previous_fetched_at`
+      last_fetched_at = excluded.last_fetched_at`
   );
 
   const tx = db.transaction(() => {
     for (const app of apps) {
-      const existing = selectStmt.get(app.id) as OwnedAppRow | undefined;
+      const existingOwned = selectOwnedStmt.get(app.id) as
+        | { id: string; kind: string; name: string; icon_json: string | null }
+        | undefined;
+      const existingRating = selectRatingStmt.get(
+        app.id,
+        normalizedCountry
+      ) as OwnedAppCountryRatingRow | undefined;
       const now = app.fetchedAt ?? new Date().toISOString();
 
       const nextAverage =
         app.averageUserRating != null
           ? app.averageUserRating
-          : existing?.average_user_rating ?? null;
+          : existingRating?.average_user_rating ?? null;
       const nextCount =
         app.userRatingCount != null
           ? app.userRatingCount
-          : existing?.user_rating_count ?? null;
+          : existingRating?.user_rating_count ?? null;
 
       const previousAverage =
-        app.averageUserRating != null && existing?.average_user_rating != null
-          ? existing.average_user_rating
-          : existing?.previous_average_user_rating ?? null;
+        app.averageUserRating != null && existingRating?.average_user_rating != null
+          ? existingRating.average_user_rating
+          : existingRating?.previous_average_user_rating ?? null;
       const previousCount =
-        app.userRatingCount != null && existing?.user_rating_count != null
-          ? existing.user_rating_count
-          : existing?.previous_user_rating_count ?? null;
+        app.userRatingCount != null && existingRating?.user_rating_count != null
+          ? existingRating.user_rating_count
+          : existingRating?.previous_user_rating_count ?? null;
 
-      const kind = toOwnedAppKind(existing?.kind ?? "owned");
+      const kind = toOwnedAppKind(existingOwned?.kind ?? "owned");
       const nextName =
-        app.name?.trim() || existing?.name?.trim() || app.id;
+        app.name?.trim() || existingOwned?.name?.trim() || app.id;
 
       const icon =
-        app.icon ?? parseJsonObject(existing?.icon_json ?? null) ?? undefined;
+        app.icon ?? parseJsonObject(existingOwned?.icon_json ?? null) ?? undefined;
 
-      const lastFetchedAt = now;
-      const previousFetchedAt =
-        existing?.last_fetched_at ?? existing?.previous_fetched_at ?? null;
-
-      upsertStmt.run({
+      upsertOwnedStmt.run({
         id: app.id,
         kind,
         name: nextName,
+        iconJson: icon ? JSON.stringify(icon) : null,
+      });
+
+      upsertRatingsStmt.run({
+        appId: app.id,
+        country: normalizedCountry,
         averageUserRating: nextAverage,
         userRatingCount: nextCount,
         previousAverageUserRating: previousAverage,
         previousUserRatingCount: previousCount,
-        iconJson: icon ? JSON.stringify(icon) : null,
-        expiresAt: app.expiresAt ?? existing?.expires_at ?? null,
-        lastFetchedAt,
-        previousFetchedAt,
+        expiresAt: app.expiresAt ?? existingRating?.expires_at ?? null,
+        lastFetchedAt: now,
       });
     }
   });

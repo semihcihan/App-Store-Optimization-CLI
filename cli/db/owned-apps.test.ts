@@ -58,7 +58,7 @@ describe("owned-apps", () => {
   it("tracks previous rating/count and fetched timestamps on snapshot updates", () => {
     upsertOwnedApps([{ id: "123", kind: "owned", name: "App 123" }]);
 
-    upsertOwnedAppSnapshots([
+    upsertOwnedAppSnapshots("US", [
       {
         id: "123",
         name: "App 123",
@@ -68,7 +68,7 @@ describe("owned-apps", () => {
       },
     ]);
 
-    upsertOwnedAppSnapshots([
+    upsertOwnedAppSnapshots("US", [
       {
         id: "123",
         name: "App 123",
@@ -85,7 +85,44 @@ describe("owned-apps", () => {
         previousAverageUserRating: 4.2,
         previousUserRatingCount: 100,
         lastFetchedAt: "2026-01-02T00:00:00.000Z",
-        previousFetchedAt: "2026-01-01T00:00:00.000Z",
+      })
+    );
+  });
+
+  it("stores ratings per country while keeping owned app identity global", () => {
+    upsertOwnedApps([{ id: "123", kind: "owned", name: "App 123" }]);
+
+    upsertOwnedAppSnapshots("US", [
+      {
+        id: "123",
+        averageUserRating: 4.6,
+        userRatingCount: 210,
+        fetchedAt: "2026-01-02T00:00:00.000Z",
+      },
+    ]);
+    upsertOwnedAppSnapshots("TR", [
+      {
+        id: "123",
+        averageUserRating: 4.1,
+        userRatingCount: 35,
+        fetchedAt: "2026-01-03T00:00:00.000Z",
+      },
+    ]);
+
+    expect(getOwnedAppById("123", "US")).toEqual(
+      expect.objectContaining({
+        id: "123",
+        name: "App 123",
+        averageUserRating: 4.6,
+        userRatingCount: 210,
+      })
+    );
+    expect(getOwnedAppById("123", "TR")).toEqual(
+      expect.objectContaining({
+        id: "123",
+        name: "App 123",
+        averageUserRating: 4.1,
+        userRatingCount: 35,
       })
     );
   });

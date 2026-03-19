@@ -237,7 +237,7 @@ export function createServerRequestHandler(): http.RequestListener {
 
       if (req.method === "GET" && pathname === "/api/apps") {
         ensureDefaultResearchAppExists();
-        let apps = listOwnedApps();
+        let apps = listOwnedApps(DEFAULT_APP_DOCS_HYDRATION_COUNTRY);
         const nowMs = Date.now();
         const refreshMaxAgeMs = ASO_ENV.ownedAppDocRefreshMaxAgeMs;
         const staleOwnedAppIds = apps
@@ -258,9 +258,9 @@ export function createServerRequestHandler(): http.RequestListener {
               staleOwnedAppIds
             );
             if (snapshots.length > 0) {
-              upsertOwnedAppSnapshots(snapshots);
+              upsertOwnedAppSnapshots(DEFAULT_APP_DOCS_HYDRATION_COUNTRY, snapshots);
             }
-            apps = listOwnedApps();
+            apps = listOwnedApps(DEFAULT_APP_DOCS_HYDRATION_COUNTRY);
           } catch (error) {
             reportDashboardError(error, {
               method: "GET",
@@ -283,7 +283,6 @@ export function createServerRequestHandler(): http.RequestListener {
             icon: app.icon,
             expiresAt: app.expiresAt,
             lastFetchedAt: app.lastFetchedAt,
-            previousFetchedAt: app.previousFetchedAt,
             lastKeywordAddedAt: appLastAddedAt.get(app.id) ?? null,
           }))
           .sort((a, b) => {

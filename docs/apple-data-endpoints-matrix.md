@@ -9,7 +9,9 @@ Apple upstream fetch surfaces used by ASO keyword enrichment and dashboard app h
 - Competitor app-doc target (`aso_apps`):
   - `country`, `appId`, `name`, `subtitle`, `averageUserRating`, `userRatingCount`, `releaseDate`, `currentVersionReleaseDate`, `icon`, `iconArtwork`, `additionalLocalizations`, `expiresAt`
 - Owned app target (`owned_apps`):
-  - `id`, `kind`, `name`, `averageUserRating`, `userRatingCount`, `previousAverageUserRating`, `previousUserRatingCount`, `icon`, `expiresAt`, `lastFetchedAt`, `previousFetchedAt`
+  - `id`, `kind`, `name`, `icon`
+- Owned app country-rating target (`owned_app_country_ratings`):
+  - `appId`, `country`, `averageUserRating`, `userRatingCount`, `previousAverageUserRating`, `previousUserRatingCount`, `expiresAt`, `lastFetchedAt`
 
 ## Endpoint Matrix
 | Endpoint | Used For | Apple fields we read | Internal mapping | Fallback / notes |
@@ -30,7 +32,7 @@ Apple upstream fetch surfaces used by ASO keyword enrichment and dashboard app h
 ### 2) Owned app refresh chain
 1. `/api/apps` reads `owned_apps` cache.
 2. For stale owned rows (`kind=owned`), call localized app page endpoint.
-3. Persist snapshot into `owned_apps` (`name`, `averageUserRating`, `userRatingCount`, fetch timestamps, previous values).
+3. Persist country-agnostic fields (`name`, `icon`) into `owned_apps` and rating fields into `owned_app_country_ratings`.
 
 ## Important Contracts
 - Localized app page parsing must read `serialized-server-data` JSON; HTML selectors are intentionally not used.

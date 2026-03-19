@@ -47,7 +47,6 @@ type AppItem = {
   icon?: Record<string, unknown>;
   expiresAt?: string | null;
   lastFetchedAt?: string | null;
-  previousFetchedAt?: string | null;
   lastKeywordAddedAt?: string | null;
 };
 type AppDoc = {

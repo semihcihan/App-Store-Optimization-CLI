@@ -12,17 +12,27 @@ function initializeDatabase(database: Database.Database): void {
       id TEXT PRIMARY KEY,
       kind TEXT NOT NULL CHECK (kind IN ('owned', 'research')),
       name TEXT NOT NULL,
+      icon_json TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_owned_apps_kind
+      ON owned_apps(kind);
+
+    CREATE TABLE IF NOT EXISTS owned_app_country_ratings (
+      app_id TEXT NOT NULL,
+      country TEXT NOT NULL,
       average_user_rating REAL,
       user_rating_count INTEGER,
       previous_average_user_rating REAL,
       previous_user_rating_count INTEGER,
-      icon_json TEXT,
       expires_at TEXT,
       last_fetched_at TEXT,
-      previous_fetched_at TEXT
+      PRIMARY KEY (app_id, country),
+      FOREIGN KEY (app_id) REFERENCES owned_apps(id) ON DELETE CASCADE
     );
-    CREATE INDEX IF NOT EXISTS idx_owned_apps_kind
-      ON owned_apps(kind);
+    CREATE INDEX IF NOT EXISTS idx_owned_app_country_ratings_country
+      ON owned_app_country_ratings(country);
+    CREATE INDEX IF NOT EXISTS idx_owned_app_country_ratings_app
+      ON owned_app_country_ratings(app_id);
 
     CREATE TABLE IF NOT EXISTS aso_keywords (
       country TEXT NOT NULL,

@@ -396,7 +396,7 @@ describe("dashboard server routes", () => {
     expect(mockUpsertOwnedApps).toHaveBeenCalledWith([
       { id: "123", kind: "owned", name: "123" },
     ]);
-    expect(mockUpsertOwnedAppSnapshots).toHaveBeenCalledWith([
+    expect(mockUpsertOwnedAppSnapshots).toHaveBeenCalledWith("US", [
       {
         id: "123",
         name: "Hydrated Name",

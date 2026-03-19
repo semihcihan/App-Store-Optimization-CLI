@@ -128,11 +128,12 @@ Keyword-level difficulty:
     - `simulated` (same weights, no top-5 fallback gate)
 
 ## Persistence Model
-- Local DB (`~/.aso/aso-db.sqlite`): `owned_apps`, `aso_keywords`, `aso_apps`, `app_keywords`.
+- Local DB (`~/.aso/aso-db.sqlite`): `owned_apps`, `owned_app_country_ratings`, `aso_keywords`, `aso_apps`, `app_keywords`.
 - Full local SQLite schema reference (all tables + field types): `docs/aso-local-sqlite-schema.md`.
 - Failure DB table: `aso_keyword_failures` keyed by `(country, normalized_keyword)` for current failed state.
 - Local DB stores `difficultyScore` and `minDifficultyScore` as rounded integers on write.
-- `owned_apps` stores sidebar/owned-app state (`kind`, rating snapshots, previous snapshots, fetch timestamps) and is independent from competitor `aso_apps`.
+- `owned_apps` stores country-agnostic app identity/sidebar metadata (`id`, `kind`, `name`, `icon`) and is independent from competitor `aso_apps`.
+- `owned_app_country_ratings` stores country-scoped owned-app ratings (`averageUserRating`, `userRatingCount`, previous snapshots, fetch timestamp, TTL) keyed by `(app_id, country)`.
 - `aso_apps` stores competitor app-doc cache only (country scoped, no owned-app daily snapshot fields).
 - `aso_apps.additionalLocalizations` stores locale-keyed `{ title, subtitle? }` for additional country locales used by difficulty matching.
 - Interactive `aso keywords` runs (without `--stdout`) save requested keywords into `app_keywords` for the default research app (`research`) so failed terms stay visible in dashboard research workspace.
@@ -147,7 +148,7 @@ Keyword-level difficulty:
   - `ASO_KEYWORD_ORDER_TTL_HOURS` (default `24`): keyword order/rank data (`orderedAppIds`, `appCount`).
   - `ASO_POPULARITY_CACHE_TTL_HOURS` (default `720`): popularity + difficulty lifecycle (`30` days).
   - `ASO_APP_CACHE_TTL_HOURS` (default `168`): app document cache (`7` days).
-- Dashboard owned apps (`GET /api/apps`) enforce `ASO_OWNED_APP_DOC_REFRESH_MAX_AGE_HOURS` (default `24`) using `owned_apps.last_fetched_at`. Stale owned IDs are rehydrated from localized App Store app-page JSON and written back to `owned_apps` (including previous rating/count snapshots).
+- Dashboard owned apps (`GET /api/apps`) enforce `ASO_OWNED_APP_DOC_REFRESH_MAX_AGE_HOURS` (default `24`) using `owned_app_country_ratings.last_fetched_at` for the hydration country. Stale owned IDs are rehydrated from localized App Store app-page JSON and written back to `owned_app_country_ratings` (including previous rating/count snapshots).
 - Cache lookup returns only rows that are complete and fresh for both order TTL and popularity TTL.
 - Popularity and difficulty are refreshed together when popularity TTL expires.
 - Startup refresh processes associated owned-app keywords in background batches when popularity expires, difficulty is missing, or order expires.
