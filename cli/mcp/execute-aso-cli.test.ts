@@ -78,16 +78,21 @@ describe("execute-aso-cli", () => {
     });
 
     await expect(runAsoCommand(["keywords"])).rejects.toThrow("spawn failed");
-    expect(mockReportBugsnagError).toHaveBeenCalledWith(error, {
-      command: "keywords",
-      argCount: 1,
-      stage: "spawn",
-      surface: "aso-mcp",
-      telemetryHint: expect.objectContaining({
-        classification: "actionable_bug",
-        source: "mcp.execute-aso-cli.spawn",
-      }),
-    });
+    expect(mockReportBugsnagError).toHaveBeenCalledWith(
+      error,
+      expect.objectContaining({
+        command: "keywords",
+        argCount: 1,
+        stage: "spawn",
+        operation: "mcp.execute-aso-cli.spawn",
+        surface: "aso-mcp",
+        telemetryHint: expect.objectContaining({
+          classification: "actionable_bug",
+          source: "mcp.execute-aso-cli.spawn",
+          operation: "mcp.execute-aso-cli.spawn",
+        }),
+      })
+    );
   });
 
   it("maps runtime process errors to exitCode=1 result", async () => {

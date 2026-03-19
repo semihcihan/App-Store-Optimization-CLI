@@ -49,7 +49,7 @@ describe("bugsnag-classifier", () => {
       telemetryHint: { isUserFault: true },
     });
 
-    expect(decision.report).toBe(false);
+    expect(decision.report).toBe(true);
     expect(decision.classification).toBe("user_fault");
   });
 
@@ -105,8 +105,38 @@ describe("bugsnag-classifier", () => {
     });
 
     const decision = classifyTelemetryError(error, {});
-    expect(decision.report).toBe(false);
+    expect(decision.report).toBe(true);
     expect(decision.classification).toBe("user_fault");
+  });
+
+  it("classifies mcp parse-json payload drift as user-fault noise", () => {
+    const decision = classifyTelemetryError(
+      new Error("MCP expected JSON output from aso keywords"),
+      {
+        surface: "aso-mcp",
+        stage: "parse-json",
+      }
+    );
+
+    expect(decision).toEqual({
+      report: true,
+      classification: "user_fault",
+      reason: "mcp_parse_json_shape",
+    });
+  });
+
+  it("classifies dashboard auth status transport errors as user-fault noise", () => {
+    const decision = classifyTelemetryError(new TypeError("Failed to fetch"), {
+      surface: "aso-dashboard-ui",
+      method: "GET",
+      path: "/api/aso/auth/status",
+    });
+
+    expect(decision).toEqual({
+      report: true,
+      classification: "user_fault",
+      reason: "dashboard_auth_status_transport",
+    });
   });
 
   it("reports unknown Apple auth reasons as apple contract changes", () => {
@@ -138,6 +168,13 @@ describe("bugsnag-classifier", () => {
       surface: "unknown",
       source: "unknown",
       operation: "unknown",
+      endpoint: null,
+      method: null,
+      status: null,
+      request_id: null,
+      upstream_service: null,
+      signal: "actionable",
+      noise_class: null,
       isTerminal: null,
       telemetryClassification: "upstream_terminal_failure",
       telemetryDecisionReason: "explicit_hint_terminal_upstream",
@@ -166,7 +203,27 @@ describe("bugsnag-classifier", () => {
         surface: "aso-mcp",
         source: "mcp.aso-evaluate-keywords.parse-envelope",
         operation: "keywords-popularities-request",
+        signal: "actionable",
         isTerminal: true,
+      })
+    );
+  });
+
+  it("infers cli source and operation from command metadata", () => {
+    const metadata = withTelemetryDecisionMetadata(
+      { command: "aso keywords" },
+      {
+        report: true,
+        classification: "unknown",
+        reason: "default_report",
+      }
+    );
+
+    expect(metadata).toEqual(
+      expect.objectContaining({
+        surface: "aso-cli",
+        source: "cli.aso-keywords",
+        operation: "command:aso keywords",
       })
     );
   });

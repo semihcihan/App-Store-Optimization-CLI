@@ -168,16 +168,20 @@ export async function handleAsoEvaluateKeywords(args: AsoEvaluateKeywordsArgs) {
       surface: "aso-mcp",
       tool: "aso_evaluate_keywords",
       stage: "parse-json",
+      operation: "aso_evaluate_keywords.parse-json",
       command: "keywords",
       exitCode: commandResult.exitCode,
       stdoutLength: commandResult.stdout.length,
       stderrLength: commandResult.stderr.length,
+      noise_class: "mcp_parse_shape",
       telemetryHint: {
-        classification: "actionable_bug",
+        classification: "user_fault",
         surface: "aso-mcp",
         source: "mcp.aso-evaluate-keywords.parse-json",
+        operation: "aso_evaluate_keywords.parse-json",
         stage: "parse",
         tool: "aso_evaluate_keywords",
+        isTerminal: true,
       },
     });
     return buildFailureResult(

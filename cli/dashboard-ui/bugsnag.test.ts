@@ -1,4 +1,7 @@
-import { notifyDashboardError } from "./bugsnag";
+import {
+  notifyDashboardError,
+  resetDashboardBugsnagDeduplicationForTests,
+} from "./bugsnag";
 import { notifyBugsnagError } from "../shared/telemetry/bugsnag-shared";
 
 jest.mock("../shared/telemetry/bugsnag-shared", () => ({
@@ -15,6 +18,7 @@ describe("dashboard-ui/bugsnag", () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    resetDashboardBugsnagDeduplicationForTests();
   });
 
   it("suppresses expected dashboard 4xx flow errors", () => {
@@ -46,7 +50,45 @@ describe("dashboard-ui/bugsnag", () => {
         path: "/api/aso/keywords",
         telemetryClassification: "unknown",
         telemetryDecisionReason: "default_report",
-      })
+      }),
+      expect.any(Function)
+    );
+  });
+
+  it("dedupes repeated user-fault transport noise within 60 seconds", () => {
+    const nowSpy = jest.spyOn(Date, "now");
+    nowSpy.mockReturnValue(1_000);
+
+    const error = new TypeError("Failed to fetch");
+    const metadata = {
+      method: "GET",
+      path: "/api/aso/auth/status",
+      source: "dashboard-ui.api-request",
+      operation: "GET /api/aso/auth/status",
+    };
+
+    notifyDashboardError(error, metadata);
+    notifyDashboardError(error, metadata);
+    nowSpy.mockReturnValue(62_000);
+    notifyDashboardError(error, metadata);
+
+    expect(mockNotifyBugsnagError).toHaveBeenCalledTimes(2);
+    expect(mockNotifyBugsnagError).toHaveBeenNthCalledWith(
+      1,
+      error,
+      expect.objectContaining({
+        telemetryClassification: "user_fault",
+      }),
+      expect.any(Function)
+    );
+    expect(mockNotifyBugsnagError).toHaveBeenNthCalledWith(
+      2,
+      error,
+      expect.objectContaining({
+        telemetryClassification: "user_fault",
+        deduped_count: 1,
+      }),
+      expect.any(Function)
     );
   });
 });

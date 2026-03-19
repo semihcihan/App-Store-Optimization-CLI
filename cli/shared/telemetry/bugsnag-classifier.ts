@@ -1,4 +1,20 @@
-type AnyRecord = Record<string, unknown>;
+import {
+  type AnyRecord,
+  getErrorRecord,
+  getRequestPath,
+  toBooleanOrNull,
+  toRecord,
+  toStatusCode,
+  toStringValue,
+} from "./telemetry-helpers";
+import { classifyKnownNoise } from "./bugsnag-noise-rules";
+import {
+  inferNoiseClass,
+  inferOperation,
+  inferSignal,
+  inferSource,
+  inferSurface,
+} from "./telemetry-context";
 
 export type TelemetryClassification =
   | "actionable_bug"
@@ -34,6 +50,7 @@ const REPORTABLE_CLASSIFICATIONS = new Set<TelemetryClassification>([
   "actionable_bug",
   "apple_contract_change",
   "upstream_terminal_failure",
+  "user_fault",
   "unknown",
 ]);
 
@@ -52,28 +69,6 @@ const APPLE_AUTH_USER_FAULT_REASONS = new Set([
   "two_factor_required",
   "upgrade_required",
 ]);
-
-function toRecord(value: unknown): AnyRecord | undefined {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
-  return value as AnyRecord;
-}
-
-function toStatusCode(value: unknown): number | undefined {
-  if (typeof value === "number" && Number.isFinite(value)) {
-    return value;
-  }
-  if (typeof value === "string" && value.trim() !== "") {
-    const parsed = Number(value);
-    if (Number.isFinite(parsed)) return parsed;
-  }
-  return undefined;
-}
-
-function toStringValue(value: unknown): string | undefined {
-  if (typeof value !== "string") return undefined;
-  const trimmed = value.trim();
-  return trimmed === "" ? undefined : trimmed;
-}
 
 function getTelemetryHint(metadata: AnyRecord): TelemetryHint | undefined {
   const hint = toRecord(metadata.telemetryHint);
@@ -94,10 +89,6 @@ function getTelemetryHint(metadata: AnyRecord): TelemetryHint | undefined {
     stage: toStringValue(hint.stage),
     upstreamProvider: toStringValue(hint.upstreamProvider),
   };
-}
-
-function getErrorRecord(error: unknown): AnyRecord | undefined {
-  return toRecord(error);
 }
 
 function getStatusCode(error: unknown, metadata: AnyRecord): number | undefined {
@@ -150,6 +141,8 @@ function classifyKnownFlow(
   metadata: AnyRecord
 ): TelemetryDecision | undefined {
   const hint = getTelemetryHint(metadata);
+  const noisy = classifyKnownNoise(error, metadata, hint);
+  if (noisy) return noisy;
   if (hint?.classification) {
     return {
       report: REPORTABLE_CLASSIFICATIONS.has(hint.classification),
@@ -159,7 +152,7 @@ function classifyKnownFlow(
   }
   if (hint?.isUserFault) {
     return {
-      report: false,
+      report: true,
       classification: "user_fault",
       reason: "explicit_hint_user_fault",
     };
@@ -168,7 +161,7 @@ function classifyKnownFlow(
     const reason = toStringValue((error as AnyRecord).reason);
     if (reason && APPLE_AUTH_USER_FAULT_REASONS.has(reason)) {
       return {
-        report: false,
+        report: true,
         classification: "user_fault",
         reason: `apple_auth_${reason}`,
       };
@@ -197,7 +190,7 @@ function classifyKnownFlow(
 
   if (isLikelyCredentialUserFault(error)) {
     return {
-      report: false,
+      report: true,
       classification: "user_fault",
       reason: "credential_user_fault_message",
     };
@@ -260,20 +253,42 @@ export function withTelemetryDecisionMetadata(
   decision: TelemetryDecision
 ): Record<string, unknown> {
   const hint = getTelemetryHint(metadata);
-  const surface = toStringValue(metadata.surface) ?? hint?.surface ?? "unknown";
-  const source = toStringValue(metadata.source) ?? hint?.source ?? "unknown";
-  const operation =
-    toStringValue(metadata.operation) ?? hint?.operation ?? "unknown";
-  const isTerminal =
-    typeof metadata.isTerminal === "boolean"
-      ? metadata.isTerminal
-      : hint?.isTerminal ?? null;
+  const surface = inferSurface(metadata, hint) ?? "unknown";
+  const source = inferSource(metadata, hint, surface) ?? "unknown";
+  const operation = inferOperation(metadata, hint) ?? "unknown";
+  const endpoint = getRequestPath(metadata);
+  const method = toStringValue(metadata.method);
+  const status =
+    toStatusCode(metadata.status) ??
+    toStatusCode(metadata.statusCode) ??
+    hint?.statusCode ??
+    null;
+  const requestId =
+    toStringValue(metadata.request_id) ??
+    toStringValue(metadata.requestId) ??
+    null;
+  const upstreamService =
+    toStringValue(metadata.upstream_service) ??
+    toStringValue(metadata.upstreamProvider) ??
+    hint?.upstreamProvider ??
+    null;
+  const signal =
+    toStringValue(metadata.signal) ?? inferSignal(decision.classification);
+  const noiseClass = inferNoiseClass(metadata, decision.reason, signal);
+  const isTerminal = toBooleanOrNull(metadata.isTerminal) ?? hint?.isTerminal ?? null;
 
   return {
     ...metadata,
     surface,
     source,
     operation,
+    endpoint: endpoint ?? null,
+    method: method ?? null,
+    status,
+    request_id: requestId,
+    upstream_service: upstreamService,
+    signal,
+    noise_class: noiseClass,
     isTerminal,
     telemetryClassification: decision.classification,
     telemetryDecisionReason: decision.reason,

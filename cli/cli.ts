@@ -60,6 +60,12 @@ main().catch((err) => {
   const processedError = processNestedErrors(err, false);
 
   logger.error(`Command '${command}' failed`, processedError);
-  reportBugsnagError(err, { command, context: processedError });
+  reportBugsnagError(err, {
+    surface: "aso-cli",
+    source: "cli.main.catch",
+    operation: `command:${command}`,
+    command,
+    context: processedError,
+  });
   process.exitCode = 1;
 });

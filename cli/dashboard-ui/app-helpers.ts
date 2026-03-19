@@ -12,6 +12,7 @@ import {
   sanitizeTelemetryValue,
 } from "../shared/telemetry/trace-utils";
 import { getStorefrontDefaultLanguage } from "../shared/aso-storefront-localizations";
+import { isDashboardVerboseTraceEnabled } from "./runtime-config";
 
 export type AppDoc = {
   appId: string;
@@ -53,6 +54,7 @@ export const DEFAULT_ASO_COUNTRY = DOMAIN_DEFAULT_ASO_COUNTRY;
 export const APP_STORE_ICON_IMAGE_URL =
   "https://support.apple.com/content/dam/edam/applecare/images/en_US/psp_content/content-block-sm-appstore-icon_2x.png";
 const DASHBOARD_API_TRACE_LIMIT = 10;
+const DASHBOARD_API_FAILURE_TRACE_LIMIT = 3;
 const SENSITIVE_FIELD_KEYWORDS = [
   "authorization",
   "password",
@@ -125,6 +127,22 @@ function getRecentDashboardApiTraces(): DashboardApiTrace[] {
     response: trace.response ? { ...trace.response } : undefined,
     error: trace.error ? { ...trace.error } : undefined,
   }));
+}
+
+function isFailedDashboardApiTrace(trace: DashboardApiTrace): boolean {
+  if (trace.error) return true;
+  if (!trace.response) return false;
+  return trace.response.ok === false || trace.response.success === false;
+}
+
+function getTelemetryDashboardApiTraces(): DashboardApiTrace[] {
+  const traces = getRecentDashboardApiTraces();
+  if (isDashboardVerboseTraceEnabled()) {
+    return traces;
+  }
+  return traces
+    .filter((trace) => isFailedDashboardApiTrace(trace))
+    .slice(-DASHBOARD_API_FAILURE_TRACE_LIMIT);
 }
 
 function toDashboardApiOperation(
@@ -236,7 +254,7 @@ export async function apiRequest<T>(
       source: "dashboard-ui.api-request",
       operation: toDashboardApiOperation(method, sanitizedPath),
       isTerminal: true,
-      recentApiTraces: getRecentDashboardApiTraces(),
+      recentApiTraces: getTelemetryDashboardApiTraces(),
     });
     throw error;
   }

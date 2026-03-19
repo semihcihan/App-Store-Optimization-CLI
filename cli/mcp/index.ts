@@ -45,11 +45,13 @@ async function main() {
 main().catch((error) => {
   reportBugsnagError(error, {
     surface: "aso-mcp",
+    operation: "mcp.bootstrap",
     stage: "bootstrap",
     telemetryHint: {
       classification: "actionable_bug",
       surface: "aso-mcp",
       source: "mcp.index.main",
+      operation: "mcp.bootstrap",
       stage: "bootstrap",
     },
   });

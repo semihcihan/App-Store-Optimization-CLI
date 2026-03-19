@@ -183,7 +183,7 @@ describe("aso_evaluate_keywords service", () => {
     );
   });
 
-  it("reports malformed JSON stdout as actionable parse failure", async () => {
+  it("reports malformed JSON stdout as dedupable user-fault parse noise", async () => {
     mockRunAsoCommand.mockResolvedValue({
       stdout: "not-json",
       stderr: "",
@@ -202,7 +202,14 @@ describe("aso_evaluate_keywords service", () => {
         surface: "aso-mcp",
         tool: "aso_evaluate_keywords",
         stage: "parse-json",
+        operation: "aso_evaluate_keywords.parse-json",
+        noise_class: "mcp_parse_shape",
         exitCode: 0,
+        telemetryHint: expect.objectContaining({
+          classification: "user_fault",
+          operation: "aso_evaluate_keywords.parse-json",
+          isTerminal: true,
+        }),
       })
     );
   });

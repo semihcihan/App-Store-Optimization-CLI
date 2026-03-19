@@ -71,9 +71,11 @@ Define failure boundaries, retry rules, and recovery behavior across CLI, dashbo
 - Dashboard server reports failures with structured metadata (path, phase, counts).
 - Bugsnag reporting uses an actionability allowlist:
   - reports internal bugs, Apple contract-change signals, and terminal upstream failures
-  - suppresses expected user-flow noise (invalid credentials, expected auth/API `4xx`, validation issues)
+  - suppresses expected flow/validation noise (`4xx`, validation issues)
+  - reports selected user-fault noise as low-severity (`info`, handled) for visibility without paging
 - Dashboard UI reports only actionable API failures (for example: `5xx`, network/runtime exceptions, malformed success payloads); expected `4xx` flows are suppressed.
-- Dashboard UI Bugsnag metadata includes the latest `10` redacted dashboard API traces (`method`, `path`, `durationMs`, response/error summary) to aid transport-failure debugging when no HTTP response is returned.
+- Dashboard UI transport/setup noise (`/api/aso/auth/status` fetch failures, repeated local search failures, MCP parse-json shape drift) is reclassified as `user_fault` and deduped in-process per signature for `60` seconds.
+- Dashboard UI Bugsnag metadata includes only failed local dashboard traces by default (max `3`); set `ASO_BUGSNAG_VERBOSE_TRACES=1` to include full recent local trace bundles for deep debugging.
 - MCP reports runtime/transport/parse-contract failures; non-zero child CLI exits are suppressed by default.
 - Startup refresh state (`status`, counters, timestamps, lastError) is exposed via API.
 - CLI ASO retry/fallback diagnostics (auth, popularity, and enrichment fallback traces) are logged at `debug`; user-facing flows should surface terminal outcomes and actionable prompts/errors instead of intermediate warning noise.

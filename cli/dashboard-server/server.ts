@@ -55,12 +55,32 @@ const DASHBOARD_RUNTIME_CONFIG_PATH = "/runtime-config.js";
 
 let foregroundMutationCount = 0;
 
+function toStringValue(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  return trimmed === "" ? undefined : trimmed;
+}
+
+function toDashboardOperation(
+  method: string | undefined,
+  path: string | undefined
+): string | undefined {
+  if (!method || !path) return undefined;
+  return `${method.toUpperCase()} ${path.split("?")[0] || path}`;
+}
+
 function reportDashboardError(
   error: unknown,
   metadata: Record<string, unknown>
 ): void {
+  const method = toStringValue(metadata.method);
+  const path = toStringValue(metadata.path);
+  const operation = toDashboardOperation(method, path);
   reportBugsnagError(error, {
     surface: "aso-dashboard-server",
+    source: toStringValue(metadata.source) ?? "dashboard-server.runtime",
+    operation: toStringValue(metadata.operation) ?? operation ?? "server-runtime",
+    endpoint: toStringValue(metadata.endpoint) ?? path,
     ...metadata,
   });
 }
@@ -231,7 +251,11 @@ export function createServerRequestHandler(): http.RequestListener {
       }
 
       if (req.method === "GET" && pathname === DASHBOARD_RUNTIME_CONFIG_PATH) {
-        sendDashboardRuntimeConfig(res, process.env.NODE_ENV ?? "");
+        sendDashboardRuntimeConfig(
+          res,
+          process.env.NODE_ENV ?? "",
+          process.env.ASO_BUGSNAG_VERBOSE_TRACES === "1"
+        );
         return;
       }
 

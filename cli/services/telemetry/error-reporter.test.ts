@@ -28,17 +28,22 @@ describe("reportBugsnagError", () => {
 
     reportBugsnagError(error, { phase: "caller", command: "aso keywords" });
 
-    expect(mockNotifyBugsnagError).toHaveBeenCalledWith(error, {
-      phase: "error",
-      command: "aso keywords",
-      requestId: "req-1",
-      surface: "unknown",
-      source: "unknown",
-      operation: "unknown",
-      isTerminal: null,
-      telemetryClassification: "unknown",
-      telemetryDecisionReason: "default_report",
-    });
+    expect(mockNotifyBugsnagError).toHaveBeenCalledWith(
+      error,
+      expect.objectContaining({
+        phase: "error",
+        command: "aso keywords",
+        requestId: "req-1",
+        request_id: "req-1",
+        surface: "aso-cli",
+        source: "cli.aso-keywords",
+        operation: "command:aso keywords",
+        signal: "actionable",
+        telemetryClassification: "unknown",
+        telemetryDecisionReason: "default_report",
+      }),
+      expect.any(Function)
+    );
   });
 
   it("handles missing error metadata", () => {
@@ -47,18 +52,22 @@ describe("reportBugsnagError", () => {
 
     reportBugsnagError(error, { command: "aso auth" });
 
-    expect(mockNotifyBugsnagError).toHaveBeenCalledWith(error, {
-      command: "aso auth",
-      surface: "unknown",
-      source: "unknown",
-      operation: "unknown",
-      isTerminal: null,
-      telemetryClassification: "unknown",
-      telemetryDecisionReason: "default_report",
-    });
+    expect(mockNotifyBugsnagError).toHaveBeenCalledWith(
+      error,
+      expect.objectContaining({
+        command: "aso auth",
+        surface: "aso-cli",
+        source: "cli.aso-auth",
+        operation: "command:aso auth",
+        signal: "actionable",
+        telemetryClassification: "unknown",
+        telemetryDecisionReason: "default_report",
+      }),
+      expect.any(Function)
+    );
   });
 
-  it("suppresses known user-fault Apple auth errors", () => {
+  it("reports user-fault Apple auth errors with suppressed-noise signal", () => {
     const error = Object.assign(new Error("Invalid Apple ID credentials"), {
       name: "AppleAuthResponseError",
       reason: "invalid_credentials",
@@ -67,7 +76,16 @@ describe("reportBugsnagError", () => {
 
     reportBugsnagError(error, { command: "aso auth" });
 
-    expect(mockNotifyBugsnagError).not.toHaveBeenCalled();
+    expect(mockNotifyBugsnagError).toHaveBeenCalledWith(
+      error,
+      expect.objectContaining({
+        telemetryClassification: "user_fault",
+        telemetryDecisionReason: "apple_auth_invalid_credentials",
+        signal: "suppressed_noise",
+        noise_class: "credential_user_fault",
+      }),
+      expect.any(Function)
+    );
   });
 
   it("deep-merges telemetryHint so caller classifications survive trace metadata", () => {
@@ -97,7 +115,8 @@ describe("reportBugsnagError", () => {
           operation: "keywords-popularities-response",
           source: "apple.apple-search-ads.keywords-popularities-response",
         }),
-      })
+      }),
+      expect.any(Function)
     );
   });
 });

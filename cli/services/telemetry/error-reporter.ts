@@ -30,8 +30,14 @@ export function reportBugsnagError(
   }
   const decision = classifyTelemetryError(error, mergedMetadata);
   if (!decision.report) return;
+  const reportMetadata = withTelemetryDecisionMetadata(mergedMetadata, decision);
   notifyBugsnagError(
     error,
-    withTelemetryDecisionMetadata(mergedMetadata, decision)
+    reportMetadata,
+    (event) => {
+      if (decision.classification !== "user_fault") return;
+      event.severity = "info";
+      event.unhandled = false;
+    }
   );
 }
