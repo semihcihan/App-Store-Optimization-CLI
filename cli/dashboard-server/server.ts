@@ -46,7 +46,7 @@ import {
   ensureDefaultResearchAppExists,
 } from "./apps-handler";
 import { fetchOwnedAppSnapshotsFromApi } from "./owned-app-details";
-import { readAsoEnv } from "../shared/aso-env";
+import { ASO_ENV } from "../shared/aso-env";
 
 const DEFAULT_PORT = 3456;
 const DEFAULT_APP_DOCS_HYDRATION_COUNTRY = DEFAULT_ASO_COUNTRY;
@@ -239,7 +239,7 @@ export function createServerRequestHandler(): http.RequestListener {
         ensureDefaultResearchAppExists();
         let apps = listOwnedApps();
         const nowMs = Date.now();
-        const refreshMaxAgeMs = readAsoEnv().ownedAppDocRefreshMaxAgeMs;
+        const refreshMaxAgeMs = ASO_ENV.ownedAppDocRefreshMaxAgeMs;
         const staleOwnedAppIds = apps
           .filter((app) => app.kind === "owned")
           .map((app) => {

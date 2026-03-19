@@ -45,17 +45,19 @@ Runtime flow contracts across CLI commands, local dashboard API, and ASO service
 4. Persist popularity-only local rows for keywords awaiting full enrich.
 5. Enrich required keywords (`/aso/enrich`) and persist enriched keywords + competitor app docs.
 6. Refresh order-only keywords and persist updated `orderedAppIds` + `appCount` without refetching popularity.
+   - Order refresh may include lightweight app metadata from search-page parsing, but Flow A persists only keyword order fields in this step; competitor doc cache (`aso_apps`) is hydrated later by Flow E endpoints when docs are missing/expired.
 7. In interactive CLI mode (without `--stdout`), associate requested keywords with the default research app (`research`) in `app_keywords` so failures remain visible for retry.
 
 ### Flow A1: CLI Keyword Fetch in `--stdout` Mode
 1. Run Flow A with interactive auth recovery disabled.
 2. Resolve Primary App ID without prompting.
-3. If Primary App ID is not provided and not saved, fail with guidance to set it via `aso --primary-app-id <id>` or interactive `aso`.
-4. If auth is required, try `asoAuthService.reAuthenticate` once with an `onUserActionRequired` hook that aborts.
-5. Retry Flow A once after successful silent reauth.
-6. If user input is required, fail with guidance to run `aso auth` and retry.
-7. In raw CLI `--stdout` mode, do not auto-associate keywords to research app.
-8. Suppress CLI startup update notifications so stdout stays machine-parseable JSON.
+3. Primary App ID precedence: `--primary-app-id` -> `ASO_PRIMARY_APP_ID` -> saved local Primary App ID.
+4. If no Primary App ID is available from that chain, fail with guidance to set `ASO_PRIMARY_APP_ID`, use `aso --primary-app-id <id>`, or interactive `aso`.
+5. If auth is required, try `asoAuthService.reAuthenticate` once with an `onUserActionRequired` hook that aborts.
+6. Retry Flow A once after successful silent reauth.
+7. If user input is required, fail with guidance to run `aso auth` and retry.
+8. In raw CLI `--stdout` mode, do not auto-associate keywords to research app.
+9. Suppress CLI startup update notifications so stdout stays machine-parseable JSON.
 
 ## Flow B: Dashboard Add Keywords (`POST /api/aso/keywords`)
 1. Validate and normalize input.

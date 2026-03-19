@@ -18,6 +18,7 @@ import {
   reportAppleContractChange,
   withAppleHttpTraceContext,
 } from "../keywords/apple-http-trace";
+import { ASO_ENV } from "../../shared/aso-env";
 
 const APPLE_APP_ADS_URL = "https://app-ads.apple.com/cm/app";
 const APPLE_SEARCH_ADS_URL = "https://app.searchads.apple.com/cm/app";
@@ -31,9 +32,6 @@ const APPLE_AUTH_CLIENT_ID =
   "a01459d797984726ee0914a7097e53fad42b70e1f08d09294d14523a1d4f61e1";
 const APPLE_AUTH_LANGUAGE = "US-EN";
 const APPLE_AUTH_PATH = "/cm/app";
-const APPLE_WIDGET_KEY_FALLBACK =
-  process.env.ASO_APPLE_WIDGET_KEY ||
-  "a01459d797984726ee0914a7097e53fad42b70e1f08d09294d14523a1d4f61e1";
 const APPLE_WIDGET_CONFIG_URL =
   "https://appstoreconnect.apple.com/olympus/v1/app/config?hostname=itunesconnect.apple.com";
 
@@ -1020,7 +1018,7 @@ export class AsoAuthEngine {
 
     let finalM1Base64 = m1Base64;
     let finalM2Base64 = m2Base64;
-    if (process.env.ASO_SIRP_RUBY_ORACLE === "1") {
+    if (ASO_ENV.sirpRubyOracle) {
       try {
         const ruby = computeSirpWithRubyOracle({
           aHex: bigIntToHex(a),
@@ -1041,7 +1039,7 @@ export class AsoAuthEngine {
           logger.debug(
             `[aso-auth] Ruby oracle compare: sameA=${sameA} sameM1=${sameM1} sameM2=${sameM2}`
           );
-          if (process.env.ASO_SIRP_USE_RUBY_PROOF === "1") {
+          if (ASO_ENV.sirpUseRubyProof) {
             finalM1Base64 = hexToBase64(normalizeHex(ruby.m1_hex));
             finalM2Base64 = hexToBase64(normalizeHex(ruby.m2_hex));
             logger.debug("[aso-auth] Using Ruby oracle m1/m2 proofs");
@@ -1354,7 +1352,7 @@ export class AsoAuthEngine {
   }
 
   private requireWidgetKey(): string {
-    return this.widgetKey || APPLE_WIDGET_KEY_FALLBACK;
+    return this.widgetKey || ASO_ENV.appleWidgetKeyFallback;
   }
 
   private async bootstrapAuthRequestContext(): Promise<AppleAuthRequestContext> {
@@ -1391,9 +1389,10 @@ export class AsoAuthEngine {
   }
 
   private async resolveWidgetKey(): Promise<string> {
-    if (process.env.ASO_APPLE_WIDGET_KEY) {
+    const appleWidgetKey = ASO_ENV.appleWidgetKey;
+    if (appleWidgetKey) {
       logger.debug("[aso-auth] Using widget key from ASO_APPLE_WIDGET_KEY");
-      return process.env.ASO_APPLE_WIDGET_KEY;
+      return appleWidgetKey;
     }
 
     try {
@@ -1430,12 +1429,12 @@ export class AsoAuthEngine {
       logger.debug(
         `[aso-auth] Failed to load widget key dynamically (status=${response.status}); using fallback`
       );
-      return APPLE_WIDGET_KEY_FALLBACK;
+      return ASO_ENV.appleWidgetKeyFallback;
     } catch (error) {
       logger.debug(
         `[aso-auth] Widget key lookup failed; using fallback. error=${String(error)}`
       );
-      return APPLE_WIDGET_KEY_FALLBACK;
+      return ASO_ENV.appleWidgetKeyFallback;
     }
   }
 
@@ -1942,13 +1941,13 @@ export class AsoAuthService {
   async reAuthenticate(options?: ReAuthenticateOptions): Promise<string> {
     const spinner = ora("Authenticating with Apple Search Ads...").start();
     try {
+      const authMode = ASO_ENV.authMode;
       const authenticateWith = async (
         credentials: AppleLoginCredentials
       ): Promise<string> => {
         const jar = new CookieJar(asoCookieStoreService.loadCookies());
         const client = new AsoAuthHttpClient(jar);
-        const mode =
-          (process.env.ASO_AUTH_MODE as AsoAuthMode | undefined) || "auto";
+        const mode: AsoAuthMode = authMode;
         const engine = new AsoAuthEngine(
           client,
           mode,
@@ -1976,8 +1975,7 @@ export class AsoAuthService {
 
         const jar = new CookieJar(existingCookies);
         const client = new AsoAuthHttpClient(jar);
-        const mode =
-          (process.env.ASO_AUTH_MODE as AsoAuthMode | undefined) || "auto";
+        const mode: AsoAuthMode = authMode;
         const engine = new AsoAuthEngine(client, mode, spinner);
         spinner.text = "Checking existing Apple session...";
         try {

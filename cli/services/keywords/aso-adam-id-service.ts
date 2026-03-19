@@ -1,5 +1,6 @@
 import inquirer from "inquirer";
 import { getMetadataValue, setMetadataValue } from "../../db/metadata";
+import { ASO_ENV } from "../../shared/aso-env";
 
 const ASO_POPULARITY_ADAM_ID_METADATA_KEY = "aso-popularity-adam-id";
 
@@ -35,6 +36,9 @@ export async function resolveAsoAdamId(options?: {
   if (options?.adamId != null) {
     return saveAsoAdamId(options.adamId);
   }
+
+  const envAdamId = normalizeAdamId(ASO_ENV.primaryAppId || "");
+  if (envAdamId) return envAdamId;
 
   const saved = getSavedAsoAdamId();
   if (saved) return saved;

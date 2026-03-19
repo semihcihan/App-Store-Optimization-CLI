@@ -31,12 +31,14 @@ Also covers MCP keyword evaluation entrypoint (`aso_evaluate_keywords`) that eva
 5. `POST /aso/enrich` with `{ keyword, popularity }` for full-enrich keywords.
 6. Persist enriched keywords and returned app docs.
 7. For order-only keywords, refresh `orderedAppIds` + `appCount` without refetching popularity.
+   - This step does not upsert competitor app docs; any app metadata returned during order refresh is transient and competitor docs are hydrated by app-doc read flows (`/api/aso/top-apps`, `/api/aso/apps`, `/api/aso/apps/search`) when missing/expired.
 8. Persist terminal popularity/enrichment failures in `aso_keyword_failures`.
 
 ## Machine-Friendly `--stdout` Contract
 - `aso keywords "<comma-separated-keywords>" --stdout` is keyword-only and intended for agents/machine calls.
 - Primary App ID resolution is non-interactive in this mode.
-- If `--primary-app-id` is omitted and no saved Primary App ID exists, command fails with guidance to set it first.
+- Primary App ID precedence is: `--primary-app-id` -> `ASO_PRIMARY_APP_ID` -> saved local Primary App ID.
+- If none are available, command fails with guidance to set `ASO_PRIMARY_APP_ID`, use `--primary-app-id`, or run interactive `aso`.
 - It first runs keyword fetch with interactive auth recovery disabled.
 - If auth is required, it attempts one reauthentication pass that is allowed only when no user interaction is needed.
 - If credentials/2FA/confirmation input is required, command fails with guidance to run `aso auth` in a terminal first.

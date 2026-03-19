@@ -1,19 +1,8 @@
 import * as fs from "fs";
 import * as path from "path";
-import * as os from "os";
 import Database from "better-sqlite3";
-
-const DB_DIR = path.join(os.homedir(), ".aso");
-const DEFAULT_DB_FILE = path.join(DB_DIR, "aso-db.sqlite");
+import { ASO_ENV } from "../shared/aso-env";
 let db: Database.Database | null = null;
-
-function resolveDbPath(): string {
-  const fromEnv = process.env.ASO_DB_PATH;
-  if (fromEnv && fromEnv.trim() !== "") {
-    return path.resolve(fromEnv);
-  }
-  return DEFAULT_DB_FILE;
-}
 
 function initializeDatabase(database: Database.Database): void {
   database.pragma("journal_mode = WAL");
@@ -109,14 +98,14 @@ function initializeDatabase(database: Database.Database): void {
 }
 
 export function getDbPath(): string {
-  return resolveDbPath();
+  return ASO_ENV.dbPath;
 }
 
 export function getDb(): Database.Database {
   if (db) {
     return db;
   }
-  const dbPath = resolveDbPath();
+  const dbPath = ASO_ENV.dbPath;
   const dbDir = path.dirname(dbPath);
   if (!fs.existsSync(dbDir)) {
     fs.mkdirSync(dbDir, { recursive: true });

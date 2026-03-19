@@ -16,11 +16,18 @@ jest.mock("../../db/metadata", () => ({
 
 describe("aso-adam-id-service", () => {
   const mockInquirer = jest.mocked(inquirer);
+  const originalEnv = process.env;
 
   beforeEach(() => {
     jest.clearAllMocks();
+    process.env = { ...originalEnv };
+    delete process.env.ASO_PRIMARY_APP_ID;
     jest.mocked(getMetadataValue).mockReturnValue(null);
     mockInquirer.prompt.mockResolvedValue({ adamId: "1234567890" } as any);
+  });
+
+  afterAll(() => {
+    process.env = originalEnv;
   });
 
   it("returns saved adam id when valid", () => {
@@ -62,6 +69,38 @@ describe("aso-adam-id-service", () => {
     const result = await resolveAsoAdamId();
     expect(result).toBe("101010101");
     expect(mockInquirer.prompt).not.toHaveBeenCalled();
+  });
+
+  it("uses env adam id when argument is missing", async () => {
+    process.env.ASO_PRIMARY_APP_ID = "121212121";
+    jest.mocked(getMetadataValue).mockReturnValue("101010101");
+
+    const result = await resolveAsoAdamId();
+
+    expect(result).toBe("121212121");
+    expect(mockInquirer.prompt).not.toHaveBeenCalled();
+  });
+
+  it("ignores invalid env adam id and uses saved adam id", async () => {
+    process.env.ASO_PRIMARY_APP_ID = "not-numeric";
+    jest.mocked(getMetadataValue).mockReturnValue("101010101");
+
+    const result = await resolveAsoAdamId();
+
+    expect(result).toBe("101010101");
+    expect(mockInquirer.prompt).not.toHaveBeenCalled();
+  });
+
+  it("prioritizes explicit adam id over env adam id", async () => {
+    process.env.ASO_PRIMARY_APP_ID = "121212121";
+
+    const result = await resolveAsoAdamId({ adamId: "900100200" });
+
+    expect(result).toBe("900100200");
+    expect(setMetadataValue).toHaveBeenCalledWith(
+      "aso-popularity-adam-id",
+      "900100200"
+    );
   });
 
   it("prompts and saves when no argument and no saved value", async () => {

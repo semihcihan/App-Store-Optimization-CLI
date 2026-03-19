@@ -1,4 +1,4 @@
-import { readAsoEnv } from "./aso-env";
+import { ASO_ENV } from "./aso-env";
 
 export type AsoResilienceConfig = {
   maxAttempts: number;
@@ -10,13 +10,12 @@ export type AsoResilienceConfig = {
 };
 
 export function getAsoResilienceConfig(): AsoResilienceConfig {
-  const env = readAsoEnv();
-  const maxAttempts = env.retryMaxAttempts;
-  const baseDelayMs = env.retryBaseDelayMs;
-  const maxDelayMs = env.retryMaxDelayMs;
-  const rateLimitBaseDelayMs = env.rateLimitBaseDelayMs;
-  const jitterFactor = env.retryJitterFactor;
-  const keywordEnrichmentConcurrency = env.keywordEnrichmentConcurrency;
+  const maxAttempts = ASO_ENV.retryMaxAttempts;
+  const baseDelayMs = ASO_ENV.retryBaseDelayMs;
+  const maxDelayMs = ASO_ENV.retryMaxDelayMs;
+  const rateLimitBaseDelayMs = ASO_ENV.rateLimitBaseDelayMs;
+  const jitterFactor = ASO_ENV.retryJitterFactor;
+  const keywordEnrichmentConcurrency = ASO_ENV.keywordEnrichmentConcurrency;
 
   return {
     maxAttempts,

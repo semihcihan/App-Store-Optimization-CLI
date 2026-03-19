@@ -2,7 +2,7 @@ import {
   normalizeKeyword as normalizeKeywordFromDomain,
   sanitizeKeywords as sanitizeKeywordsFromDomain,
 } from "../domain/keywords/policy";
-import { readAsoEnv } from "./aso-env";
+import { ASO_ENV } from "./aso-env";
 
 export function normalizeKeyword(keyword: string): string {
   return normalizeKeywordFromDomain(keyword);
@@ -21,7 +21,7 @@ export function sanitizeKeywords(input: string[]): string[] {
 }
 
 export function getOrderTtlHours(): number {
-  return readAsoEnv().keywordOrderTtlHours;
+  return ASO_ENV.keywordOrderTtlHours;
 }
 
 export function computeOrderExpiryIso(now: Date = new Date()): string {
@@ -30,7 +30,7 @@ export function computeOrderExpiryIso(now: Date = new Date()): string {
 }
 
 export function getPopularityTtlHours(): number {
-  return readAsoEnv().popularityCacheTtlHours;
+  return ASO_ENV.popularityCacheTtlHours;
 }
 
 export function computePopularityExpiryIso(now: Date = new Date()): string {
@@ -39,7 +39,7 @@ export function computePopularityExpiryIso(now: Date = new Date()): string {
 }
 
 export function getAppTtlHours(): number {
-  return readAsoEnv().appCacheTtlHours;
+  return ASO_ENV.appCacheTtlHours;
 }
 
 export function computeAppExpiryIsoForApp(now: Date = new Date()): string {
