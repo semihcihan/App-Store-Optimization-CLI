@@ -29,6 +29,7 @@ import {
   ASO_MAX_KEYWORDS_PER_CALL_ERROR,
 } from "../../shared/aso-keyword-limits";
 import { normalizeAppleUpstreamError } from "../../shared/apple-upstream-error";
+import { getAsoResilienceConfig } from "../../shared/aso-resilience";
 import { keywordWriteRepository } from "./keyword-write-repository";
 
 export type PendingKeywordPopularityItem = {
@@ -48,6 +49,11 @@ type KeywordPopularityStageOptions = {
 };
 
 export type KeywordFetchOptions = KeywordPopularityStageOptions;
+
+type EnrichmentOutcome = {
+  item: AsoKeywordItem | null;
+  failedKeyword: FailedKeyword | null;
+};
 
 function validateKeywordCount(keywords: string[]): void {
   if (keywords.length > ASO_MAX_KEYWORDS) {
@@ -73,6 +79,27 @@ function summarizeFailedKeywords(failures: FailedKeyword[]): string {
   return failures.length > 5
     ? `${preview} (+${failures.length - 5} more)`
     : preview;
+}
+
+function toEnrichmentFailureFromError(
+  keyword: string,
+  error: unknown
+): FailedKeyword {
+  const normalized = normalizeAppleUpstreamError({
+    error,
+    operation: "keyword-enrichment",
+    defaultReasonCode: "ENRICHMENT_FAILED",
+  });
+  return {
+    keyword,
+    stage: "enrichment",
+    reasonCode: normalized.reasonCode,
+    message: normalized.message,
+    statusCode: normalized.statusCode,
+    retryable: normalized.retryable,
+    attempts: normalized.attempts,
+    requestId: normalized.requestId,
+  };
 }
 
 type MissClassification = {
@@ -156,6 +183,152 @@ export class KeywordPipelineService {
   parseKeywords(raw: string | undefined): string[] {
     if (raw == null || String(raw).trim() === "") return [];
     return this.normalizeKeywords(String(raw).split(","));
+  }
+
+  private createEmptyEnrichmentResult(): {
+    items: AsoKeywordItem[];
+    failedKeywords: FailedKeyword[];
+  } {
+    return {
+      items: [],
+      failedKeywords: [],
+    };
+  }
+
+  private getEnrichmentWorkerCount(itemCount: number): number {
+    if (itemCount <= 0) return 0;
+    const configuredConcurrency = Math.max(
+      1,
+      Math.floor(getAsoResilienceConfig().keywordEnrichmentConcurrency)
+    );
+    return Math.min(configuredConcurrency, itemCount);
+  }
+
+  private findMatchedEnrichedItem(
+    keyword: string,
+    items: AsoKeywordItem[]
+  ): AsoKeywordItem | null {
+    if (items.length === 0) return null;
+    const normalizedKeyword = normalizeKeyword(keyword);
+    return (
+      items.find((item) => normalizeKeyword(item.keyword) === normalizedKeyword) ??
+      items[0] ??
+      null
+    );
+  }
+
+  private findMatchedFailedKeyword(
+    keyword: string,
+    failures: FailedKeyword[]
+  ): FailedKeyword | null {
+    if (failures.length === 0) return null;
+    const normalizedKeyword = normalizeKeyword(keyword);
+    return (
+      failures.find(
+        (failure) => normalizeKeyword(failure.keyword) === normalizedKeyword
+      ) ??
+      failures[0] ??
+      null
+    );
+  }
+
+  private createMissingEnrichmentOutcome(keyword: string): EnrichmentOutcome {
+    return {
+      item: null,
+      failedKeyword: toEnrichmentFailureFromError(
+        keyword,
+        new Error(
+          `Keyword enrichment returned no item/failure for keyword "${keyword}".`
+        )
+      ),
+    };
+  }
+
+  private persistEnrichmentOutcome(
+    country: string,
+    outcome: EnrichmentOutcome
+  ): void {
+    if (outcome.item) {
+      keywordWriteRepository.clearFailures(country, [outcome.item.keyword]);
+      return;
+    }
+    if (outcome.failedKeyword) {
+      keywordWriteRepository.persistFailures(country, [outcome.failedKeyword]);
+    }
+  }
+
+  private async enrichSinglePendingKeyword(
+    country: string,
+    pendingItem: PendingKeywordPopularityItem
+  ): Promise<EnrichmentOutcome> {
+    try {
+      const singleResult = await enrichAsoKeywordsLocal(country, [pendingItem]);
+      const matchedItem = this.findMatchedEnrichedItem(
+        pendingItem.keyword,
+        singleResult.items
+      );
+      if (matchedItem) {
+        return {
+          item: matchedItem,
+          failedKeyword: null,
+        };
+      }
+
+      const matchedFailure = this.findMatchedFailedKeyword(
+        pendingItem.keyword,
+        singleResult.failedKeywords
+      );
+      if (matchedFailure) {
+        return {
+          item: null,
+          failedKeyword: matchedFailure,
+        };
+      }
+
+      return this.createMissingEnrichmentOutcome(pendingItem.keyword);
+    } catch (error) {
+      return {
+        item: null,
+        failedKeyword: toEnrichmentFailureFromError(pendingItem.keyword, error),
+      };
+    }
+  }
+
+  private async populateEnrichmentOutcomes(
+    country: string,
+    items: PendingKeywordPopularityItem[],
+    outcomes: EnrichmentOutcome[]
+  ): Promise<void> {
+    const workerCount = this.getEnrichmentWorkerCount(items.length);
+    let cursor = 0;
+
+    const runWorker = async (): Promise<void> => {
+      while (cursor < items.length) {
+        const currentIndex = cursor;
+        cursor += 1;
+        const outcome = await this.enrichSinglePendingKeyword(
+          country,
+          items[currentIndex]
+        );
+        this.persistEnrichmentOutcome(country, outcome);
+        outcomes[currentIndex] = outcome;
+      }
+    };
+
+    await Promise.all(
+      Array.from({ length: workerCount }, () => runWorker())
+    );
+  }
+
+  private buildEnrichmentResult(
+    outcomes: EnrichmentOutcome[]
+  ): { items: AsoKeywordItem[]; failedKeywords: FailedKeyword[] } {
+    return {
+      items: outcomes.flatMap((outcome) => (outcome?.item ? [outcome.item] : [])),
+      failedKeywords: outcomes.flatMap((outcome) =>
+        outcome?.failedKeyword ? [outcome.failedKeyword] : []
+      ),
+    };
   }
 
   async runPopularityStage(
@@ -243,19 +416,12 @@ export class KeywordPipelineService {
     items: PendingKeywordPopularityItem[]
   ): Promise<{ items: AsoKeywordItem[]; failedKeywords: FailedKeyword[] }> {
     if (items.length === 0) {
-      return {
-        items: [],
-        failedKeywords: [],
-      };
+      return this.createEmptyEnrichmentResult();
     }
     logger.debug("Sending popularity data to backend for enrichment...");
-    const enrichedResult = await enrichAsoKeywordsLocal(country, items);
-    keywordWriteRepository.persistFailures(country, enrichedResult.failedKeywords);
-    keywordWriteRepository.clearFailures(
-      country,
-      enrichedResult.items.map((item) => item.keyword)
-    );
-    return enrichedResult;
+    const outcomes: EnrichmentOutcome[] = new Array(items.length);
+    await this.populateEnrichmentOutcomes(country, items, outcomes);
+    return this.buildEnrichmentResult(outcomes);
   }
 
   persistBackgroundEnrichmentCrashFailures(

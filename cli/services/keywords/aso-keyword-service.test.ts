@@ -38,6 +38,16 @@ const TEST_DB_PATH = path.join(
   `aso-keyword-service-${process.pid}-${Date.now()}.sqlite`
 );
 
+function createDeferred<T = void>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
 function cleanDbFiles(): void {
   for (const suffix of ["", "-wal", "-shm"]) {
     try {
@@ -213,5 +223,183 @@ describe("keyword-pipeline-service", () => {
     const retryResult = await keywordPipelineService.run("US", ["bad"]);
     expect(retryResult.failedKeywords).toHaveLength(0);
     expect(listKeywordFailures("US")).toHaveLength(0);
+  });
+
+  it("persists each enriched keyword as soon as that keyword finishes", async () => {
+    const firstDone = createDeferred<void>();
+    const secondDone = createDeferred<void>();
+    let runSettled = false;
+
+    mockEnrichAsoKeywordsLocal.mockImplementation(async (_country, items) => {
+      const keyword = items[0]?.keyword;
+      if (keyword === "fast") {
+        await firstDone.promise;
+        upsertKeywords("US", [
+          {
+            keyword: "fast",
+            popularity: 55,
+            difficultyScore: 22,
+            minDifficultyScore: 15,
+            appCount: 120,
+            keywordMatch: "titleExactPhrase",
+            orderedAppIds: ["app-1"],
+            orderExpiresAt: "2099-01-01T00:00:00.000Z",
+            popularityExpiresAt: "2099-01-01T00:00:00.000Z",
+          },
+        ]);
+        return {
+          items: [
+            {
+              keyword: "fast",
+              normalizedKeyword: "fast",
+              country: "US",
+              popularity: 55,
+              difficultyScore: 22,
+              minDifficultyScore: 15,
+              appCount: 120,
+              keywordMatch: "titleExactPhrase",
+              orderedAppIds: ["app-1"],
+              orderExpiresAt: "2099-01-01T00:00:00.000Z",
+              popularityExpiresAt: "2099-01-01T00:00:00.000Z",
+            } as any,
+          ],
+          failedKeywords: [],
+        };
+      }
+      await secondDone.promise;
+      upsertKeywords("US", [
+        {
+          keyword: "slow",
+          popularity: 60,
+          difficultyScore: 30,
+          minDifficultyScore: 20,
+          appCount: 140,
+          keywordMatch: "subtitleExactPhrase",
+          orderedAppIds: ["app-2"],
+          orderExpiresAt: "2099-01-01T00:00:00.000Z",
+          popularityExpiresAt: "2099-01-01T00:00:00.000Z",
+        },
+      ]);
+      return {
+        items: [
+          {
+            keyword: "slow",
+            normalizedKeyword: "slow",
+            country: "US",
+            popularity: 60,
+            difficultyScore: 30,
+            minDifficultyScore: 20,
+            appCount: 140,
+            keywordMatch: "subtitleExactPhrase",
+            orderedAppIds: ["app-2"],
+            orderExpiresAt: "2099-01-01T00:00:00.000Z",
+            popularityExpiresAt: "2099-01-01T00:00:00.000Z",
+          } as any,
+        ],
+        failedKeywords: [],
+      };
+    });
+
+    const runPromise = keywordPipelineService
+      .enrichAndPersist("US", [
+        { keyword: "fast", popularity: 55 },
+        { keyword: "slow", popularity: 60 },
+      ])
+      .then((result) => {
+        runSettled = true;
+        return result;
+      });
+
+    firstDone.resolve();
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(getKeyword("US", "fast")?.difficultyScore).toBe(22);
+    expect(runSettled).toBe(false);
+
+    secondDone.resolve();
+    const result = await runPromise;
+    expect(result.items.map((item) => item.keyword)).toEqual(["fast", "slow"]);
+    expect(result.failedKeywords).toHaveLength(0);
+  });
+
+  it("persists failed enrichment keywords before other pending keywords finish", async () => {
+    const failureDone = createDeferred<void>();
+    const successDone = createDeferred<void>();
+    let runSettled = false;
+
+    mockEnrichAsoKeywordsLocal.mockImplementation(async (_country, items) => {
+      const keyword = items[0]?.keyword;
+      if (keyword === "fail-first") {
+        await failureDone.promise;
+        return {
+          items: [],
+          failedKeywords: [
+            {
+              keyword: "fail-first",
+              stage: "enrichment",
+              reasonCode: "RATE_LIMITED",
+              message: "429",
+              statusCode: 429,
+              retryable: true,
+              attempts: 1,
+            } as any,
+          ],
+        };
+      }
+      await successDone.promise;
+      upsertKeywords("US", [
+        {
+          keyword: "succeed-later",
+          popularity: 65,
+          difficultyScore: 34,
+          minDifficultyScore: 22,
+          appCount: 150,
+          keywordMatch: "titleAllWords",
+          orderedAppIds: ["app-3"],
+          orderExpiresAt: "2099-01-01T00:00:00.000Z",
+          popularityExpiresAt: "2099-01-01T00:00:00.000Z",
+        },
+      ]);
+      return {
+        items: [
+          {
+            keyword: "succeed-later",
+            normalizedKeyword: "succeed-later",
+            country: "US",
+            popularity: 65,
+            difficultyScore: 34,
+            minDifficultyScore: 22,
+            appCount: 150,
+            keywordMatch: "titleAllWords",
+            orderedAppIds: ["app-3"],
+            orderExpiresAt: "2099-01-01T00:00:00.000Z",
+            popularityExpiresAt: "2099-01-01T00:00:00.000Z",
+          } as any,
+        ],
+        failedKeywords: [],
+      };
+    });
+
+    const runPromise = keywordPipelineService
+      .enrichAndPersist("US", [
+        { keyword: "fail-first", popularity: 40 },
+        { keyword: "succeed-later", popularity: 65 },
+      ])
+      .then((result) => {
+        runSettled = true;
+        return result;
+      });
+
+    failureDone.resolve();
+    await new Promise((resolve) => setImmediate(resolve));
+    const failuresAfterFirst = listKeywordFailures("US");
+    expect(failuresAfterFirst.map((entry) => entry.keyword)).toContain("fail-first");
+    expect(runSettled).toBe(false);
+
+    successDone.resolve();
+    const result = await runPromise;
+    expect(result.items.map((item) => item.keyword)).toEqual(["succeed-later"]);
+    expect(result.failedKeywords.map((entry) => entry.keyword)).toEqual([
+      "fail-first",
+    ]);
   });
 });

@@ -71,6 +71,7 @@ Runtime flow contracts across CLI commands, local dashboard API, and ASO service
 7. `GET /api/aso/keywords` (app-scoped) keeps app-associated failed keywords visible with `keywordStatus="failed"` even when no `aso_keywords` row exists yet (for example, popularity-stage failures).
 8. Run background keyword work for misses:
    - full enrichment for `pendingItems`
+     - enrichment is persisted per keyword as each worker finishes (progressive visibility on regular keyword polling).
    - order-only refresh for `orderRefreshKeywords`
    - if the background enrichment call throws before returning per-keyword results, unresolved `pendingItems` are persisted as `enrichment` failures so dashboard rows transition from `pending` to `failed` (retryable UX) instead of staying on `Calculating...`.
 

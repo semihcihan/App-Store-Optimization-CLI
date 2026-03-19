@@ -33,6 +33,7 @@ Also covers MCP keyword evaluation entrypoint (`aso_evaluate_keywords`) that eva
 4. Persist popularity-only local rows (`difficultyScore = null`) only for keywords that still need enrichment.
 5. `POST /aso/enrich` with `{ keyword, popularity }` for full-enrich keywords.
 6. Persist enriched keywords and returned app docs.
+   - Enrichment persistence is progressive: each keyword success/failure is written as soon as that keyword finishes (bounded by enrichment concurrency), rather than waiting for the full enrich batch to complete.
 7. For order-only keywords, refresh `orderedAppIds` + `appCount` without refetching popularity.
    - This step does not upsert competitor app docs; any app metadata returned during order refresh is transient and competitor docs are hydrated by app-doc read flows (`/api/aso/top-apps`, `/api/aso/apps`, `/api/aso/apps/search`) when missing/expired.
 8. Persist terminal popularity/enrichment failures in `aso_keyword_failures`.
