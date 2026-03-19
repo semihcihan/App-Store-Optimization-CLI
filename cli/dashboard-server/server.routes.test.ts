@@ -82,6 +82,7 @@ jest.mock("../services/keywords/keyword-pipeline-service", () => ({
       items: [],
       failedKeywords: [],
     })),
+    persistBackgroundEnrichmentCrashFailures: jest.fn(),
     refreshOrder: jest.fn(async () => []),
     retryFailed: jest.fn(async () => ({
       retriedCount: 0,

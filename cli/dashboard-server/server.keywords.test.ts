@@ -43,6 +43,7 @@ jest.mock("../services/keywords/keyword-pipeline-service", () => ({
     ),
     runPopularityStage: jest.fn(),
     enrichAndPersist: jest.fn(),
+    persistBackgroundEnrichmentCrashFailures: jest.fn(),
     refreshOrder: jest.fn(),
     retryFailed: jest.fn(),
     refreshStartup: jest.fn(async () => []),
@@ -138,6 +139,9 @@ describe("dashboard server keyword add flow", () => {
     keywordPipelineService.runPopularityStage
   );
   const mockEnrichKeywords = jest.mocked(keywordPipelineService.enrichAndPersist);
+  const mockPersistBackgroundEnrichmentCrashFailures = jest.mocked(
+    keywordPipelineService.persistBackgroundEnrichmentCrashFailures
+  );
   const mockRefreshOrder = jest.mocked(keywordPipelineService.refreshOrder);
   const mockRetryFailed = jest.mocked(keywordPipelineService.retryFailed);
 
@@ -154,6 +158,7 @@ describe("dashboard server keyword add flow", () => {
       items: [],
       failedKeywords: [],
     });
+    mockPersistBackgroundEnrichmentCrashFailures.mockImplementation(() => {});
     mockRefreshOrder.mockResolvedValue([]);
     mockRetryFailed.mockResolvedValue({
       retriedCount: 0,
@@ -214,6 +219,45 @@ describe("dashboard server keyword add flow", () => {
     expect(mockCreateAppKeywords).toHaveBeenCalledWith("app-1", ["order-stale"], "US");
     expect(mockRefreshOrder).toHaveBeenCalledWith("US", ["order-stale"]);
     expect(mockEnrichKeywords).not.toHaveBeenCalled();
+  });
+
+  it("marks pending enrichment items as failed when background enrichment throws", async () => {
+    const enrichmentError = new Error("rate limit");
+    mockFetchKeywordStage.mockResolvedValue({
+      hits: [],
+      pendingItems: [{ keyword: "stuck", popularity: 42 }],
+      orderRefreshKeywords: [],
+      failedKeywords: [],
+    });
+    mockEnrichKeywords.mockRejectedValue(enrichmentError);
+
+    const response = await requestJson({
+      method: "POST",
+      path: "/api/aso/keywords",
+      body: {
+        appId: "app-1",
+        country: "US",
+        keywords: ["stuck"],
+      },
+    });
+
+    expect(response.statusCode).toBe(201);
+    expect(response.body).toEqual({
+      success: true,
+      data: {
+        cachedCount: 0,
+        pendingCount: 1,
+        failedCount: 0,
+      },
+    });
+
+    await new Promise((resolve) => setImmediate(resolve));
+
+    expect(mockPersistBackgroundEnrichmentCrashFailures).toHaveBeenCalledWith(
+      "US",
+      [{ keyword: "stuck", popularity: 42 }],
+      enrichmentError
+    );
   });
 
   it("retries failed keywords for selected app", async () => {

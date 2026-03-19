@@ -72,6 +72,7 @@ Runtime flow contracts across CLI commands, local dashboard API, and ASO service
 8. Run background keyword work for misses:
    - full enrichment for `pendingItems`
    - order-only refresh for `orderRefreshKeywords`
+   - if the background enrichment call throws before returning per-keyword results, unresolved `pendingItems` are persisted as `enrichment` failures so dashboard rows transition from `pending` to `failed` (retryable UX) instead of staying on `Calculating...`.
 
 ## Flow B2: Dashboard Retry Failed Keywords (`POST /api/aso/keywords/retry-failed`)
 1. Resolve failed keywords for selected `appId` + `country`.

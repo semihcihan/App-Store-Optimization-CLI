@@ -33,6 +33,7 @@ Define failure boundaries, retry rules, and recovery behavior across CLI, dashbo
 - Dashboard add-keyword:
   - If auth is invalid in stage 1, return `AUTH_REQUIRED` (no interactive prompt in request path).
 - If stage-2 enrichment fails, stage-1 writes remain; caller can retry later.
+- If dashboard background stage-2 enrichment throws before returning per-keyword results, pending keywords are marked as `enrichment` failures in `aso_keyword_failures` so UI does not stay indefinitely in `Calculating...` and retry-failed remains available.
 - Dashboard retry-failed endpoint retries only failed keywords for selected app/country and returns `{ retriedCount, succeededCount, failedCount }`.
 - Top-app and competitor app-doc hydration (`/api/aso/top-apps`, `/api/aso/apps`):
   - Missing/expired competitor docs trigger backend fetch.

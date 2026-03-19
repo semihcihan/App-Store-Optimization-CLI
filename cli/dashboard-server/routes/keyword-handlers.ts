@@ -138,6 +138,11 @@ export function createKeywordHandlers(deps: AsoRouteDeps) {
             keywordPipelineService
               .enrichAndPersist(country, pendingItems)
               .catch((err) => {
+                keywordPipelineService.persistBackgroundEnrichmentCrashFailures(
+                  country,
+                  pendingItems,
+                  err
+                );
                 deps.reportDashboardError(err, {
                   method: "POST",
                   path: "/aso/enrich",

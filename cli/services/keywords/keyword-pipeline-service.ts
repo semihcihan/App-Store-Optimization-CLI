@@ -28,6 +28,7 @@ import {
   ASO_MAX_KEYWORDS,
   ASO_MAX_KEYWORDS_PER_CALL_ERROR,
 } from "../../shared/aso-keyword-limits";
+import { normalizeAppleUpstreamError } from "../../shared/apple-upstream-error";
 import { keywordWriteRepository } from "./keyword-write-repository";
 
 export type PendingKeywordPopularityItem = {
@@ -255,6 +256,49 @@ export class KeywordPipelineService {
       enrichedResult.items.map((item) => item.keyword)
     );
     return enrichedResult;
+  }
+
+  persistBackgroundEnrichmentCrashFailures(
+    country: string,
+    items: PendingKeywordPopularityItem[],
+    error: unknown
+  ): void {
+    if (items.length === 0) return;
+
+    const normalizedError = normalizeAppleUpstreamError({
+      error,
+      operation: "keyword-enrichment",
+      defaultReasonCode: "ENRICHMENT_FAILED",
+    });
+    const normalizedPendingKeywords = this.normalizeKeywords(
+      items.map((item) => item.keyword)
+    );
+    if (normalizedPendingKeywords.length === 0) return;
+
+    const existingByKeyword = new Map(
+      getKeywords(country, normalizedPendingKeywords).map((keyword) => [
+        keyword.normalizedKeyword,
+        keyword,
+      ])
+    );
+    const unresolvedPendingKeywords = normalizedPendingKeywords.filter(
+      (keyword) => !isCompleteStoredAsoKeyword(existingByKeyword.get(keyword))
+    );
+    if (unresolvedPendingKeywords.length === 0) return;
+
+    keywordWriteRepository.persistFailures(
+      country,
+      unresolvedPendingKeywords.map((keyword) => ({
+        keyword,
+        stage: "enrichment",
+        reasonCode: normalizedError.reasonCode,
+        message: normalizedError.message,
+        statusCode: normalizedError.statusCode,
+        retryable: normalizedError.retryable,
+        attempts: normalizedError.attempts,
+        requestId: normalizedError.requestId,
+      }))
+    );
   }
 
   async refreshOrder(
