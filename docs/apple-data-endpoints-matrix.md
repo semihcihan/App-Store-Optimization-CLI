@@ -5,7 +5,7 @@ Apple upstream fetch surfaces used by ASO keyword enrichment and dashboard app h
 
 ## Internal Targets
 - Keyword cache target (`aso_keywords`):
-  - `keyword`, `normalizedKeyword`, `popularity`, `difficultyScore`, `minDifficultyScore`, `appCount`, `orderedAppIds`, `keywordIncluded`
+  - `keyword`, `normalizedKeyword`, `popularity`, `difficultyScore`, `minDifficultyScore`, `appCount`, `orderedAppIds`, `keywordMatch`
 - Competitor app-doc target (`aso_apps`):
   - `country`, `appId`, `name`, `subtitle`, `averageUserRating`, `userRatingCount`, `releaseDate`, `currentVersionReleaseDate`, `icon`, `iconArtwork`, `additionalLocalizations`, `expiresAt`
 - Owned app target (`owned_apps`):

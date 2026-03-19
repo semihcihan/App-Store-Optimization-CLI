@@ -1,3 +1,5 @@
+import type { KeywordMatchType } from "../../../shared/aso-keyword-match";
+
 export interface AsoAppDocIcon {
   template?: string;
   width?: number;
@@ -41,7 +43,7 @@ export interface AsoKeywordRecord {
   difficultyScore: number;
   minDifficultyScore: number;
   appCount: number;
-  keywordIncluded: number;
+  keywordMatch: KeywordMatchType;
   orderedAppIds: string[];
   createdAt: string;
   updatedAt: string;
@@ -63,7 +65,7 @@ export interface AsoCacheRepository {
       difficultyScore: number;
       minDifficultyScore: number;
       appCount: number;
-      keywordIncluded: number;
+      keywordMatch: KeywordMatchType;
       orderedAppIds: string[];
     }>;
     appDocs?: AsoAppDoc[];

@@ -175,7 +175,7 @@ export async function enrichAsoKeywords(
             difficultyScore: e.difficultyScore,
             minDifficultyScore: e.minDifficultyScore,
             appCount: e.appCount,
-            keywordIncluded: e.keywordIncluded,
+            keywordMatch: e.keywordMatch,
             orderedAppIds: e.orderedAppIds,
           })),
           appDocs: normalizedAppDocs,

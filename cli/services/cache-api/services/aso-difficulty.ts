@@ -1,3 +1,5 @@
+import type { KeywordMatchType } from "../../../shared/aso-keyword-match";
+
 export const MAX_COMPETING_APPS = 200;
 export const MAX_RATINGS = 10000;
 export const AGE_NORMALIZATION_DAYS = 365;
@@ -10,14 +12,6 @@ export const DIFFICULTY_DETAIL_LIMIT = 5;
 export const DIFFICULTY_AVG_WEIGHT = 1;
 export const DIFFICULTY_MIN_WEIGHT = 2;
 export const DIFFICULTY_APP_COUNT_WEIGHT = 0.5;
-
-export type KeywordMatchType =
-  | "none"
-  | "titleExactPhrase"
-  | "titleAllWords"
-  | "subtitleExactPhrase"
-  | "combinedPhrase"
-  | "subtitleAllWords";
 
 export type AppDifficultyInputs = {
   averageUserRating: number;

@@ -323,7 +323,7 @@ describe("aso-enrichment-service", () => {
       }
     );
 
-    expect(result.keywordIncluded).toBe(1);
+    expect(result.keywordMatch).toBe("titleExactPhrase");
   });
 
   it("does not set expiresAt for non-top apps without app-specific lookup", async () => {

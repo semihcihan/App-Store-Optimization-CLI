@@ -1,3 +1,5 @@
+import type { KeywordMatchType } from "../shared/aso-keyword-match";
+
 export interface StoredApp {
   id: string;
   name: string;
@@ -27,7 +29,7 @@ export interface StoredAsoKeyword {
   difficultyScore: number | null;
   minDifficultyScore: number | null;
   appCount: number | null;
-  keywordIncluded: number | null;
+  keywordMatch: KeywordMatchType | null;
   orderedAppIds: string[];
   createdAt: string;
   updatedAt: string;

@@ -33,7 +33,7 @@ describe("ASO routes", () => {
         difficultyScore: 10,
         minDifficultyScore: 5,
         appCount: 20,
-        keywordIncluded: 2,
+        keywordMatch: "titleAllWords",
         orderedAppIds: [],
         appDocs: [
           {
@@ -101,7 +101,7 @@ describe("ASO routes", () => {
         difficultyScore: 10,
         minDifficultyScore: 5,
         appCount: 20,
-        keywordIncluded: 2,
+        keywordMatch: "titleAllWords",
         orderedAppIds: [],
         appDocs: [],
       };

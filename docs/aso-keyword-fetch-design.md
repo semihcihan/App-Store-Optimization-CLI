@@ -93,6 +93,7 @@ Per-app competitive score (for each of top 5 apps):
 
 Keyword-level difficulty:
 - `competitiveScores = top5.map(appCompetitiveScore)`
+- `keywordMatch = best(top5.map(detectBestKeywordMatchType))` using `keywordMatchToScore` rank, persisted as enum value (not numeric score).
 - `avgCompetitive = average(competitiveScores)`
 - `minCompetitive = min(competitiveScores)`
 - `normalizedAppCount = min(appCount / 200, 1)` (`MAX_COMPETING_APPS = 200`)

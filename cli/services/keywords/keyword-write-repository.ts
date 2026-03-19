@@ -13,6 +13,7 @@ import {
   computePopularityExpiryIso,
   normalizeKeyword,
 } from "../../shared/aso-keyword-utils";
+import type { KeywordMatchType } from "../../shared/aso-keyword-match";
 import type { FailedKeyword } from "../../shared/aso-keyword-types";
 
 type KeywordWriteItem = {
@@ -22,7 +23,7 @@ type KeywordWriteItem = {
   difficultyScore: number | null;
   minDifficultyScore: number | null;
   appCount: number | null;
-  keywordIncluded: number | null;
+  keywordMatch: KeywordMatchType | null;
   orderedAppIds: string[];
   createdAt?: string;
   updatedAt?: string;
@@ -83,7 +84,7 @@ export class KeywordWriteRepository {
         difficultyScore: item.difficultyScore,
         minDifficultyScore: item.minDifficultyScore,
         appCount: item.appCount,
-        keywordIncluded: item.keywordIncluded,
+        keywordMatch: item.keywordMatch,
         orderedAppIds: item.orderedAppIds,
         createdAt: item.createdAt,
         updatedAt: item.updatedAt,
@@ -110,7 +111,7 @@ export class KeywordWriteRepository {
         difficultyScore: null,
         minDifficultyScore: null,
         appCount: null,
-        keywordIncluded: null,
+        keywordMatch: null,
         orderedAppIds: [],
         orderExpiresAt: computeOrderExpiryIso(),
         popularityExpiresAt: computePopularityExpiryIso(),

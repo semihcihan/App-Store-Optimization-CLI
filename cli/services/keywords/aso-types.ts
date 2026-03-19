@@ -2,6 +2,7 @@ import type {
   FailedKeyword,
   FailedKeywordStage,
 } from "../../shared/aso-keyword-types";
+import type { KeywordMatchType } from "../../shared/aso-keyword-match";
 
 export interface AsoAppDocItem {
   appId: string;
@@ -24,7 +25,7 @@ export interface AsoKeywordItem {
   difficultyScore: number;
   minDifficultyScore: number;
   appCount: number;
-  keywordIncluded: number;
+  keywordMatch: KeywordMatchType;
   orderedAppIds: string[];
   createdAt?: string;
   updatedAt?: string;

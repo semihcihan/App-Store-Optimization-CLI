@@ -1,8 +1,10 @@
+import type { KeywordMatchType } from "./aso-keyword-match";
+
 type KeywordFreshnessFields = {
   difficultyScore: number | null;
   minDifficultyScore: number | null;
   appCount: number | null;
-  keywordIncluded: number | null;
+  keywordMatch: KeywordMatchType | null;
   orderExpiresAt: string;
   popularityExpiresAt: string;
 };
@@ -13,7 +15,7 @@ export type CompleteStoredAsoKeyword<
   difficultyScore: number;
   minDifficultyScore: number;
   appCount: number;
-  keywordIncluded: number;
+  keywordMatch: KeywordMatchType;
 };
 
 export function isFreshIso(iso: string | undefined, nowMs: number): boolean {
@@ -30,7 +32,7 @@ export function isCompleteStoredAsoKeyword<T extends KeywordFreshnessFields>(
     keyword.difficultyScore != null &&
     keyword.minDifficultyScore != null &&
     keyword.appCount != null &&
-    keyword.keywordIncluded != null
+    keyword.keywordMatch != null
   );
 }
 

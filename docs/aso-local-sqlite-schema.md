@@ -28,7 +28,7 @@ erDiagram
     REAL difficulty_score
     REAL min_difficulty_score
     INTEGER app_count
-    INTEGER keyword_included
+    TEXT keyword_match
     TEXT ordered_app_ids
     TEXT created_at
     TEXT updated_at
@@ -117,7 +117,7 @@ Indexes:
 | `difficulty_score` | `REAL` | `number \| null` | Yes | Rounded integer semantics on write |
 | `min_difficulty_score` | `REAL` | `number \| null` | Yes | Rounded integer semantics on write |
 | `app_count` | `INTEGER` | `number \| null` | Yes | Ordered app count |
-| `keyword_included` | `INTEGER` | `number \| null` | Yes | Inclusion signal count |
+| `keyword_match` | `TEXT` | `"none" \| "titleExactPhrase" \| "titleAllWords" \| "subtitleExactPhrase" \| "combinedPhrase" \| "subtitleAllWords" \| null` | Yes | Best (highest-ranked) keyword match enum across top 5 apps |
 | `ordered_app_ids` | `TEXT` | `string[]` | No | JSON-encoded app id list |
 | `created_at` | `TEXT` | `string` | No | ISO datetime |
 | `updated_at` | `TEXT` | `string` | No | ISO datetime |

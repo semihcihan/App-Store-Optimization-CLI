@@ -20,6 +20,7 @@ import {
   isCompleteStoredAsoKeyword,
   isStoredKeywordCacheHit,
 } from "../../../shared/aso-keyword-validity";
+import type { KeywordMatchType } from "../../../shared/aso-keyword-match";
 import { keywordWriteRepository } from "../../keywords/keyword-write-repository";
 import { normalizeCountry } from "../../../domain/keywords/policy";
 
@@ -76,7 +77,7 @@ export class LocalAsoCacheRepository implements AsoCacheRepository {
       difficultyScore: number;
       minDifficultyScore: number;
       appCount: number;
-      keywordIncluded: number;
+      keywordMatch: KeywordMatchType;
       orderedAppIds: string[];
     }>;
     appDocs?: AsoAppDoc[];
@@ -95,7 +96,7 @@ export class LocalAsoCacheRepository implements AsoCacheRepository {
         difficultyScore: item.difficultyScore,
         minDifficultyScore: item.minDifficultyScore,
         appCount: item.appCount,
-        keywordIncluded: item.keywordIncluded,
+        keywordMatch: item.keywordMatch,
         orderedAppIds: item.orderedAppIds,
       }))
     );
@@ -152,7 +153,7 @@ export class LocalAsoCacheRepository implements AsoCacheRepository {
         difficultyScore: fallback.difficultyScore,
         minDifficultyScore: fallback.minDifficultyScore,
         appCount: fallback.appCount,
-        keywordIncluded: fallback.keywordIncluded,
+        keywordMatch: fallback.keywordMatch,
         orderedAppIds: fallback.orderedAppIds,
         createdAt: now,
         updatedAt: now,

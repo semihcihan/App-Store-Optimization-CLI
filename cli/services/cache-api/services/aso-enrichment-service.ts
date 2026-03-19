@@ -13,9 +13,9 @@ import type { AsoAppDoc, AsoAppDocIcon } from "./aso-types";
 import { asoAppleGet } from "./aso-apple-client";
 import { reportAppleContractChange } from "../../keywords/apple-http-trace";
 import { getStorefrontDefaultLanguage } from "../../../shared/aso-storefront-localizations";
+import type { KeywordMatchType } from "../../../shared/aso-keyword-match";
 import {
   DIFFICULTY_DETAIL_LIMIT,
-  type KeywordMatchType,
   calculateAppDifficultyBreakdown,
   calculateKeywordDifficultyBreakdown,
   keywordMatchToScore,
@@ -153,6 +153,23 @@ function detectBestKeywordMatchType(app: AsoAppDoc, keyword: string): KeywordMat
     }
   }
   return bestMatch;
+}
+
+function detectTopKeywordMatchType(apps: AsoAppDoc[], keyword: string): KeywordMatchType {
+  let topMatch: KeywordMatchType = "none";
+  let topScore = 0;
+  for (const app of apps) {
+    const match = detectBestKeywordMatchType(app, keyword);
+    const score = keywordMatchToScore(match);
+    if (score > topScore) {
+      topMatch = match;
+      topScore = score;
+      if (topScore >= 1) {
+        break;
+      }
+    }
+  }
+  return topMatch;
 }
 
 function appCompetitiveScore(app: AsoAppDoc, keyword: string): number {
@@ -565,7 +582,7 @@ export async function enrichKeyword(
   difficultyScore: number;
   minDifficultyScore: number;
   appCount: number;
-  keywordIncluded: number;
+  keywordMatch: KeywordMatchType;
   orderedAppIds: string[];
   appDocs: AsoAppDoc[];
 }> {
@@ -714,10 +731,7 @@ export async function enrichKeyword(
   const docsForDifficulty = firstFiveIds
     .map((id) => appDocs.find((d) => d.appId === id))
     .filter((d): d is AsoAppDoc => d != null);
-  const keywordIncluded = docsForDifficulty.reduce((count, app) => {
-    const keywordMatch = detectBestKeywordMatchType(app, params.keyword);
-    return count + (keywordMatch === "none" ? 0 : 1);
-  }, 0);
+  const keywordMatch = detectTopKeywordMatchType(docsForDifficulty, params.keyword);
 
   if (
     docsForDifficulty.length !== DIFFICULTY_DETAIL_LIMIT ||
@@ -737,7 +751,7 @@ export async function enrichKeyword(
       difficultyScore: 1,
       minDifficultyScore: 1,
       appCount,
-      keywordIncluded,
+      keywordMatch,
       orderedAppIds,
       appDocs,
     };
@@ -758,7 +772,7 @@ export async function enrichKeyword(
     difficultyScore: difficulty.difficultyScore,
     minDifficultyScore: difficulty.minDifficultyScore,
     appCount,
-    keywordIncluded,
+    keywordMatch,
     orderedAppIds,
     appDocs,
   };

@@ -452,7 +452,7 @@ export function createKeywordHandlers(deps: AsoRouteDeps) {
           difficultyScore: null,
           minDifficultyScore: null,
           appCount: null,
-          keywordIncluded: 0,
+          keywordMatch: "none",
           orderedAppIds: [] as string[],
           createdAt: failure.updatedAt,
           updatedAt: failure.updatedAt,

@@ -16,7 +16,7 @@ function buildKeyword(
     difficultyScore: 20,
     minDifficultyScore: 5,
     appCount: 10,
-    keywordIncluded: 1,
+    keywordMatch: "titleExactPhrase",
     orderedAppIds: ["app-1"],
     createdAt: "2026-01-01T00:00:00.000Z",
     updatedAt: "2026-01-01T00:00:00.000Z",
@@ -66,7 +66,7 @@ describe("startup-refresh-manager", () => {
           difficultyScore: null,
           minDifficultyScore: null,
           appCount: null,
-          keywordIncluded: null,
+          keywordMatch: null,
         }),
         buildKeyword({
           keyword: "popularity-stale",

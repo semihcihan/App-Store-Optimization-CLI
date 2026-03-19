@@ -32,7 +32,14 @@ function initializeDatabase(database: Database.Database): void {
       difficulty_score REAL,
       min_difficulty_score REAL,
       app_count INTEGER,
-      keyword_included INTEGER,
+      keyword_match TEXT CHECK (keyword_match IN (
+        'none',
+        'titleExactPhrase',
+        'titleAllWords',
+        'subtitleExactPhrase',
+        'combinedPhrase',
+        'subtitleAllWords'
+      )),
       ordered_app_ids TEXT NOT NULL,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,

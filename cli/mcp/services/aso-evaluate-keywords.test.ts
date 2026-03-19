@@ -97,7 +97,7 @@ describe("aso_evaluate_keywords service", () => {
             difficulty: 40,
             minDifficultyScore: 51.43,
             appCount: 179,
-            keywordIncluded: 2,
+            keywordMatch: "titleAllWords",
           },
           {
             keyword: "story game",
@@ -105,7 +105,7 @@ describe("aso_evaluate_keywords service", () => {
             difficulty: 30,
             minDifficultyScore: 22,
             appCount: 55,
-            keywordIncluded: 3,
+            keywordMatch: "subtitleExactPhrase",
           },
         ],
         failedKeywords: [{ keyword: "failed", stage: "enrichment" }],

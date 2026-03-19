@@ -478,7 +478,7 @@ describe("dashboard server routes", () => {
         popularity: 42,
         difficultyScore: null,
         appCount: 10,
-        keywordIncluded: 1,
+        keywordMatch: "titleExactPhrase",
         orderedAppIds: ["app-1", "app-2"],
       },
     ] as any);
