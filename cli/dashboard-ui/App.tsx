@@ -1947,13 +1947,8 @@ export function App() {
                             </div>
                             <div className="top-app-side">
                               <div className="top-app-metrics-inline" role="group" aria-label="App metrics">
-                                {metricPairs.map((metric, index) => (
+                                {metricPairs.map((metric) => (
                                   <div className="top-app-metric-entry" key={metric.label}>
-                                    {index > 0 ? (
-                                      <span className="top-app-metric-dot" aria-hidden="true">
-                                        •
-                                      </span>
-                                    ) : null}
                                     <div
                                       className={`top-app-metric-pair${metric.pairClassName ? ` ${metric.pairClassName}` : ""}`}
                                     >
