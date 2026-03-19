@@ -349,6 +349,14 @@ export function App() {
     keywords.length === 0
       ? "No keywords yet for this app."
       : "No keywords match the current search/filters.";
+  const hasAnyAddedNonDefaultApp = useMemo(
+    () => apps.some((app) => app.id !== DEFAULT_RESEARCH_APP_ID),
+    [apps]
+  );
+  const hasAnyAddedKeyword = useMemo(
+    () => apps.some((app) => Boolean(app.lastKeywordAddedAt)),
+    [apps]
+  );
 
   const loadApps = useCallback(async (): Promise<AppItem[]> => {
     const list = await apiGet<AppItem[]>(`/api/apps`);
@@ -809,7 +817,12 @@ export function App() {
         setLoadingText("");
       }
     },
-    [selectedAppId, loadApps, loadKeywords, openAuthModalForPendingAdd]
+    [
+      selectedAppId,
+      loadApps,
+      loadKeywords,
+      openAuthModalForPendingAdd,
+    ]
   );
 
   const onAddKeywords = async (event: React.FormEvent) => {
@@ -1162,6 +1175,8 @@ export function App() {
   const isColdStart = isInitialLoad && !hasCachedData;
   const isAnyAppMutationInFlight = isAddingApp;
   const isAddKeywordsBusy = isAddingKeywords || authCheckLoadingText !== "";
+  const showAddKeywordsOnboardingHighlight = !hasAnyAddedKeyword;
+  const showAddAppOnboardingHighlight = !hasAnyAddedNonDefaultApp;
   const showError = !showLoading && errorText !== "";
   const showSuccess = !showLoading && !showError && successText !== "";
   const addButtonLabel = isCompactLayout ? "Add" : "Add Keywords";
@@ -1208,15 +1223,18 @@ export function App() {
           </div>
           <p className="sidebar-subtitle"></p>
           <div className="sidebar-actions">
-            <Button
-              id="add-app-toggle"
-              type="button"
-              aria-expanded={isAddAppPopoverOpen}
-              aria-label="Add app"
-              onClick={openAddAppPopover}
-            >
-              +
-            </Button>
+            <div className="onboarding-target-slot">
+              <Button
+                id="add-app-toggle"
+                type="button"
+                className={showAddAppOnboardingHighlight ? "onboarding-highlight" : ""}
+                aria-expanded={isAddAppPopoverOpen}
+                aria-label="Add app"
+                onClick={openAddAppPopover}
+              >
+                +
+              </Button>
+            </div>
           </div>
         </div>
 
@@ -1424,14 +1442,17 @@ export function App() {
       <main className="main">
         <Card className="add-card">
           <form id="add-form" className="add-form" onSubmit={onAddKeywords}>
-            <Input
-              ref={addKeywordsInputRef}
-              id="add-keywords"
-              type="text"
-              placeholder="Add keywords (comma-separated)"
-              value={addInput}
-              onChange={(e) => setAddInput(e.target.value)}
-            />
+            <div className="onboarding-target-slot add-keywords-slot">
+              <Input
+                ref={addKeywordsInputRef}
+                id="add-keywords"
+                type="text"
+                className={showAddKeywordsOnboardingHighlight ? "onboarding-highlight" : ""}
+                placeholder="Add keywords (comma-separated)"
+                value={addInput}
+                onChange={(e) => setAddInput(e.target.value)}
+              />
+            </div>
             <Button id="add-submit" type="submit" disabled={isAddKeywordsBusy || isColdStart}>
               <span className={`add-submit-label ${isAddKeywordsBusy ? "is-loading" : ""}`}>{addButtonLabel}</span>
               <span className={`button-loading-spinner ${isAddKeywordsBusy ? "visible" : ""}`} aria-hidden="true" />

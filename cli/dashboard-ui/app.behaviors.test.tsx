@@ -53,18 +53,26 @@ function withAppKinds(apps: AppRow[]): Array<AppRow & { kind: AppKind }> {
 
 function buildFetchMock(params: {
   apps: AppRow[];
+  afterAddApps?: AppRow[];
   keywordsByAppId: Record<string, unknown[]>;
   appDocsById?: Record<string, unknown>;
   topAppsByKeyword?: Record<string, { status: number; body: unknown }>;
   onAddKeywords?: (payload: any) => void;
 }) {
+  let appsCallCount = 0;
   return jest.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
     const method = (init?.method ?? "GET").toUpperCase();
     const body = init?.body ? JSON.parse(String(init.body)) : undefined;
 
     if (method === "GET" && url === "/api/apps") {
-      return jsonResponse(200, { success: true, data: withAppKinds(params.apps) });
+      appsCallCount += 1;
+      return jsonResponse(200, {
+        success: true,
+        data: withAppKinds(
+          appsCallCount > 1 && params.afterAddApps ? params.afterAddApps : params.apps
+        ),
+      });
     }
 
     if (method === "GET" && url.startsWith("/api/aso/apps?")) {
@@ -223,6 +231,44 @@ describe("dashboard app behaviors", () => {
     fireEvent.click(screen.getByRole("button", { name: "Add Keywords" }));
     await waitFor(() => expect(addKeywordCallCount).toBe(0));
     expect((input as HTMLInputElement).value).toBe("");
+  });
+
+  it("clears add-keywords onboarding highlight after first successful add", async () => {
+    let postedPayload: any = null;
+    const fetchMock = buildFetchMock({
+      apps: [{ id: DEFAULT_RESEARCH_APP_ID, name: "Research" }],
+      afterAddApps: [
+        {
+          id: DEFAULT_RESEARCH_APP_ID,
+          name: "Research",
+          lastKeywordAddedAt: "2026-03-19T09:00:00.000Z",
+        },
+      ],
+      keywordsByAppId: {
+        [DEFAULT_RESEARCH_APP_ID]: [],
+      },
+      onAddKeywords: (payload) => {
+        postedPayload = payload;
+      },
+    });
+    global.fetch = fetchMock as typeof fetch;
+
+    render(<App />);
+
+    const input = await screen.findByPlaceholderText("Add keywords (comma-separated)");
+    expect(input).toHaveClass("onboarding-highlight");
+
+    fireEvent.change(input, { target: { value: "new-term" } });
+    fireEvent.click(screen.getByRole("button", { name: "Add Keywords" }));
+
+    await waitFor(() =>
+      expect(postedPayload).toEqual({
+        appId: DEFAULT_RESEARCH_APP_ID,
+        keywords: ["new-term"],
+        country: "US",
+      })
+    );
+    await waitFor(() => expect(input).not.toHaveClass("onboarding-highlight"));
   });
 
   it("copies selected keyword from context menu and surfaces copy failures", async () => {

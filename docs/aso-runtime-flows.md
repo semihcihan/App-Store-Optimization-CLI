@@ -127,6 +127,10 @@ Runtime flow contracts across CLI commands, local dashboard API, and ASO service
 - Dashboard keyword sort is global (`localStorage`) across apps. On startup, restore the last valid sort; fallback to `Updated` descending (newest first) when missing/invalid or when the selected sort column is unavailable in the current workspace.
 - Dashboard keyword table shortcuts: `Cmd/Ctrl+A` selects all visible keywords, `Cmd/Ctrl+C` copies selected visible keywords as comma-separated text, `Cmd/Ctrl+V` pastes clipboard text into the add-keywords input when focus is outside editable fields, and `Delete`/`Backspace` opens the delete confirmation for selected visible keywords when focus is outside editable fields.
 - Sidebar app rows treat click targets consistently: clicking row text/icon content selects the app, while explicit app-ID copy controls keep copy behavior and do not trigger app switching.
+- Dashboard first-run onboarding highlights:
+  - highlight the add-keywords input until the user successfully adds at least one keyword.
+  - highlight the add-app button until the user has at least one non-default app (`id !== "research"`), including research apps created by user.
+  - state is derived from local DB-backed `/api/apps` data (`lastKeywordAddedAt` and app list) and reappears if user removes all added apps/keywords.
 - App-doc backend requests are chunked to max `50` IDs.
 - In ASO research, a `keyword` is a search term candidate and may be a long-tail phrase, not only a single word.
 - In App Store metadata fields, keywords are comma-separated terms under a `100`-character limit.

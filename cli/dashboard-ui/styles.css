@@ -5,6 +5,7 @@
 :root {
   --ok: color-mix(in oklab, var(--secondary) 68%, white);
   --danger: var(--destructive);
+  --onboarding-green: #16a34a;
 }
 
 * {
@@ -118,6 +119,13 @@ body {
   justify-content: space-between;
   width: 100%;
   gap: 8px;
+}
+
+.onboarding-target-slot {
+  display: grid;
+  gap: 0;
+  justify-items: start;
+  min-width: 0;
 }
 
 #add-app-toggle {
@@ -556,6 +564,47 @@ body {
   grid-template-columns: 1fr auto;
   gap: 10px;
   align-items: center;
+}
+
+.add-keywords-slot {
+  min-width: 0;
+  justify-items: stretch;
+}
+
+.add-keywords-slot #add-keywords {
+  width: 100%;
+}
+
+.onboarding-highlight {
+  border-color: color-mix(in oklab, var(--onboarding-green) 74%, white);
+  animation: onboarding-inner-pulse 1.35s ease-in-out infinite;
+}
+
+#add-app-toggle.onboarding-highlight {
+  background: color-mix(in oklab, var(--onboarding-green) 68%, black);
+  border-color: color-mix(in oklab, var(--onboarding-green) 74%, white);
+  color: white;
+  box-shadow:
+    inset 0 0 0 1px color-mix(in oklab, var(--onboarding-green) 48%, transparent),
+    0 0 0 1px color-mix(in oklab, var(--onboarding-green) 24%, transparent);
+}
+
+#add-keywords.onboarding-highlight {
+  border-color: color-mix(in oklab, var(--onboarding-green) 72%, white);
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--onboarding-green) 52%, transparent);
+  background: color-mix(in oklab, var(--onboarding-green) 8%, var(--background));
+}
+
+@keyframes onboarding-inner-pulse {
+  0% {
+    border-color: color-mix(in oklab, var(--onboarding-green) 68%, white);
+  }
+  50% {
+    border-color: color-mix(in oklab, var(--onboarding-green) 86%, white);
+  }
+  100% {
+    border-color: color-mix(in oklab, var(--onboarding-green) 68%, white);
+  }
 }
 
 .retry-failed-button {

@@ -215,6 +215,12 @@ describe("dashboard app interactions", () => {
     render(<App />);
 
     await screen.findByRole("tab", { name: "Research" });
+    expect(
+      screen.getByPlaceholderText("Add keywords (comma-separated)")
+    ).toHaveClass("onboarding-highlight");
+    expect(screen.getByRole("button", { name: "Add app" })).toHaveClass(
+      "onboarding-highlight"
+    );
     fireEvent.click(screen.getByRole("button", { name: "Add app" }));
     await screen.findByRole("dialog", { name: "Add app" });
 
@@ -233,6 +239,12 @@ describe("dashboard app interactions", () => {
     await waitFor(() => expect(postedPayload).toEqual({ type: "app", appId: "123" }));
     await screen.findByText("Added 1 item.");
     expect(screen.getByText("Owned App")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Add app" })).not.toHaveClass(
+      "onboarding-highlight"
+    );
+    expect(
+      screen.getByPlaceholderText("Add keywords (comma-separated)")
+    ).toHaveClass("onboarding-highlight");
   });
 
   it("retries failed keywords and shows result", async () => {
