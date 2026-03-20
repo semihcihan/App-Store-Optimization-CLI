@@ -1,6 +1,9 @@
 import { notifyBugsnagError } from "../../shared/telemetry/bugsnag-shared";
 import { getErrorBugsnagMetadata } from "./bugsnag-metadata";
-import { reportBugsnagError } from "./error-reporter";
+import {
+  reportBugsnagError,
+  resetErrorReporterDeduplicationForTests,
+} from "./error-reporter";
 
 jest.mock("../../shared/telemetry/bugsnag-shared", () => ({
   notifyBugsnagError: jest.fn(),
@@ -17,6 +20,11 @@ describe("reportBugsnagError", () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    resetErrorReporterDeduplicationForTests();
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
   });
 
   it("merges caller metadata with error metadata", () => {
@@ -33,7 +41,6 @@ describe("reportBugsnagError", () => {
       expect.objectContaining({
         phase: "error",
         command: "aso keywords",
-        requestId: "req-1",
         request_id: "req-1",
         surface: "aso-cli",
         source: "cli.aso-keywords",
@@ -62,6 +69,46 @@ describe("reportBugsnagError", () => {
         signal: "actionable",
         telemetryClassification: "unknown",
         telemetryDecisionReason: "default_report",
+      }),
+      expect.any(Function)
+    );
+  });
+
+  it("dedupes repeated MCP parse-json user-fault signals in a 60 second window", () => {
+    const nowSpy = jest.spyOn(Date, "now");
+    const error = new Error("MCP expected JSON output from aso keywords");
+    const metadata = {
+      surface: "aso-mcp",
+      tool: "aso_evaluate_keywords",
+      stage: "parse-json",
+      operation: "aso_evaluate_keywords.parse-json",
+      source: "mcp.aso-evaluate-keywords.parse-json",
+    };
+
+    nowSpy.mockReturnValue(1_000);
+    reportBugsnagError(error, metadata);
+    nowSpy.mockReturnValue(20_000);
+    reportBugsnagError(error, metadata);
+    nowSpy.mockReturnValue(62_000);
+    reportBugsnagError(error, metadata);
+
+    expect(mockNotifyBugsnagError).toHaveBeenCalledTimes(2);
+    expect(mockNotifyBugsnagError).toHaveBeenNthCalledWith(
+      1,
+      error,
+      expect.objectContaining({
+        telemetryClassification: "user_fault",
+        telemetryDecisionReason: "mcp_parse_json_shape",
+      }),
+      expect.any(Function)
+    );
+    expect(mockNotifyBugsnagError).toHaveBeenNthCalledWith(
+      2,
+      error,
+      expect.objectContaining({
+        telemetryClassification: "user_fault",
+        telemetryDecisionReason: "mcp_parse_json_shape",
+        deduped_count: 1,
       }),
       expect.any(Function)
     );

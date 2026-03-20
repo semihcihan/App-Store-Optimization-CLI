@@ -1,8 +1,8 @@
 import Bugsnag from "@bugsnag/js";
 
-const BUGSNAG_API_KEY = "ed1a4165d4f8fd836bf16f3ca1915a67";
 let started = false;
 let isDevelopmentMode = false;
+let warnedMissingApiKey = false;
 type StartOptions = NonNullable<Parameters<typeof Bugsnag.start>[0]>;
 type BugsnagConfigOptions = Exclude<StartOptions, string>;
 const DEFAULT_BREADCRUMB_TYPES: NonNullable<
@@ -209,7 +209,9 @@ export function toError(error: unknown): Error {
 
 export function initializeBugsnag(options: {
   isDevelopment: boolean;
+  apiKey?: string;
   appVersion?: string;
+  autoTrackSessions?: boolean;
   enabledBreadcrumbTypes?: BugsnagConfigOptions["enabledBreadcrumbTypes"];
 }): void {
   if (started) return;
@@ -219,9 +221,20 @@ export function initializeBugsnag(options: {
     return;
   }
 
+  const apiKey = (options.apiKey ?? process.env.BUGSNAG_API_KEY ?? "").trim();
+  if (!apiKey) {
+    if (!warnedMissingApiKey) {
+      warnedMissingApiKey = true;
+      console.warn(
+        "BUGSNAG_API_KEY is not set; Bugsnag telemetry is disabled."
+      );
+    }
+    return;
+  }
+
   Bugsnag.start({
-    apiKey: BUGSNAG_API_KEY,
-    autoTrackSessions: false,
+    apiKey,
+    autoTrackSessions: options.autoTrackSessions ?? false,
     appVersion: options.appVersion,
     logger: null,
     redactedKeys: DEFAULT_REDACTED_KEYS,

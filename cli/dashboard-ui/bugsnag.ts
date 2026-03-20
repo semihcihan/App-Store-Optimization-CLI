@@ -8,7 +8,10 @@ import {
 } from "../shared/telemetry/bugsnag-classifier";
 import { NoiseDedupeWindow } from "../shared/telemetry/noise-dedupe";
 import { buildNoiseSignature } from "../shared/telemetry/noise-signature";
-import { isDashboardDevelopment } from "./runtime-config";
+import {
+  getDashboardBugsnagApiKey,
+  isDashboardDevelopment,
+} from "./runtime-config";
 
 const DASHBOARD_BUGSNAG_DEDUPE_WINDOW_MS = 60_000;
 const dedupeWindow = new NoiseDedupeWindow(DASHBOARD_BUGSNAG_DEDUPE_WINDOW_MS);
@@ -22,13 +25,16 @@ function applyNoiseEventMutation(decisionClassification: string): (event: any) =
   return (event) => {
     if (decisionClassification !== "user_fault") return;
     event.severity = "info";
-    event.unhandled = false;
   };
 }
 
 export function initializeDashboardBugsnag(): void {
+  const bugsnagApiKey = getDashboardBugsnagApiKey();
   initializeBugsnag({
     isDevelopment: isDashboardDevelopment(),
+    ...(bugsnagApiKey ? { apiKey: bugsnagApiKey } : {}),
+    autoTrackSessions: true,
+    enabledBreadcrumbTypes: ["error", "manual", "navigation", "request"],
   });
 }
 

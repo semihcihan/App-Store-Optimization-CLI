@@ -254,7 +254,8 @@ export function createServerRequestHandler(): http.RequestListener {
         sendDashboardRuntimeConfig(
           res,
           process.env.NODE_ENV ?? "",
-          process.env.ASO_BUGSNAG_VERBOSE_TRACES === "1"
+          process.env.ASO_BUGSNAG_VERBOSE_TRACES === "1",
+          process.env.BUGSNAG_API_KEY
         );
         return;
       }

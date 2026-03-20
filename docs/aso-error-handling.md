@@ -68,13 +68,16 @@ Define failure boundaries, retry rules, and recovery behavior across CLI, dashbo
   - Localized app-page `serialized-server-data` parsing (title/subtitle/rating/ratingCount)
 - Contract-drift events are deduped for `15` minutes per unique signature (`provider + operation + endpoint + drift kind + status bucket`) to reduce alert spam during repeated failures.
 - Bugsnag redaction is centralized at SDK startup via global `redactedKeys` and `onError` sanitization before event delivery (including nested metadata and keychain command-arg payloads such as `spawnargs` values after `-w`).
+- Runtime telemetry startup expects `BUGSNAG_API_KEY` from environment/runtime config; when missing, Bugsnag startup is skipped with a warning.
+- Dashboard Bugsnag startup enables browser session tracking and includes `request`/`navigation` breadcrumbs; CLI/MCP keep stricter defaults.
 - Dashboard server reports failures with structured metadata (path, phase, counts).
 - Bugsnag reporting uses an actionability allowlist:
   - reports internal bugs, Apple contract-change signals, and terminal upstream failures
   - suppresses expected flow/validation noise (`4xx`, validation issues)
   - reports selected user-fault noise as low-severity (`info`, handled) for visibility without paging
 - Dashboard UI reports only actionable API failures (for example: `5xx`, network/runtime exceptions, malformed success payloads); expected `4xx` flows are suppressed.
-- Dashboard UI transport/setup noise (`/api/aso/auth/status` fetch failures, repeated local search failures, MCP parse-json shape drift) is reclassified as `user_fault` and deduped in-process per signature for `60` seconds.
+- Dashboard UI transport/setup noise (`/api/aso/auth/status` network fetch failures and repeated local search failures) is reclassified as `user_fault` and deduped in-process per signature for `60` seconds.
+- MCP parse-json shape drift (`MCP expected JSON output from aso keywords`) is reclassified as `user_fault` and deduped in the shared reporter path for `60` seconds.
 - Dashboard UI Bugsnag metadata includes only failed local dashboard traces by default (max `3`); set `ASO_BUGSNAG_VERBOSE_TRACES=1` to include full recent local trace bundles for deep debugging.
 - MCP reports runtime/transport/parse-contract failures; non-zero child CLI exits are suppressed by default.
 - Startup refresh state (`status`, counters, timestamps, lastError) is exposed via API.

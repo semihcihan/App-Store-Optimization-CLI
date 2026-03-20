@@ -1,7 +1,6 @@
 import type { TelemetryDecision, TelemetryHint } from "./bugsnag-classifier";
 import {
   getErrorMessage,
-  getErrorName,
   getRequestPath,
   normalizeOperationPath,
   toStringValue,
@@ -17,10 +16,8 @@ function isDashboardUiSurface(
 }
 
 function isLikelyTransportError(error: unknown): boolean {
-  const name = (getErrorName(error) || "").toLowerCase();
   const message = (getErrorMessage(error) || "").toLowerCase();
-  if (name.includes("typeerror")) return true;
-  return (
+  return message !== "" && (
     message.includes("failed to fetch") ||
     message.includes("load failed") ||
     message.includes("networkerror") ||
@@ -44,8 +41,13 @@ export function classifyKnownNoise(
 
   if (!isDashboardUiSurface(metadata, hint)) return undefined;
   const path = getRequestPath(metadata);
+  const method = toStringValue(metadata.method)?.toUpperCase();
   const normalizedPath = path ? normalizeOperationPath(path) : undefined;
-  if (normalizedPath === "/api/aso/auth/status" && isLikelyTransportError(error)) {
+  if (
+    normalizedPath === "/api/aso/auth/status" &&
+    method === "GET" &&
+    isLikelyTransportError(error)
+  ) {
     return {
       report: true,
       classification: "user_fault",

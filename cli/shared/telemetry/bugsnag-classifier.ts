@@ -252,6 +252,7 @@ export function withTelemetryDecisionMetadata(
   metadata: Record<string, unknown>,
   decision: TelemetryDecision
 ): Record<string, unknown> {
+  const { requestId: _legacyRequestId, ...metadataWithoutLegacy } = metadata;
   const hint = getTelemetryHint(metadata);
   const surface = inferSurface(metadata, hint) ?? "unknown";
   const source = inferSource(metadata, hint, surface) ?? "unknown";
@@ -278,7 +279,7 @@ export function withTelemetryDecisionMetadata(
   const isTerminal = toBooleanOrNull(metadata.isTerminal) ?? hint?.isTerminal ?? null;
 
   return {
-    ...metadata,
+    ...metadataWithoutLegacy,
     surface,
     source,
     operation,

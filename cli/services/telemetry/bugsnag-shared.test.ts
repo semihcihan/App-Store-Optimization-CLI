@@ -27,7 +27,11 @@ describe("bugsnag-shared", () => {
     const { initializeBugsnag } = await import("../../shared/telemetry/bugsnag-shared");
     const Bugsnag = getBugsnagMock();
 
-    initializeBugsnag({ isDevelopment: true, appVersion: "1.2.3" });
+    initializeBugsnag({
+      isDevelopment: true,
+      apiKey: "test-api-key",
+      appVersion: "1.2.3",
+    });
 
     expect(Bugsnag.start).not.toHaveBeenCalled();
   });
@@ -36,12 +40,21 @@ describe("bugsnag-shared", () => {
     const { initializeBugsnag } = await import("../../shared/telemetry/bugsnag-shared");
     const Bugsnag = getBugsnagMock();
 
-    initializeBugsnag({ isDevelopment: false, appVersion: "1.2.3" });
-    initializeBugsnag({ isDevelopment: false, appVersion: "9.9.9" });
+    initializeBugsnag({
+      isDevelopment: false,
+      apiKey: "test-api-key",
+      appVersion: "1.2.3",
+    });
+    initializeBugsnag({
+      isDevelopment: false,
+      apiKey: "test-api-key",
+      appVersion: "9.9.9",
+    });
 
     expect(Bugsnag.start).toHaveBeenCalledTimes(1);
     expect(Bugsnag.start).toHaveBeenCalledWith(
       expect.objectContaining({
+        apiKey: "test-api-key",
         appVersion: "1.2.3",
         autoTrackSessions: false,
         logger: null,
@@ -52,11 +65,50 @@ describe("bugsnag-shared", () => {
     );
   });
 
+  it("respects explicit session tracking and breadcrumb overrides", async () => {
+    const { initializeBugsnag } = await import("../../shared/telemetry/bugsnag-shared");
+    const Bugsnag = getBugsnagMock();
+
+    initializeBugsnag({
+      isDevelopment: false,
+      apiKey: "test-api-key",
+      appVersion: "1.2.3",
+      autoTrackSessions: true,
+      enabledBreadcrumbTypes: ["error", "request", "navigation"],
+    });
+
+    expect(Bugsnag.start).toHaveBeenCalledWith(
+      expect.objectContaining({
+        appVersion: "1.2.3",
+        autoTrackSessions: true,
+        enabledBreadcrumbTypes: ["error", "request", "navigation"],
+      })
+    );
+  });
+
+  it("does not start when api key is missing in production mode", async () => {
+    const { initializeBugsnag } = await import("../../shared/telemetry/bugsnag-shared");
+    const Bugsnag = getBugsnagMock();
+    const warnSpy = jest.spyOn(console, "warn").mockImplementation(() => {});
+
+    initializeBugsnag({ isDevelopment: false, appVersion: "1.2.3" });
+
+    expect(Bugsnag.start).not.toHaveBeenCalled();
+    expect(warnSpy).toHaveBeenCalledWith(
+      "BUGSNAG_API_KEY is not set; Bugsnag telemetry is disabled."
+    );
+    warnSpy.mockRestore();
+  });
+
   it("sanitizes sensitive values globally via Bugsnag onError hook", async () => {
     const { initializeBugsnag } = await import("../../shared/telemetry/bugsnag-shared");
     const Bugsnag = getBugsnagMock();
 
-    initializeBugsnag({ isDevelopment: false, appVersion: "1.2.3" });
+    initializeBugsnag({
+      isDevelopment: false,
+      apiKey: "test-api-key",
+      appVersion: "1.2.3",
+    });
 
     expect(Bugsnag.start).toHaveBeenCalledTimes(1);
     const config = Bugsnag.start.mock.calls[0]?.[0] as {
@@ -152,7 +204,11 @@ describe("bugsnag-shared", () => {
     notifyBugsnagError("not-started", { phase: "pre" });
     expect(Bugsnag.notify).not.toHaveBeenCalled();
 
-    initializeBugsnag({ isDevelopment: false, appVersion: "1.2.3" });
+    initializeBugsnag({
+      isDevelopment: false,
+      apiKey: "test-api-key",
+      appVersion: "1.2.3",
+    });
     notifyBugsnagError(
       new Error("boom"),
       { phase: "run" },

@@ -38,11 +38,13 @@ export function sendStaticFile(
 export function sendDashboardRuntimeConfig(
   res: http.ServerResponse,
   nodeEnv: string,
-  bugsnagVerboseTraces: boolean
+  bugsnagVerboseTraces: boolean,
+  bugsnagApiKey?: string
 ): void {
   const payload = `window.__ASO_DASHBOARD_RUNTIME__=${JSON.stringify({
     nodeEnv,
     bugsnagVerboseTraces,
+    bugsnagApiKey,
   })};`;
   res.writeHead(200, {
     "Content-Type": "application/javascript; charset=utf-8",

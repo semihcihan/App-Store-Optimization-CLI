@@ -60,3 +60,9 @@ jobs:
       - name: Publish to npm
         if: steps.published.outputs.already_published != 'true'
         run: npm publish --access public --provenance
+
+      - name: Upload Bugsnag Node sourcemap
+        if: ${{ secrets.BUGSNAG_API_KEY != '' }}
+        env:
+          BUGSNAG_API_KEY: ${{ secrets.BUGSNAG_API_KEY }}
+        run: npm run upload-sourcemap

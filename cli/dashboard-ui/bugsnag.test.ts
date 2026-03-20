@@ -1,8 +1,12 @@
 import {
+  initializeDashboardBugsnag,
   notifyDashboardError,
   resetDashboardBugsnagDeduplicationForTests,
 } from "./bugsnag";
-import { notifyBugsnagError } from "../shared/telemetry/bugsnag-shared";
+import {
+  initializeBugsnag,
+  notifyBugsnagError,
+} from "../shared/telemetry/bugsnag-shared";
 
 jest.mock("../shared/telemetry/bugsnag-shared", () => ({
   initializeBugsnag: jest.fn(),
@@ -11,14 +15,27 @@ jest.mock("../shared/telemetry/bugsnag-shared", () => ({
 
 jest.mock("./runtime-config", () => ({
   isDashboardDevelopment: jest.fn(() => false),
+  getDashboardBugsnagApiKey: jest.fn(() => "browser-test-key"),
 }));
 
 describe("dashboard-ui/bugsnag", () => {
+  const mockInitializeBugsnag = jest.mocked(initializeBugsnag);
   const mockNotifyBugsnagError = jest.mocked(notifyBugsnagError);
 
   beforeEach(() => {
     jest.clearAllMocks();
     resetDashboardBugsnagDeduplicationForTests();
+  });
+
+  it("initializes dashboard bugsnag with sessions and request/navigation breadcrumbs", () => {
+    initializeDashboardBugsnag();
+
+    expect(mockInitializeBugsnag).toHaveBeenCalledWith({
+      isDevelopment: false,
+      apiKey: "browser-test-key",
+      autoTrackSessions: true,
+      enabledBreadcrumbTypes: ["error", "manual", "navigation", "request"],
+    });
   });
 
   it("suppresses expected dashboard 4xx flow errors", () => {

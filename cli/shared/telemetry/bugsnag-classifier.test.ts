@@ -139,6 +139,20 @@ describe("bugsnag-classifier", () => {
     });
   });
 
+  it("does not classify unrelated TypeError on auth status as noise", () => {
+    const decision = classifyTelemetryError(new TypeError("Cannot read properties"), {
+      surface: "aso-dashboard-ui",
+      method: "GET",
+      path: "/api/aso/auth/status",
+    });
+
+    expect(decision).toEqual({
+      report: true,
+      classification: "unknown",
+      reason: "default_report",
+    });
+  });
+
   it("reports unknown Apple auth reasons as apple contract changes", () => {
     const error = Object.assign(new Error("Unexpected Apple auth response"), {
       name: "AppleAuthResponseError",
