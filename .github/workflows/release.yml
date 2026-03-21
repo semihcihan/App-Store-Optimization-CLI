@@ -8,6 +8,8 @@ on:
 jobs:
   publish:
     runs-on: ubuntu-latest
+    env:
+      BUGSNAG_API_KEY: ${{ secrets.BUGSNAG_API_KEY }}
     permissions:
       contents: read
       id-token: write
@@ -57,12 +59,10 @@ jobs:
             echo "already_published=false" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Upload Bugsnag Node sourcemap
+        if: steps.published.outputs.already_published != 'true'
+        run: npm run upload-sourcemap
+
       - name: Publish to npm
         if: steps.published.outputs.already_published != 'true'
         run: npm publish --access public --provenance
-
-      - name: Upload Bugsnag Node sourcemap
-        if: ${{ secrets.BUGSNAG_API_KEY != '' }}
-        env:
-          BUGSNAG_API_KEY: ${{ secrets.BUGSNAG_API_KEY }}
-        run: npm run upload-sourcemap
