@@ -223,11 +223,18 @@ export async function fetchAppStoreLookupAppDocs(params: {
   const uniqueIds = Array.from(new Set(params.appIds.map((id) => id.trim()).filter(Boolean)));
   const docs = await Promise.all(uniqueIds.map((appId) => fetchAppDocById(country, appId)));
   const byId = new Map(docs.filter((doc): doc is AsoAppDoc => doc != null).map((doc) => [doc.appId, doc]));
+  const parsedDocs = uniqueIds
+    .map((id) => byId.get(id))
+    .filter((doc): doc is AsoAppDoc => doc != null);
+  logger.debug("[aso-app-lookup] lookup batch summary", {
+    country: country.toUpperCase(),
+    requestedCount: uniqueIds.length,
+    parsedCount: parsedDocs.length,
+    skippedCount: uniqueIds.length - parsedDocs.length,
+  });
   return normalizeCountryOnAppDocs(
     country,
-    uniqueIds
-    .map((id) => byId.get(id))
-    .filter((doc): doc is AsoAppDoc => doc != null)
+    parsedDocs
   );
 }
 

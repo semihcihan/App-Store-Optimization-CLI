@@ -71,6 +71,8 @@ Define failure boundaries, retry rules, and recovery behavior across CLI, dashbo
 - Runtime telemetry startup expects `BUGSNAG_API_KEY` from environment/runtime config; when missing, Bugsnag startup is skipped with a warning.
 - Dashboard Bugsnag startup enables browser session tracking and includes `request`/`navigation` breadcrumbs; CLI/MCP keep stricter defaults.
 - Dashboard server reports failures with structured metadata (path, phase, counts).
+- Dashboard server suppresses debug request/response logging for `GET` API routes to reduce dashboard poll noise; mutation (`POST`/`DELETE`) debug logging remains enabled.
+- Apple debug logging emphasizes compact derived-stage summaries (source mode + result counts for order/enrichment/app-lookup) instead of raw full response payload dumps.
 - Bugsnag reporting uses an actionability allowlist:
   - reports internal bugs, Apple contract-change signals, and terminal upstream failures
   - suppresses expected flow/validation noise (`4xx`, validation issues)

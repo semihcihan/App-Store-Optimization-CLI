@@ -363,6 +363,7 @@ export async function refreshKeywordOrder(params: {
   const normalizedKeyword = normalizeKeyword(params.keyword);
   let orderedAppIds: string[] = [];
   let appDocs: AsoAppDoc[] = [];
+  let sourceMode: "search-page" | "mzsearch-fallback" = "search-page";
 
   try {
     const searchPageData = await fetchSearchPageOrderedData({
@@ -371,10 +372,15 @@ export async function refreshKeywordOrder(params: {
     });
     orderedAppIds = searchPageData.orderedAppIds;
     appDocs = searchPageData.appDocs;
-    logger.debug(
-      `ASO order refresh: search page HTML succeeded for keyword="${params.keyword}" country=${params.country}`
-    );
+    logger.debug("[aso-enrichment] order source", {
+      keyword: params.keyword,
+      country,
+      mode: sourceMode,
+      orderedAppIdsCount: orderedAppIds.length,
+      appDocsCount: appDocs.length,
+    });
   } catch (htmlErr) {
+    sourceMode = "mzsearch-fallback";
     const htmlMessage =
       htmlErr instanceof Error ? htmlErr.message : String(htmlErr);
     reportAppleContractChange({
@@ -392,16 +398,29 @@ export async function refreshKeywordOrder(params: {
       isTerminal: false,
       dedupeKey: "appstore-search-page-fallback",
     });
-    logger.debug(
-      `ASO order refresh: search page HTML failed for keyword="${params.keyword}" (${htmlMessage}), falling back to MZSearch`
-    );
     orderedAppIds = await fetchPopularityOrderedIds({
       keyword: normalizedKeyword,
       country,
     });
     appDocs = [];
+    logger.debug("[aso-enrichment] order source", {
+      keyword: params.keyword,
+      country,
+      mode: sourceMode,
+      fallbackReason: htmlMessage,
+      orderedAppIdsCount: orderedAppIds.length,
+      appDocsCount: appDocs.length,
+    });
   }
 
+  logger.debug("[aso-enrichment] order result", {
+    keyword: params.keyword,
+    country,
+    mode: sourceMode,
+    appCount: orderedAppIds.length,
+    orderedAppIdsCount: orderedAppIds.length,
+    appDocsCount: appDocs.length,
+  });
   return {
     keyword: params.keyword,
     normalizedKeyword,
@@ -591,6 +610,7 @@ export async function enrichKeyword(
   let orderedAppIds: string[] = [];
   let appDocs: AsoAppDoc[] = [];
   let usedSearchPage = false;
+  let sourceMode: "search-page" | "mzsearch-fallback" = "search-page";
 
   try {
     const searchPageData = await fetchSearchPageOrderedData({
@@ -600,10 +620,15 @@ export async function enrichKeyword(
     orderedAppIds = searchPageData.orderedAppIds;
     appDocs = searchPageData.appDocs;
     usedSearchPage = true;
-    logger.debug(
-      `ASO enrichment: search page HTML succeeded for keyword="${params.keyword}" country=${params.country}`
-    );
+    logger.debug("[aso-enrichment] enrich source", {
+      keyword: params.keyword,
+      country,
+      mode: sourceMode,
+      orderedAppIdsCount: orderedAppIds.length,
+      appDocsCount: appDocs.length,
+    });
   } catch (htmlErr) {
+    sourceMode = "mzsearch-fallback";
     const htmlMessage =
       htmlErr instanceof Error ? htmlErr.message : String(htmlErr);
     reportAppleContractChange({
@@ -621,9 +646,6 @@ export async function enrichKeyword(
       isTerminal: false,
       dedupeKey: "appstore-search-page-fallback",
     });
-    logger.debug(
-      `ASO enrichment: search page HTML failed for keyword="${params.keyword}" (${htmlMessage}), falling back to MZSearch`
-    );
     orderedAppIds = await fetchPopularityOrderedIds({
       keyword: normalizedKeyword,
       country: params.country,
@@ -633,9 +655,14 @@ export async function enrichKeyword(
       appIds: firstFiveIds,
       country: params.country,
     });
-    logger.debug(
-      `ASO enrichment: using MZSearch for keyword="${params.keyword}" (app docs from lookup for first ${firstFiveIds.length})`
-    );
+    logger.debug("[aso-enrichment] enrich source", {
+      keyword: params.keyword,
+      country,
+      mode: sourceMode,
+      fallbackReason: htmlMessage,
+      orderedAppIdsCount: orderedAppIds.length,
+      appDocsCount: appDocs.length,
+    });
   }
 
   const appCount = orderedAppIds.length;
@@ -744,6 +771,16 @@ export async function enrichKeyword(
       docsForDifficultyCount: docsForDifficulty.length,
       requiredDocsCount: DIFFICULTY_DETAIL_LIMIT,
     });
+    logger.debug("[aso-enrichment] enrich result", {
+      keyword: params.keyword,
+      country,
+      mode: sourceMode,
+      fallbackDifficulty: true,
+      appCount,
+      orderedAppIdsCount: orderedAppIds.length,
+      appDocsCount: appDocs.length,
+      docsForDifficultyCount: docsForDifficulty.length,
+    });
     return {
       keyword: params.keyword,
       normalizedKeyword,
@@ -765,6 +802,16 @@ export async function enrichKeyword(
     appCount,
   });
 
+  logger.debug("[aso-enrichment] enrich result", {
+    keyword: params.keyword,
+    country,
+    mode: sourceMode,
+    fallbackDifficulty: false,
+    appCount,
+    orderedAppIdsCount: orderedAppIds.length,
+    appDocsCount: appDocs.length,
+    docsForDifficultyCount: docsForDifficulty.length,
+  });
   return {
     keyword: params.keyword,
     normalizedKeyword,

@@ -1,8 +1,9 @@
 import { jest } from "@jest/globals";
-import { enrichKeyword } from "./aso-enrichment-service";
+import { enrichKeyword, refreshKeywordOrder } from "./aso-enrichment-service";
 import { asoAppleGet } from "./aso-apple-client";
 import { fetchAppStoreLookupAppDocs } from "./aso-app-doc-service";
 import { fetchAppStoreAdditionalLocalizations } from "./aso-app-store-details";
+import { logger } from "../../../utils/logger";
 
 jest.mock("./aso-apple-client", () => ({
   asoAppleGet: jest.fn(),
@@ -24,12 +25,21 @@ jest.mock("./aso-keyword-utils", () => ({
   ),
   computeAppExpiryIsoForApp: jest.fn(() => "2099-01-01T00:00:00.000Z"),
 }));
+jest.mock("../../../utils/logger", () => ({
+  logger: {
+    debug: jest.fn(),
+    info: jest.fn(),
+    warn: jest.fn(),
+    error: jest.fn(),
+  },
+}));
 
 const mockedAsoAppleGet = jest.mocked(asoAppleGet);
 const mockedFetchAppStoreLookupAppDocs = jest.mocked(fetchAppStoreLookupAppDocs);
 const mockedFetchAppStoreAdditionalLocalizations = jest.mocked(
   fetchAppStoreAdditionalLocalizations
 );
+const mockedLogger = jest.mocked(logger);
 
 function buildSearchHtml(): string {
   return buildSearchHtmlForIds(["1", "2", "3", "4", "5"]);
@@ -68,6 +78,36 @@ describe("aso-enrichment-service", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockedFetchAppStoreAdditionalLocalizations.mockResolvedValue({});
+  });
+
+  it("logs source and result summaries for order refresh", async () => {
+    mockedAsoAppleGet.mockResolvedValue({
+      data: buildSearchHtmlForIds(["1", "2", "3"]),
+    } as never);
+
+    const result = await refreshKeywordOrder({
+      keyword: "word game",
+      country: "US",
+    });
+
+    expect(result.appCount).toBe(3);
+    expect(mockedLogger.debug).toHaveBeenCalledWith(
+      "[aso-enrichment] order source",
+      expect.objectContaining({
+        keyword: "word game",
+        country: "US",
+        mode: "search-page",
+      })
+    );
+    expect(mockedLogger.debug).toHaveBeenCalledWith(
+      "[aso-enrichment] order result",
+      expect.objectContaining({
+        keyword: "word game",
+        country: "US",
+        mode: "search-page",
+        appCount: 3,
+      })
+    );
   });
 
   it("uses exact lookup rating count for first apps when lookup is used", async () => {
@@ -148,6 +188,22 @@ describe("aso-enrichment-service", () => {
         appId: "2",
         country: "US",
         userRatingCount: 12100,
+      })
+    );
+    expect(mockedLogger.debug).toHaveBeenCalledWith(
+      "[aso-enrichment] enrich source",
+      expect.objectContaining({
+        keyword: "word game",
+        country: "US",
+        mode: "search-page",
+      })
+    );
+    expect(mockedLogger.debug).toHaveBeenCalledWith(
+      "[aso-enrichment] enrich result",
+      expect.objectContaining({
+        keyword: "word game",
+        country: "US",
+        mode: "search-page",
       })
     );
   });

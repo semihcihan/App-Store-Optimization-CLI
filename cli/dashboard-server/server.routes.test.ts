@@ -31,6 +31,7 @@ import { isAsoAuthReauthRequiredError } from "../services/keywords/aso-popularit
 import { fetchOwnedAppSnapshotsFromApi } from "./owned-app-details";
 import { createServerRequestHandler } from "./server";
 import { DEFAULT_RESEARCH_APP_ID } from "../shared/aso-research";
+import { logger } from "../utils/logger";
 
 jest.mock("../db/owned-apps", () => ({
   deleteOwnedAppById: jest.fn(() => 0),
@@ -191,6 +192,7 @@ async function request(params: {
 }
 
 describe("dashboard server routes", () => {
+  const mockLogger = jest.mocked(logger);
   const mockGetOwnedAppById = jest.mocked(getOwnedAppById);
   const mockDeleteOwnedAppById = jest.mocked(deleteOwnedAppById);
   const mockListOwnedApps = jest.mocked(listOwnedApps);
@@ -575,6 +577,7 @@ describe("dashboard server routes", () => {
         }),
       }),
     ]);
+    expect(mockLogger.debug).not.toHaveBeenCalled();
   });
 
   it("returns app-associated failed keywords even when keyword cache row is missing", async () => {

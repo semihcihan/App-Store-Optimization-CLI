@@ -3,6 +3,7 @@ import { jest } from "@jest/globals";
 import { createAppKeywords, listByApp } from "../db/app-keywords";
 import { keywordPipelineService } from "../services/keywords/keyword-pipeline-service";
 import { createServerRequestHandler } from "./server";
+import { logger } from "../utils/logger";
 
 jest.mock("../db/owned-apps", () => ({
   getOwnedAppById: jest.fn(() => null),
@@ -133,6 +134,7 @@ function requestJson(params: {
 }
 
 describe("dashboard server keyword add flow", () => {
+  const mockLogger = jest.mocked(logger);
   const mockListByApp = jest.mocked(listByApp);
   const mockCreateAppKeywords = jest.mocked(createAppKeywords);
   const mockFetchKeywordStage = jest.mocked(
@@ -219,6 +221,13 @@ describe("dashboard server keyword add flow", () => {
     expect(mockCreateAppKeywords).toHaveBeenCalledWith("app-1", ["order-stale"], "US");
     expect(mockRefreshOrder).toHaveBeenCalledWith("US", ["order-stale"]);
     expect(mockEnrichKeywords).not.toHaveBeenCalled();
+    expect(mockLogger.debug).toHaveBeenCalledWith(
+      "[aso-dashboard] request",
+      expect.objectContaining({
+        method: "POST",
+        path: "/api/aso/keywords",
+      })
+    );
   });
 
   it("marks pending enrichment items as failed when background enrichment throws", async () => {

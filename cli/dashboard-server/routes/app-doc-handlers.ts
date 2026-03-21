@@ -1,5 +1,4 @@
 import * as http from "http";
-import { logger } from "../../utils/logger";
 import { getKeyword } from "../../db/aso-keywords";
 import {
   getCompetitorAppDocs,
@@ -55,16 +54,8 @@ export async function fetchAsoAppDocsFromApi(
   if (appIds.length === 0) return [];
   const uniqueIds = Array.from(new Set(appIds.map((id) => id.trim()).filter(Boolean)));
   if (uniqueIds.length === 0) return [];
-  const startedAt = Date.now();
   const idChunks = chunkArray(uniqueIds, ASO_APP_DOCS_MAX_BATCH_SIZE);
   const docsById = new Map<string, AsoApiAppDoc>();
-
-  logger.debug("[aso-dashboard] request -> local-backend", {
-    country,
-    appIdsCount: uniqueIds.length,
-    chunkCount: idChunks.length,
-    forceLookup: options?.forceLookup === true,
-  });
 
   for (const chunk of idChunks) {
     const docs =
@@ -84,14 +75,6 @@ export async function fetchAsoAppDocsFromApi(
   const ordered = uniqueIds
     .map((id) => docsById.get(id))
     .filter((doc): doc is AsoApiAppDoc => doc != null);
-
-  logger.debug("[aso-dashboard] response <- local-backend", {
-    durationMs: Date.now() - startedAt,
-    appDocCount: ordered.length,
-    appIdsCount: uniqueIds.length,
-    chunkCount: idChunks.length,
-    forceLookup: options?.forceLookup === true,
-  });
   return ordered;
 }
 
@@ -109,14 +92,6 @@ export function createAppDocHandlers(deps: AsoRouteDeps) {
     const limit = Number.isFinite(requestedLimit) && requestedLimit > 0
       ? Math.min(requestedLimit, ASO_APP_SEARCH_MAX_LIMIT)
       : ASO_APP_SEARCH_DEFAULT_LIMIT;
-
-    logger.debug("[aso-dashboard] request", {
-      method: "GET",
-      path: "/api/aso/apps/search",
-      country,
-      term,
-      limit,
-    });
 
     if (!term) {
       deps.sendJson(res, 200, { success: true, data: { term: "", appDocs: [] } });
@@ -168,15 +143,6 @@ export function createAppDocHandlers(deps: AsoRouteDeps) {
       orderedAppIds.length > 0 && searchPageAppDocs.length === 0;
 
     if (orderOnlyFallback) {
-      logger.debug("[aso-dashboard] response", {
-        method: "GET",
-        path: "/api/aso/apps/search",
-        status: 200,
-        term,
-        idsCount: orderedAppIds.length,
-        appDocCount: 0,
-        mode: "order-only-fallback",
-      });
       deps.sendJson(res, 200, {
         success: true,
         data: {
@@ -231,14 +197,6 @@ export function createAppDocHandlers(deps: AsoRouteDeps) {
       return;
     }
 
-    logger.debug("[aso-dashboard] response", {
-      method: "GET",
-      path: "/api/aso/apps/search",
-      status: 200,
-      term,
-      idsCount: orderedAppIds.length,
-      appDocCount: appDocs.length,
-    });
     deps.sendJson(res, 200, {
       success: true,
       data: {
@@ -263,13 +221,6 @@ export function createAppDocHandlers(deps: AsoRouteDeps) {
       ? Math.min(requestedLimit, 50)
       : 10;
     const decoded = keyword.trim();
-    logger.debug("[aso-dashboard] request", {
-      method: "GET",
-      path: "/api/aso/top-apps",
-      country,
-      keyword: decoded,
-      limit,
-    });
     const kw = getKeyword(country, decoded);
     if (!kw) {
       deps.sendApiError(res, 404, "NOT_FOUND", "Keyword not found.");
@@ -315,23 +266,9 @@ export function createAppDocHandlers(deps: AsoRouteDeps) {
           appIdsCount: missingIds.length,
           context: "top-apps-hydration",
         });
-        logger.debug("[aso-dashboard] response <- local-backend", {
-          method: "POST",
-          path: "/aso/app-docs",
-          status: 500,
-          country,
-          appIdsCount: missingIds.length,
-          error: err instanceof Error ? err.message : String(err),
-        });
       }
     }
     appDocs = getCompetitorAppDocs(country, topIds);
-    logger.debug("[aso-dashboard] response", {
-      method: "GET",
-      path: "/api/aso/top-apps",
-      status: 200,
-      appDocCount: appDocs.length,
-    });
     deps.sendJson(res, 200, { success: true, data: { keyword: kw.keyword, appDocs } });
   }
 
@@ -349,13 +286,6 @@ export function createAppDocHandlers(deps: AsoRouteDeps) {
           .filter(Boolean)
       )
     );
-    logger.debug("[aso-dashboard] request", {
-      method: "GET",
-      path: "/api/aso/apps",
-      country,
-      idsCount: ids.length,
-      forceRefresh,
-    });
     if (ids.length === 0) {
       deps.sendJson(res, 200, { success: true, data: [] });
       return Promise.resolve();
@@ -365,13 +295,6 @@ export function createAppDocHandlers(deps: AsoRouteDeps) {
     const staleIds = forceRefresh ? ids : getMissingOrExpiredAppIds(ids, docs);
 
     if (staleIds.length === 0) {
-      logger.debug("[aso-dashboard] response", {
-        method: "GET",
-        path: "/api/aso/apps",
-        status: 200,
-        appDocCount: docs.length,
-        staleIdsCount: 0,
-      });
       deps.sendJson(res, 200, { success: true, data: docs });
       return Promise.resolve();
     }
@@ -404,35 +327,15 @@ export function createAppDocHandlers(deps: AsoRouteDeps) {
           );
         }
         const merged = getCompetitorAppDocs(country, ids);
-        logger.debug("[aso-dashboard] response", {
-          method: "GET",
-          path: "/api/aso/apps",
-          status: 200,
-          appDocCount: merged.length,
-          staleIdsCount: staleIds.length,
-          fetchedCount: lookupDocs.length,
-          forceRefresh,
-        });
         deps.sendJson(res, 200, { success: true, data: merged });
       })
       .catch((err) => {
-        const message = err instanceof Error ? err.message : String(err);
         deps.reportDashboardError(err, {
           method: "GET",
           path: "/api/aso/apps",
           country,
           idsCount: ids.length,
           staleIdsCount: staleIds.length,
-        });
-        logger.debug("[aso-dashboard] response", {
-          method: "GET",
-          path: "/api/aso/apps",
-          status: 200,
-          appDocCount: docs.length,
-          staleIdsCount: staleIds.length,
-          fallback: true,
-          forceRefresh,
-          error: message,
         });
         deps.sendJson(res, 200, { success: true, data: docs });
       });

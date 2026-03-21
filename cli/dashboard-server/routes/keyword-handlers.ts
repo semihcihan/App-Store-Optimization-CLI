@@ -400,12 +400,6 @@ export function createKeywordHandlers(deps: AsoRouteDeps) {
   ): void {
     const country = normalizeCountry(query.country);
     const appId = query.appId;
-    logger.debug("[aso-dashboard] request", {
-      method: "GET",
-      path: "/api/aso/keywords",
-      country,
-      appId: appId ?? null,
-    });
     const keywords = listKeywords(country);
     const appKeywords = listAllAppKeywords(country);
     const byApp = new Map<string, string[]>();
@@ -501,12 +495,6 @@ export function createKeywordHandlers(deps: AsoRouteDeps) {
           positions,
         };
       });
-    logger.debug("[aso-dashboard] response", {
-      method: "GET",
-      path: "/api/aso/keywords",
-      status: 200,
-      keywordCount: withMeta.length,
-    });
     deps.sendJson(res, 200, { success: true, data: withMeta });
   }
 

@@ -6,6 +6,7 @@ import {
 import { asoAppleGet } from "./aso-apple-client";
 import type { AsoCacheRepository } from "./aso-types";
 import { reportAppleContractChange } from "../../keywords/apple-http-trace";
+import { logger } from "../../../utils/logger";
 
 jest.mock("./aso-apple-client", () => ({
   asoAppleGet: jest.fn(),
@@ -17,9 +18,18 @@ jest.mock("./aso-keyword-utils", () => ({
 jest.mock("../../keywords/apple-http-trace", () => ({
   reportAppleContractChange: jest.fn(),
 }));
+jest.mock("../../../utils/logger", () => ({
+  logger: {
+    debug: jest.fn(),
+    info: jest.fn(),
+    warn: jest.fn(),
+    error: jest.fn(),
+  },
+}));
 
 const mockedAsoAppleGet = jest.mocked(asoAppleGet);
 const mockedReportAppleContractChange = jest.mocked(reportAppleContractChange);
+const mockedLogger = jest.mocked(logger);
 
 function createRepository(
   overrides: Partial<AsoCacheRepository> = {}
@@ -92,6 +102,15 @@ describe("aso-app-doc-service", () => {
       expect.objectContaining({
         provider: "apple-appstore",
         operation: "appstore.app-lookup",
+      })
+    );
+    expect(mockedLogger.debug).toHaveBeenCalledWith(
+      "[aso-app-lookup] lookup batch summary",
+      expect.objectContaining({
+        country: "US",
+        requestedCount: 2,
+        parsedCount: 1,
+        skippedCount: 1,
       })
     );
   });
