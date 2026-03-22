@@ -138,8 +138,8 @@ Keyword-level difficulty:
 - `owned_app_country_ratings` stores country-scoped owned-app ratings (`averageUserRating`, `userRatingCount`, previous snapshots, fetch timestamp, TTL) keyed by `(app_id, country)`.
 - `aso_apps` stores competitor app-doc cache only (country scoped, no owned-app daily snapshot fields).
 - `aso_apps.additionalLocalizations` stores locale-keyed `{ name, subtitle? }` for additional country locales used by difficulty matching.
-- Interactive `aso keywords` runs (without `--stdout`) save requested keywords into `app_keywords` for the default research app (`research`) so failed terms stay visible in dashboard research workspace.
-- MCP `aso_evaluate_keywords` saves only accepted keywords into `app_keywords`: defaults to the research app association, or uses caller-provided `appId` when set.
+- `aso keywords` runs (including `--stdout`) save requested keywords into `app_keywords` for the default research app (`research`) so failed terms stay visible in dashboard research workspace.
+- MCP `aso_evaluate_keywords` additionally saves accepted keywords into `app_keywords`: defaults to the research app association, or uses caller-provided `appId` when set.
 - Dashboard keyword reads include app-associated failures even when no `aso_keywords` cache row exists yet, marking those rows as failed for retry UX.
 - Cache API repository is SQLite-backed and reuses local DB tables for keyword/app-doc cache lookups.
 - No separate JSON cache file is used for ASO keyword/app-doc cache state.

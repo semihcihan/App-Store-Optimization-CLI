@@ -47,7 +47,7 @@ Runtime flow contracts across CLI commands, local dashboard API, and ASO service
    - For top difficulty docs, enrichment fetches configured additional locales for the country and stores locale-keyed `name/subtitle` under competitor docs (`aso_apps.additionalLocalizations`) for per-localization keyword matching.
 6. Refresh order-only keywords and persist updated `orderedAppIds` + `appCount` without refetching popularity.
    - Order refresh may include lightweight app metadata from search-page parsing, but Flow A persists only keyword order fields in this step; competitor doc cache (`aso_apps`) is hydrated later by Flow E endpoints when docs are missing/expired.
-7. In interactive CLI mode (without `--stdout`), associate requested keywords with the default research app (`research`) in `app_keywords` so failures remain visible for retry.
+7. Associate requested keywords with the default research app (`research`) in `app_keywords` so failures remain visible for retry.
 
 ### Flow A1: CLI Keyword Fetch in `--stdout` Mode
 1. Run Flow A with interactive auth recovery disabled.
@@ -57,7 +57,7 @@ Runtime flow contracts across CLI commands, local dashboard API, and ASO service
 5. If auth is required, try `asoAuthService.reAuthenticate` once with an `onUserActionRequired` hook that aborts.
 6. Retry Flow A once after successful silent reauth.
 7. If user input is required, fail with guidance to run `aso auth` and retry.
-8. In raw CLI `--stdout` mode, do not auto-associate keywords to research app.
+8. In raw CLI `--stdout` mode, still auto-associate requested keywords to the default research app, but skip save logs so stdout stays JSON-only.
 9. Suppress CLI startup update notifications so stdout stays machine-parseable JSON.
 
 ## Flow B: Dashboard Add Keywords (`POST /api/aso/keywords`)
@@ -153,7 +153,8 @@ Runtime flow contracts across CLI commands, local dashboard API, and ASO service
 3. Return an MCP error when provided keyword count is greater than `100`.
 4. Execute `aso keywords "<comma-separated-keywords>" --stdout`.
 5. Parse CLI output, keep only rows that pass threshold checks, and return a compact JSON array of accepted rows.
-6. Save accepted keywords into the default research app (`research`) so they are available in dashboard research workspace.
+6. Save accepted keywords into the target app association (`appId` when provided, otherwise `research`) so accepted rows are visible in that workspace.
+7. Because step 4 runs `aso keywords --stdout`, all requested keywords are also associated with the default research app.
 
 Accepted row fields:
 - `keyword`: normalized keyword phrase.

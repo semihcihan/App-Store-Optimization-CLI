@@ -40,6 +40,7 @@ jest.mock("../services/keywords/aso-research-keyword-service", () => ({
 
 jest.mock("../utils/logger", () => ({
   logger: {
+    debug: jest.fn(),
     info: jest.fn(),
   },
 }));
@@ -127,8 +128,12 @@ describe("aso command", () => {
       ["term"],
       "US"
     );
-    expect(mockLogger.info).toHaveBeenCalledWith(
-      "Saved 1 requested keyword(s) to the default research app (US)."
+    expect(mockLogger.debug).toHaveBeenCalledWith(
+      "[aso-keywords] persisted requested keywords to default research app",
+      {
+        savedCount: 1,
+        country: "US",
+      }
     );
     expect(startDashboard).not.toHaveBeenCalled();
   });
@@ -152,8 +157,12 @@ describe("aso command", () => {
       ["failed-term"],
       "US"
     );
-    expect(mockLogger.info).toHaveBeenCalledWith(
-      "Saved 1 requested keyword(s) to the default research app (US)."
+    expect(mockLogger.debug).toHaveBeenCalledWith(
+      "[aso-keywords] persisted requested keywords to default research app",
+      {
+        savedCount: 1,
+        country: "US",
+      }
     );
   });
 
@@ -247,9 +256,38 @@ describe("aso command", () => {
       adamId: undefined,
       allowPrompt: false,
     });
-    expect(saveKeywordsToDefaultResearchApp).not.toHaveBeenCalled();
+    expect(saveKeywordsToDefaultResearchApp).toHaveBeenCalledWith(
+      ["term"],
+      "US"
+    );
+    expect(mockLogger.info).not.toHaveBeenCalled();
+    expect(mockLogger.debug).not.toHaveBeenCalled();
     expect(consoleLogSpy).toHaveBeenCalledWith(JSON.stringify(result, null, 2));
     expect(asoAuthService.reAuthenticate).not.toHaveBeenCalled();
+  });
+
+  it("saves requested keywords when --stdout run ends with all-keywords-failed error", async () => {
+    jest.mocked(keywordPipelineService.parseKeywords).mockReturnValue(["failed-term"]);
+    jest
+      .mocked(keywordPipelineService.run)
+      .mockRejectedValue(new Error("All keywords failed (1): failed-term:FAILED(500)"));
+    jest.mocked(saveKeywordsToDefaultResearchApp).mockReturnValue(1);
+
+    await expect(
+      asoCommand.handler?.({
+        subcommand: "keywords",
+        country: "US",
+        stdout: true,
+        terms: "failed-term",
+      } as any)
+    ).rejects.toThrow("All keywords failed");
+
+    expect(saveKeywordsToDefaultResearchApp).toHaveBeenCalledWith(
+      ["failed-term"],
+      "US"
+    );
+    expect(mockLogger.info).not.toHaveBeenCalled();
+    expect(mockLogger.debug).not.toHaveBeenCalled();
   });
 
   it("reauthenticates silently and retries once in --stdout mode on auth-required error", async () => {
