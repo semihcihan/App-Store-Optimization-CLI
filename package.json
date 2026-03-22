@@ -1,6 +1,6 @@
 {
   "name": "aso-cli",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "Local App Store Optimization CLI",
   "main": "cli/dist/cli.js",
   "bin": {
@@ -72,7 +72,6 @@
     "axios": "^1.10.0",
     "axios-retry": "^4.5.0",
     "better-sqlite3": "^11.10.0",
-    "cheerio": "^1.2.0",
     "dotenv": "^16.6.1",
     "inquirer": "^8.2.5",
     "ora": "^8.2.0",
@@ -99,11 +98,11 @@
     "esbuild": "^0.27.3",
     "jest": "^30.0.4",
     "jest-environment-jsdom": "^30.2.0",
+    "playwright": "^1.54.2",
     "prettier": "^3.0.0",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
     "ts-jest": "^29.4.0",
-    "playwright": "^1.54.2",
     "typescript": "^5.8.3",
     "vite": "^7.1.4",
     "yaml": "^2.8.2"
