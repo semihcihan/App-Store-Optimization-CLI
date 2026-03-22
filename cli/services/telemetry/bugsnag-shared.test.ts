@@ -1,4 +1,6 @@
 describe("bugsnag-shared", () => {
+  const originalBugsnagApiKey = process.env.BUGSNAG_API_KEY;
+
   function getBugsnagMock(): {
     start: jest.Mock;
     notify: jest.Mock;
@@ -12,6 +14,15 @@ describe("bugsnag-shared", () => {
   beforeEach(() => {
     jest.resetModules();
     jest.clearAllMocks();
+    delete process.env.BUGSNAG_API_KEY;
+  });
+
+  afterEach(() => {
+    if (originalBugsnagApiKey === undefined) {
+      delete process.env.BUGSNAG_API_KEY;
+    } else {
+      process.env.BUGSNAG_API_KEY = originalBugsnagApiKey;
+    }
   });
 
   it("converts unknown values to Error instances", async () => {

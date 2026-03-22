@@ -1,8 +1,18 @@
 describe("telemetry instrument", () => {
   const originalNodeEnv = process.env.NODE_ENV;
+  const originalBugsnagApiKey = process.env.BUGSNAG_API_KEY;
+
+  beforeEach(() => {
+    delete process.env.BUGSNAG_API_KEY;
+  });
 
   afterEach(() => {
     process.env.NODE_ENV = originalNodeEnv;
+    if (originalBugsnagApiKey === undefined) {
+      delete process.env.BUGSNAG_API_KEY;
+    } else {
+      process.env.BUGSNAG_API_KEY = originalBugsnagApiKey;
+    }
     jest.resetModules();
     jest.clearAllMocks();
   });
