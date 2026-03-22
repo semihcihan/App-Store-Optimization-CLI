@@ -111,6 +111,37 @@ describe("bugsnag-shared", () => {
     warnSpy.mockRestore();
   });
 
+  it("treats unresolved packaged placeholder as missing", async () => {
+    const { initializeBugsnag } = await import("../../shared/telemetry/bugsnag-shared");
+    const Bugsnag = getBugsnagMock();
+    const warnSpy = jest.spyOn(console, "warn").mockImplementation(() => {});
+
+    process.env.BUGSNAG_API_KEY = "__ASO_PACKAGED_BUGSNAG_API_KEY__";
+    initializeBugsnag({ isDevelopment: false, appVersion: "1.2.3" });
+
+    expect(Bugsnag.start).not.toHaveBeenCalled();
+    expect(warnSpy).toHaveBeenCalledWith(
+      "BUGSNAG_API_KEY is not set; Bugsnag telemetry is disabled."
+    );
+    warnSpy.mockRestore();
+  });
+
+  it("resolves packaged fallback api key when provided", async () => {
+    const { resolveBugsnagApiKey } = await import("../../shared/telemetry/bugsnag-shared");
+
+    expect(resolveBugsnagApiKey()).toBe("");
+    expect(resolveBugsnagApiKey({ packagedApiKey: "packaged-test-key" })).toBe(
+      "packaged-test-key"
+    );
+    expect(
+      resolveBugsnagApiKey({
+        runtimeApiKey: "runtime-key",
+        envApiKey: "env-key",
+        packagedApiKey: "packaged-key",
+      })
+    ).toBe("runtime-key");
+  });
+
   it("sanitizes sensitive values globally via Bugsnag onError hook", async () => {
     const { initializeBugsnag } = await import("../../shared/telemetry/bugsnag-shared");
     const Bugsnag = getBugsnagMock();

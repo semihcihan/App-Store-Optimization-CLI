@@ -68,7 +68,8 @@ Define failure boundaries, retry rules, and recovery behavior across CLI, dashbo
   - Localized app-page `serialized-server-data` parsing (title/subtitle/rating/ratingCount)
 - Contract-drift events are deduped for `15` minutes per unique signature (`provider + operation + endpoint + drift kind + status bucket`) to reduce alert spam during repeated failures.
 - Bugsnag redaction is centralized at SDK startup via global `redactedKeys` and `onError` sanitization before event delivery (including nested metadata and keychain command-arg payloads such as `spawnargs` values after `-w`).
-- Runtime telemetry startup expects `BUGSNAG_API_KEY` from environment/runtime config; when missing, Bugsnag startup is skipped with a warning.
+- Runtime telemetry startup resolves Bugsnag API key in this order: explicit runtime option, runtime `BUGSNAG_API_KEY`, then packaged fallback key injected in release CI from GitHub Secret `BUGSNAG_API_KEY`; startup is skipped with a warning only when all are missing.
+- Release pipeline enforces packaged-key integrity by requiring the secret, replacing exactly one source placeholder, and failing if placeholder text remains in built artifacts.
 - Dashboard Bugsnag startup enables browser session tracking and includes `request`/`navigation` breadcrumbs; CLI/MCP keep stricter defaults.
 - Dashboard server reports failures with structured metadata (path, phase, counts).
 - Dashboard server suppresses debug request/response logging for `GET` API routes to reduce dashboard poll noise; mutation (`POST`/`DELETE`) debug logging remains enabled.

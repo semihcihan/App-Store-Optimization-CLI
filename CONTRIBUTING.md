@@ -64,6 +64,10 @@ Runtime files are local under `~/.aso`:
 
 This project reports runtime errors to Bugsnag for stability monitoring in CLI, MCP, and dashboard runtime paths.
 
+Release behavior:
+- `BUGSNAG_API_KEY` GitHub Secret is required in release workflow.
+- Release CI injects that key into telemetry source before build/publish, enforcing exactly one placeholder replacement and failing if placeholder text remains in `cli/dist`.
+
 Data sent:
 - Error details and stack traces
 - Runtime metadata attached by the app (command context and categorized diagnostics)

@@ -1,5 +1,8 @@
 import Bugsnag from "@bugsnag/js";
 
+const PACKAGED_BUGSNAG_API_KEY = "__ASO_PACKAGED_BUGSNAG_API_KEY__";
+const PACKAGED_BUGSNAG_PLACEHOLDER_MARKER = "ASO_PACKAGED_BUGSNAG_API_KEY";
+
 let started = false;
 let isDevelopmentMode = false;
 let warnedMissingApiKey = false;
@@ -66,6 +69,34 @@ const SENSITIVE_KEY_EXACT = new Set([
   "secret",
   "securitycode",
 ]);
+
+function normalizeApiKey(value: string | undefined): string {
+  if (typeof value !== "string") return "";
+  const trimmed = value.trim();
+  if (trimmed === "") return "";
+  if (trimmed.includes(PACKAGED_BUGSNAG_PLACEHOLDER_MARKER)) return "";
+  return trimmed;
+}
+
+function firstNonEmpty(...values: Array<string | undefined>): string {
+  for (const value of values) {
+    const normalized = normalizeApiKey(value);
+    if (normalized) return normalized;
+  }
+  return "";
+}
+
+export function resolveBugsnagApiKey(options: {
+  runtimeApiKey?: string;
+  envApiKey?: string;
+  packagedApiKey?: string;
+} = {}): string {
+  return firstNonEmpty(
+    options.runtimeApiKey,
+    options.envApiKey,
+    options.packagedApiKey ?? PACKAGED_BUGSNAG_API_KEY
+  );
+}
 
 function normalizeKey(key: string): string {
   return key.toLowerCase().replace(/[^a-z0-9]/g, "");
@@ -221,7 +252,10 @@ export function initializeBugsnag(options: {
     return;
   }
 
-  const apiKey = (options.apiKey ?? process.env.BUGSNAG_API_KEY ?? "").trim();
+  const apiKey = resolveBugsnagApiKey({
+    runtimeApiKey: options.apiKey,
+    envApiKey: process.env.BUGSNAG_API_KEY,
+  });
   if (!apiKey) {
     if (!warnedMissingApiKey) {
       warnedMissingApiKey = true;

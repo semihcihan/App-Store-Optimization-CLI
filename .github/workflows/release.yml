@@ -29,6 +29,31 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Ensure Bugsnag key exists
+        run: |
+          if [ -z "${BUGSNAG_API_KEY:-}" ]; then
+            echo "BUGSNAG_API_KEY secret is required for release publishing."
+            exit 1
+          fi
+
+      - name: Inject Bugsnag API key into telemetry source
+        run: |
+          node -e '
+            const fs = require("fs");
+            const filePath = "cli/shared/telemetry/bugsnag-shared.ts";
+            const placeholder = "__ASO_PACKAGED_BUGSNAG_API_KEY__";
+            const key = (process.env.BUGSNAG_API_KEY || "").trim();
+            if (!key) {
+              throw new Error("BUGSNAG_API_KEY secret is required for release publishing.");
+            }
+            const source = fs.readFileSync(filePath, "utf8");
+            const count = (source.match(new RegExp(placeholder, "g")) || []).length;
+            if (count !== 1) {
+              throw new Error(`Expected exactly 1 placeholder occurrence, found ${count}.`);
+            }
+            fs.writeFileSync(filePath, source.replace(placeholder, key), "utf8");
+          '
+
       - name: Validate tag matches package version
         run: |
           PACKAGE_VERSION="$(node -p "require('./package.json').version")"
@@ -45,6 +70,13 @@ jobs:
 
       - name: Run CI checks
         run: npm run ci
+
+      - name: Verify packaged key placeholder is absent from build artifacts
+        run: |
+          if grep -R --line-number "__ASO_PACKAGED_BUGSNAG_API_KEY__" cli/dist; then
+            echo "Placeholder still present in build artifacts."
+            exit 1
+          fi
 
       - name: Check if version is already published
         id: published
