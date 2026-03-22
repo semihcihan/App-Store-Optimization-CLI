@@ -241,6 +241,7 @@ export function toError(error: unknown): Error {
 export function initializeBugsnag(options: {
   isDevelopment: boolean;
   apiKey?: string;
+  packagedApiKey?: string;
   appVersion?: string;
   autoTrackSessions?: boolean;
   enabledBreadcrumbTypes?: BugsnagConfigOptions["enabledBreadcrumbTypes"];
@@ -255,6 +256,7 @@ export function initializeBugsnag(options: {
   const apiKey = resolveBugsnagApiKey({
     runtimeApiKey: options.apiKey,
     envApiKey: process.env.BUGSNAG_API_KEY,
+    packagedApiKey: options.packagedApiKey,
   });
   if (!apiKey) {
     if (!warnedMissingApiKey) {

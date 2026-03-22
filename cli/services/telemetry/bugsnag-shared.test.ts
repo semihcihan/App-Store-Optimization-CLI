@@ -102,7 +102,11 @@ describe("bugsnag-shared", () => {
     const Bugsnag = getBugsnagMock();
     const warnSpy = jest.spyOn(console, "warn").mockImplementation(() => {});
 
-    initializeBugsnag({ isDevelopment: false, appVersion: "1.2.3" });
+    initializeBugsnag({
+      isDevelopment: false,
+      packagedApiKey: "",
+      appVersion: "1.2.3",
+    });
 
     expect(Bugsnag.start).not.toHaveBeenCalled();
     expect(warnSpy).toHaveBeenCalledWith(
@@ -117,7 +121,11 @@ describe("bugsnag-shared", () => {
     const warnSpy = jest.spyOn(console, "warn").mockImplementation(() => {});
 
     process.env.BUGSNAG_API_KEY = "__ASO_PACKAGED_BUGSNAG_API_KEY__";
-    initializeBugsnag({ isDevelopment: false, appVersion: "1.2.3" });
+    initializeBugsnag({
+      isDevelopment: false,
+      packagedApiKey: "",
+      appVersion: "1.2.3",
+    });
 
     expect(Bugsnag.start).not.toHaveBeenCalled();
     expect(warnSpy).toHaveBeenCalledWith(
@@ -129,7 +137,7 @@ describe("bugsnag-shared", () => {
   it("resolves packaged fallback api key when provided", async () => {
     const { resolveBugsnagApiKey } = await import("../../shared/telemetry/bugsnag-shared");
 
-    expect(resolveBugsnagApiKey()).toBe("");
+    expect(resolveBugsnagApiKey({ packagedApiKey: "" })).toBe("");
     expect(resolveBugsnagApiKey({ packagedApiKey: "packaged-test-key" })).toBe(
       "packaged-test-key"
     );
