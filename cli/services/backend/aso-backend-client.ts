@@ -14,6 +14,8 @@ import type {
 } from "./aso-backend-types";
 
 const DEFAULT_CONTEXT_TTL_SECONDS = 86400;
+const DEFAULT_ASO_BACKEND_BASE_URL =
+  "https://aso-difficulty-api.umitsemihcihan.workers.dev";
 
 type CachedContextEnvelope = {
   context: AsoBackendContext;
@@ -159,11 +161,12 @@ export class AsoBackendClient {
     return headers;
   }
 
-  private get baseUrl(): string | null {
+  private get baseUrl(): string {
     const raw = process.env.ASO_BACKEND_BASE_URL;
-    if (!raw) return null;
-    const trimmed = raw.trim();
-    return trimmed === "" ? null : trimmed.replace(/\/+$/, "");
+    const trimmed = typeof raw === "string" ? raw.trim() : "";
+    const resolved =
+      trimmed === "" ? DEFAULT_ASO_BACKEND_BASE_URL : trimmed;
+    return resolved.replace(/\/+$/, "");
   }
 
   private get cacheTtlSeconds(): number {
@@ -218,9 +221,6 @@ export class AsoBackendClient {
   }
 
   private async fetchContextFromBackend(): Promise<AsoBackendContext> {
-    if (!this.baseUrl) {
-      return buildDefaultContext();
-    }
     const response = await axios.get(`${this.baseUrl}/v1/client/context`, {
       headers: this.buildBackendHeaders(),
       timeout: 15000,
@@ -354,13 +354,6 @@ export class AsoBackendClient {
   }
 
   async scoreDifficulty(payload: DifficultyScorePayload): Promise<DifficultyScoreResult> {
-    if (!this.baseUrl) {
-      return this.buildPaywalledDifficultyResult({
-        code: "ENTITLEMENT_UNAVAILABLE",
-        message: "Difficulty scoring backend is not configured.",
-      });
-    }
-
     try {
       const response = await axios.post(
         `${this.baseUrl}/v1/aso/difficulty/score`,

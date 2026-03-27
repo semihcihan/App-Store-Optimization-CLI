@@ -8,6 +8,8 @@ import { AsoBackendClient } from "./aso-backend-client";
 jest.mock("axios");
 
 describe("aso-backend-client", () => {
+  const defaultBackendUrl =
+    "https://aso-difficulty-api.umitsemihcihan.workers.dev";
   const mockedAxios = jest.mocked(axios);
   const originalEnv = process.env;
   const testHome = path.join(
@@ -36,7 +38,13 @@ describe("aso-backend-client", () => {
     expect(context.entitlements.topApps).toBe(true);
   });
 
-  it("returns paywalled result when backend is not configured", async () => {
+  it("uses default backend when backend url env is not configured", async () => {
+    mockedAxios.post.mockResolvedValueOnce({
+      data: {
+        difficultyScore: 37,
+      },
+    } as any);
+
     const service = new AsoBackendClient();
     const score = await service.scoreDifficulty({
       keyword: "term",
@@ -48,13 +56,14 @@ describe("aso-backend-client", () => {
     });
 
     expect(score).toEqual({
-      difficultyScore: null,
-      difficultyState: "paywalled",
-      code: "ENTITLEMENT_UNAVAILABLE",
-      feature: "difficulty",
-      message: "Difficulty scoring backend is not configured.",
-      upgradeUrl: null,
+      difficultyScore: 37,
+      difficultyState: "ready",
     });
+    expect(mockedAxios.post).toHaveBeenCalledWith(
+      `${defaultBackendUrl}/v1/aso/difficulty/score`,
+      expect.any(Object),
+      expect.any(Object)
+    );
   });
 
   it("maps backend plan-required errors to paywalled result", async () => {

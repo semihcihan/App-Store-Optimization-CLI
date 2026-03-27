@@ -9,6 +9,8 @@ Runtime flow contracts across CLI commands, local dashboard API, and ASO service
 
 ## Operational Prerequisite
 - Apple Search Ads setup is required only for ASO command flows (`aso ...`).
+- Difficulty/context backend defaults to `https://aso-difficulty-api.umitsemihcihan.workers.dev`.
+- `ASO_BACKEND_BASE_URL` is an optional override for non-production backends.
 - Required setup items:
   - Apple Search Ads account
   - Linked App Store Connect account in Apple Search Ads
