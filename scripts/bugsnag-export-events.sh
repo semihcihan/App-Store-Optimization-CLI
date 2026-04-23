@@ -93,7 +93,7 @@ list_orgs() {
   local body headers status
   body="$(mktemp)"
   headers="$(mktemp)"
-  trap 'rm -f "$body" "$headers"' RETURN
+  trap 'rm -f "${body:-}" "${headers:-}"' RETURN
 
   api_get "${BUGSNAG_BASE_URL}/user/organizations" "$body" "$headers"
   status="$(http_status_from_headers "$headers")"
@@ -110,7 +110,7 @@ list_projects() {
   local body headers status
   body="$(mktemp)"
   headers="$(mktemp)"
-  trap 'rm -f "$body" "$headers"' RETURN
+  trap 'rm -f "${body:-}" "${headers:-}"' RETURN
 
   api_get "${BUGSNAG_BASE_URL}/organizations/${org_id}/projects?per_page=100" "$body" "$headers"
   status="$(http_status_from_headers "$headers")"
@@ -182,7 +182,7 @@ export_events() {
   while [[ -n "$page_url" ]]; do
     body="$(mktemp)"
     headers="$(mktemp)"
-    trap 'rm -f "$body" "$headers"' RETURN
+    trap 'rm -f "${body:-}" "${headers:-}"' RETURN
 
     api_get "$page_url" "$body" "$headers"
     status="$(http_status_from_headers "$headers")"
