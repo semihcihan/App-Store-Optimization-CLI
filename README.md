@@ -40,7 +40,7 @@ The dashboard keywords shown above were discovered and added automatically by an
 npm install -g aso-cli
 ```
 
-Note: requires Node.js `>=20.18.1`.
+Note: requires Node.js `>=18.14.1`.
 
 ## Apple Search Ads Setup
 

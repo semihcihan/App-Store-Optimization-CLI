@@ -9,7 +9,7 @@ npm run build
 ```
 
 Runtime requirement:
-- Runtime: Node.js `>=20.18.1`
+- Runtime: Node.js `>=18.14.1`
 - Local development/build: Node.js `>=20.19.0` (enforced by script checks)
 
 ## Development workflow

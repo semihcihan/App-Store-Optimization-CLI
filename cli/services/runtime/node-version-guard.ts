@@ -1,4 +1,4 @@
-const MIN_NODE_VERSION: [number, number, number] = [20, 18, 1];
+const MIN_NODE_VERSION: [number, number, number] = [18, 14, 1];
 
 function parseNodeVersion(version: string): [number, number, number] {
   const [major = "0", minor = "0", patch = "0"] = version

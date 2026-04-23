@@ -4,7 +4,7 @@
 Runtime flow contracts across CLI commands, local dashboard API, and ASO services.
 
 ## Runtime Requirement
-- Runtime: Node.js `>=20.18.1`.
+- Runtime: Node.js `>=18.14.1`.
 - Local development/build: Node.js `>=20.19.0`.
 
 ## Operational Prerequisite
