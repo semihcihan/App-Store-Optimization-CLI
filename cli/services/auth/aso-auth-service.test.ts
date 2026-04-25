@@ -11,6 +11,7 @@ import inquirer from "inquirer";
 import path from "path";
 import { asoCookieStoreService } from "./aso-cookie-store-service";
 import { asoKeychainService } from "./aso-keychain-service";
+import * as appleHttpTrace from "../keywords/apple-http-trace";
 
 function loadFixture(name: string): unknown {
   return JSON.parse(
@@ -213,6 +214,32 @@ describe("aso-auth-service legacy parity edge handling", () => {
       name: "AppleAuthResponseError",
       reason: "upgrade_required",
     });
+  });
+
+  it("maps 401 -20101 responses to invalid credentials without contract drift", async () => {
+    const engine = createEngine();
+    const reportContractSpy = jest
+      .spyOn(appleHttpTrace, "reportAppleContractChange")
+      .mockImplementation(() => {});
+
+    await expect(
+      (engine as any).handlePostLoginResponse({
+        status: 401,
+        data: {
+          serviceErrors: [
+            {
+              code: "-20101",
+              message: "Check the account information you entered and try again.",
+            },
+          ],
+        },
+        headers: {},
+      })
+    ).rejects.toMatchObject({
+      name: "AppleAuthResponseError",
+      reason: "invalid_credentials",
+    });
+    expect(reportContractSpy).not.toHaveBeenCalled();
   });
 
   it("maps itctx cookie responses to explicit account-access error", async () => {
@@ -771,6 +798,60 @@ describe("aso-auth-service 2FA method handling", () => {
         xAppleIdSessionId: "session-id",
       })
     ).rejects.toThrow("No supported 2FA verification methods were returned.");
+  });
+
+  it("treats Apple -28248 as verification delivery failure instead of contract drift", async () => {
+    const request = jest
+      .fn()
+      .mockResolvedValueOnce({
+        status: 500,
+        data: {
+          noTrustedDevices: true,
+          trustedPhoneNumbers: [],
+          trustedDevices: [],
+          serviceErrors: [
+            {
+              code: "-28248",
+              title: "Verification Failed",
+              message:
+                "Verification codes cannot be sent to this phone number at this time. Please try again later.",
+            },
+          ],
+        },
+        headers: {},
+      })
+      .mockResolvedValueOnce({
+        status: 500,
+        data: {
+          noTrustedDevices: true,
+          trustedPhoneNumbers: [],
+          trustedDevices: [],
+          serviceErrors: [
+            {
+              code: "-28248",
+              title: "Verification Failed",
+              message:
+                "Verification codes cannot be sent to this phone number at this time. Please try again later.",
+            },
+          ],
+        },
+        headers: {},
+      });
+    const reportContractSpy = jest
+      .spyOn(appleHttpTrace, "reportAppleContractChange")
+      .mockImplementation(() => {});
+    const engine = new AsoAuthEngine({ request } as any, "auto") as any;
+
+    await expect(
+      engine.handleTwoFactor({
+        scnt: "scnt",
+        xAppleIdSessionId: "session-id",
+      })
+    ).rejects.toMatchObject({
+      name: "AppleAuthResponseError",
+      reason: "verification_delivery_failed",
+    });
+    expect(reportContractSpy).not.toHaveBeenCalled();
   });
 
   it("fails fast when 2FA is attempted without interactive TTY", async () => {

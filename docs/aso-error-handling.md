@@ -59,7 +59,7 @@ Define failure boundaries, retry rules, and recovery behavior across CLI, dashbo
 
 ## Observability
 - Apple HTTP calls carry trace context.
-- Bugsnag Apple metadata includes the latest `10` redacted Apple HTTP calls plus up to `3` latest non-success calls when they have already rotated out of that `10`-call window.
+- Bugsnag Apple metadata includes the latest `3` redacted Apple HTTP calls plus up to `3` latest non-success calls when they have already rotated out of that `3`-call window.
 - Apple contract-drift reporting is centralized: when expected Apple response shapes/flow contracts drift, the runtime emits Bugsnag events classified as `apple_contract_change` with endpoint + expected-vs-actual metadata.
 - Contract-drift reporting covers all Apple API surfaces used by ASO runtime:
   - Apple auth/session bootstrap and 2FA flow
@@ -80,6 +80,9 @@ Define failure boundaries, retry rules, and recovery behavior across CLI, dashbo
   - reports internal bugs, Apple contract-change signals, and terminal upstream failures
   - suppresses expected flow/validation noise (`4xx`, validation issues)
   - reports selected user-fault noise as low-severity (`info`, handled) for visibility without paging
+- Apple auth `401` responses carrying Apple service code `-20101` are classified as `invalid_credentials` (`user_fault`) instead of contract drift.
+- Apple 2FA challenge payloads with service code `-28248` (verification code delivery unavailable) are classified as verification-delivery `user_fault` instead of contract drift.
+- Apple HTTP trace metadata attached to Bugsnag is size-bounded (string/array/object/depth truncation) so contract-drift events retain actionable metadata instead of being dropped for oversized payloads.
 - Dashboard UI reports only actionable API failures (for example: `5xx`, network/runtime exceptions, malformed success payloads); expected `4xx` flows are suppressed.
 - Dashboard UI transport/setup noise (`/api/aso/auth/status` network fetch failures and repeated local search failures) is reclassified as `user_fault` and deduped in-process per signature for `60` seconds.
 - MCP parse-json shape drift (`MCP expected JSON output from aso keywords`) is reclassified as `user_fault` and deduped in the shared reporter path for `60` seconds.

@@ -109,6 +109,20 @@ describe("bugsnag-classifier", () => {
     expect(decision.classification).toBe("user_fault");
   });
 
+  it("classifies Apple 2FA verification delivery failures as user_fault", () => {
+    const error = Object.assign(new Error("Verification codes cannot be sent"), {
+      name: "AppleAuthResponseError",
+      reason: "verification_delivery_failed",
+    });
+
+    const decision = classifyTelemetryError(error, {});
+    expect(decision).toEqual({
+      report: true,
+      classification: "user_fault",
+      reason: "apple_auth_verification_delivery_failed",
+    });
+  });
+
   it("classifies mcp parse-json payload drift as user-fault noise", () => {
     const decision = classifyTelemetryError(
       new Error("MCP expected JSON output from aso keywords"),

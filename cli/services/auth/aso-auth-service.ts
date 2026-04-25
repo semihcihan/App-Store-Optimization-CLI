@@ -40,6 +40,7 @@ type AppleAuthFailureReason =
   | "invalid_credentials"
   | "two_factor_required"
   | "upgrade_required"
+  | "verification_delivery_failed"
   | "unknown";
 
 export class AppleAuthResponseError extends Error {
@@ -123,6 +124,8 @@ interface AppleAuthErrorPayload {
 }
 
 const SUPPORTED_AUTH_TYPES = new Set(["sa", "hsa", "non-sa", "hsa2"]);
+const APPLE_INVALID_CREDENTIAL_CODES = new Set(["-20101"]);
+const APPLE_TWO_FACTOR_DELIVERY_FAILURE_CODES = new Set(["-28248"]);
 
 interface RubySirpResult {
   ok: boolean;
@@ -493,14 +496,26 @@ puts({
 function collectAppleServiceErrors(
   payload: unknown
 ): Array<{ code?: string; title?: string; message?: string }> {
-  if (!payload || typeof payload !== "object") return [];
-  const typed = payload as AppleAuthErrorPayload;
+  const parsed =
+    typeof payload === "string" ? tryParseJsonString(payload) : payload;
+  if (!parsed || typeof parsed !== "object") return [];
+  const typed = parsed as AppleAuthErrorPayload;
   const buckets = [
     typed.serviceErrors,
     typed.service_errors,
     typed.validationErrors,
   ];
   return buckets.flatMap((bucket) => (Array.isArray(bucket) ? bucket : []));
+}
+
+function payloadHasAppleServiceErrorCode(
+  payload: unknown,
+  codes: Set<string>
+): boolean {
+  return collectAppleServiceErrors(payload).some((error) => {
+    if (typeof error.code !== "string") return false;
+    return codes.has(error.code.trim());
+  });
 }
 
 export function summarizeAppleErrorPayload(payload: unknown): string {
@@ -595,6 +610,9 @@ function quoteDesCookieValue(cookieHeader: string): string {
 }
 
 function payloadIndicatesInvalidCredentials(payload: unknown): boolean {
+  if (payloadHasAppleServiceErrorCode(payload, APPLE_INVALID_CREDENTIAL_CODES)) {
+    return true;
+  }
   const errors = collectAppleServiceErrors(payload);
   if (errors.length === 0) return false;
   const combinedText = errors
@@ -608,7 +626,8 @@ function payloadIndicatesInvalidCredentials(payload: unknown): boolean {
         combinedText.includes("apple id") ||
         combinedText.includes("account"))) ||
     combinedText.includes("incorrect password") ||
-    combinedText.includes("account name or password")
+    combinedText.includes("account name or password") ||
+    combinedText.includes("check the account information you entered")
   );
 }
 
@@ -619,6 +638,12 @@ function inferAppleAuthFailureReason(
   if (status === 403) return "invalid_credentials";
   if (status === 409) return "two_factor_required";
   if (status === 412) return "upgrade_required";
+  if (
+    status === 401 &&
+    payloadHasAppleServiceErrorCode(payload, APPLE_INVALID_CREDENTIAL_CODES)
+  ) {
+    return "invalid_credentials";
+  }
   if (payloadIndicatesInvalidCredentials(payload)) return "invalid_credentials";
   return "unknown";
 }
@@ -1545,6 +1570,29 @@ export class AsoAuthEngine {
         });
       }
       if (methodChoices.length === 0) {
+        if (
+          payloadHasAppleServiceErrorCode(
+            body,
+            APPLE_TWO_FACTOR_DELIVERY_FAILURE_CODES
+          )
+        ) {
+          throw this.withAppleAuthTrace(
+            new AppleAuthResponseError({
+              message: getTwoFactorVerificationErrorMessage(body),
+              status: challengeResponse.status,
+              payload: body,
+              reason: "verification_delivery_failed",
+            }),
+            "2fa-method-selection",
+            {
+              status: challengeResponse.status,
+              noTrustedDevices,
+              trustedPhoneCount: phoneNumbers.length,
+              hasTrustedDevices,
+              failureCode: "-28248",
+            }
+          );
+        }
         reportAppleContractChange({
           provider: "apple-auth",
           operation: "2fa-method-selection",

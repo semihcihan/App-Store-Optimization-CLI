@@ -68,6 +68,7 @@ const APPLE_AUTH_USER_FAULT_REASONS = new Set([
   "invalid_credentials",
   "two_factor_required",
   "upgrade_required",
+  "verification_delivery_failed",
 ]);
 
 function getTelemetryHint(metadata: AnyRecord): TelemetryHint | undefined {

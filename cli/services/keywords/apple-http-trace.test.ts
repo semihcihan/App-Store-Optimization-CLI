@@ -108,7 +108,7 @@ describe("apple-http-trace", () => {
     expect(trace.request.url).toContain("plain=ok");
   });
 
-  it("attaches last 10 calls plus recent failed calls that fell out of the window", async () => {
+  it("attaches last 3 calls plus recent failed calls that fell out of the window", async () => {
     const client = axios.create();
     attachAppleHttpTracing(client, "apple-search-ads");
     const mock = new AxiosMockAdapter(client);
@@ -155,8 +155,50 @@ describe("apple-http-trace", () => {
       )
     );
 
-    expect(traceSeq).toEqual([3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 1, 2]);
+    expect(traceSeq).toEqual([10, 11, 12, 1, 2, 5]);
     expect(failedSeq).toEqual([1, 2, 5]);
+  });
+
+  it("truncates oversized trace payloads to keep metadata bounded", async () => {
+    const client = axios.create();
+    attachAppleHttpTracing(client, "apple-appstore");
+    const mock = new AxiosMockAdapter(client);
+    mock.onGet("/huge").reply(500, {
+      hugeText: "x".repeat(10000),
+      list: Array.from({ length: 60 }, (_, index) => ({ index })),
+      nested: {
+        level1: {
+          level2: {
+            level3: {
+              level4: {
+                level5: {
+                  level6: {
+                    level7: "too-deep",
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    });
+
+    await expect(client.get("/huge")).rejects.toThrow();
+
+    const wrapped = withAppleHttpTraceContext(new Error("bounded"), {
+      provider: "apple-appstore",
+      operation: "appstore.app-lookup",
+    });
+    const metadata = getErrorBugsnagMetadata(wrapped);
+    const traces = (metadata?.appleApi as any)?.recentHttpTraces || [];
+    const trace = traces[traces.length - 1];
+
+    expect(String(trace.response.body.hugeText)).toContain("[TRUNCATED:");
+    expect(trace.response.body.list).toHaveLength(21);
+    expect(trace.response.body.list[20]).toContain("[TRUNCATED:");
+    expect(JSON.stringify(trace.response.body.nested)).toContain(
+      "[TRUNCATED:DEPTH]"
+    );
   });
 
   it("does not redact unrelated keys that merely contain letter a or c", async () => {

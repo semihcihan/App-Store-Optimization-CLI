@@ -40,9 +40,13 @@ type AppleHttpTraceStoreEntry = AppleHttpTrace & {
   nonSuccess: boolean;
 };
 
-const RECENT_TRACE_LIMIT = 10;
+const RECENT_TRACE_LIMIT = 3;
 const RECENT_FAILED_TRACE_LIMIT = 3;
 const APPLE_CONTRACT_CHANGE_DEDUPE_WINDOW_MS = 15 * 60 * 1000;
+const TRACE_STRING_MAX_LENGTH = 2000;
+const TRACE_ARRAY_MAX_ITEMS = 20;
+const TRACE_OBJECT_MAX_KEYS = 40;
+const TRACE_MAX_DEPTH = 6;
 const recentTraceStore: AppleHttpTraceStoreEntry[] = [];
 const recentFailedTraceStore: AppleHttpTraceStoreEntry[] = [];
 const appleContractChangeLastSeenAt = new Map<string, number>();
@@ -79,26 +83,67 @@ function toRequestSnapshot(config?: AxiosRequestConfig): AppleHttpTrace["request
       isSensitiveKey,
       baseUrl: "https://apple.local",
     }),
-    params: sanitizeTelemetryValue(config?.params, {
-      isSensitiveKey,
-      parseJsonStrings: true,
-    }),
-    headers: sanitizeTelemetryValue(config?.headers, {
-      isSensitiveKey,
-      parseJsonStrings: true,
-    }),
-    body: sanitizeTelemetryValue(config?.data, {
-      isSensitiveKey,
-      parseJsonStrings: true,
-    }),
+    params: truncateTraceValue(
+      sanitizeTelemetryValue(config?.params, {
+        isSensitiveKey,
+        parseJsonStrings: true,
+      })
+    ),
+    headers: truncateTraceValue(
+      sanitizeTelemetryValue(config?.headers, {
+        isSensitiveKey,
+        parseJsonStrings: true,
+      })
+    ),
+    body: truncateTraceValue(
+      sanitizeTelemetryValue(config?.data, {
+        isSensitiveKey,
+        parseJsonStrings: true,
+      })
+    ),
   };
+}
+
+function truncateTraceValue(value: unknown, depth = 0): unknown {
+  if (value == null) return value;
+  if (depth >= TRACE_MAX_DEPTH) return "[TRUNCATED:DEPTH]";
+
+  if (typeof value === "string") {
+    if (value.length <= TRACE_STRING_MAX_LENGTH) return value;
+    const truncatedChars = value.length - TRACE_STRING_MAX_LENGTH;
+    return `${value.slice(0, TRACE_STRING_MAX_LENGTH)}...[TRUNCATED:${truncatedChars} chars]`;
+  }
+
+  if (Array.isArray(value)) {
+    const limited = value
+      .slice(0, TRACE_ARRAY_MAX_ITEMS)
+      .map((entry) => truncateTraceValue(entry, depth + 1));
+    if (value.length > TRACE_ARRAY_MAX_ITEMS) {
+      limited.push(`[TRUNCATED:${value.length - TRACE_ARRAY_MAX_ITEMS} items]`);
+    }
+    return limited;
+  }
+
+  if (typeof value === "object") {
+    const entries = Object.entries(value as Record<string, unknown>);
+    const limitedEntries = entries
+      .slice(0, TRACE_OBJECT_MAX_KEYS)
+      .map(([key, entry]) => [key, truncateTraceValue(entry, depth + 1)]);
+    const output = Object.fromEntries(limitedEntries) as Record<string, unknown>;
+    if (entries.length > TRACE_OBJECT_MAX_KEYS) {
+      output._truncatedKeys = entries.length - TRACE_OBJECT_MAX_KEYS;
+    }
+    return output;
+  }
+
+  return value;
 }
 
 function toMetadataTrace(
   entry: AppleHttpTraceStoreEntry
 ): AppleHttpTrace {
   const { traceId: _traceId, nonSuccess: _nonSuccess, ...trace } = entry;
-  return trace;
+  return truncateTraceValue(trace) as AppleHttpTrace;
 }
 
 function isNonSuccessTrace(trace: AppleHttpTrace): boolean {
@@ -206,14 +251,18 @@ export function attachAppleHttpTracing(
         request: toRequestSnapshot(response.config),
         response: {
           status: response.status,
-          headers: sanitizeTelemetryValue(response.headers, {
-            isSensitiveKey,
-            parseJsonStrings: true,
-          }),
-          body: sanitizeTelemetryValue(response.data, {
-            isSensitiveKey,
-            parseJsonStrings: true,
-          }),
+          headers: truncateTraceValue(
+            sanitizeTelemetryValue(response.headers, {
+              isSensitiveKey,
+              parseJsonStrings: true,
+            })
+          ),
+          body: truncateTraceValue(
+            sanitizeTelemetryValue(response.data, {
+              isSensitiveKey,
+              parseJsonStrings: true,
+            })
+          ),
           durationMs: startedAt > 0 ? Date.now() - startedAt : undefined,
         },
       });
@@ -228,14 +277,18 @@ export function attachAppleHttpTracing(
           request: toRequestSnapshot(error.config),
           response: {
             status: error.response?.status,
-            headers: sanitizeTelemetryValue(error.response?.headers, {
-              isSensitiveKey,
-              parseJsonStrings: true,
-            }),
-            body: sanitizeTelemetryValue(error.response?.data, {
-              isSensitiveKey,
-              parseJsonStrings: true,
-            }),
+            headers: truncateTraceValue(
+              sanitizeTelemetryValue(error.response?.headers, {
+                isSensitiveKey,
+                parseJsonStrings: true,
+              })
+            ),
+            body: truncateTraceValue(
+              sanitizeTelemetryValue(error.response?.data, {
+                isSensitiveKey,
+                parseJsonStrings: true,
+              })
+            ),
             durationMs: startedAt > 0 ? Date.now() - startedAt : undefined,
           },
           error: {
@@ -287,10 +340,12 @@ export function withAppleHttpTraceContext(
     appleApi: {
       provider: params.provider,
       operation: params.operation,
-      context: sanitizeTelemetryValue(params.context || {}, {
-        isSensitiveKey,
-        parseJsonStrings: true,
-      }),
+      context: truncateTraceValue(
+        sanitizeTelemetryValue(params.context || {}, {
+          isSensitiveKey,
+          parseJsonStrings: true,
+        })
+      ),
       recentHttpTraces: [...recentHttpTraces, ...extraRecentFailedHttpTraces],
       recentFailedHttpTraces,
     },
