@@ -23,6 +23,7 @@ Runtime flow contracts across CLI commands, local dashboard API, and ASO service
 - Any `aso` process start emits PostHog `cli_started` telemetry using a persisted user id at `~/.aso/config.json` (`userId`), then flushes telemetry on normal/error exits.
 - MCP `aso_evaluate_keywords`: accept explicit keywords (max 100), run `aso keywords "<comma-separated-keywords>" --stdout`, return evaluated keyword results.
 - Dashboard API mutations: app add (single-item POST; UI may batch multiple selections), app delete, keyword add/delete, keyword favorite toggle, auth start.
+- Dashboard API reads (compare): `GET /api/aso/compare/keywords?appIds=...` returns the union of keywords tracked across the selected apps with coverage metadata; `POST /api/aso/compare/matrix` returns a per-(app, keyword) rank matrix derived from `aso_keywords.ordered_app_ids`. Both are read-only and do not touch `keywordPipelineService` or `keywordWriteRepository`.
 
 ## Boundary Ownership
 - Domain policy (`cli/domain/keywords/*`, `cli/domain/errors/*`) is shared across CLI/server/UI for country guardrails, keyword normalization, limits, and dashboard-safe error/message mapping.
@@ -34,6 +35,7 @@ Runtime flow contracts across CLI commands, local dashboard API, and ASO service
   - request/response helpers (`http-utils.ts`)
   - apps handlers (`apps-handler.ts`)
   - keyword/app-doc handlers (`routes/keyword-handlers.ts`, `routes/app-doc-handlers.ts`)
+  - compare handlers (`routes/compare-handlers.ts`) backed by read-only helpers in `cli/db/app-compare.ts`
   - static assets (`static-files.ts`)
 
 ## Flow A: CLI Keyword Fetch

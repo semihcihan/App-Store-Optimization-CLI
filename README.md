@@ -18,6 +18,7 @@ Research ASO keywords, inspect competition, and manage results from one local-fi
 - Fast, free keyword research and visibility tracking
 - Keyword scoring with popularity + difficulty + brand classification in one command
 - Local ASO dashboard for reviewing keyword/app data
+- Compare apps across keywords from the dashboard — pick multiple apps plus a keyword set and see a side-by-side rank matrix (including apps that don't currently track the keyword)
 - MCP tool (`aso_evaluate_keywords`) for agent workflows and automated keyword research
 
 <h3 align="center">ASO Dashboard</h3>

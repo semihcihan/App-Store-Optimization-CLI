@@ -411,6 +411,16 @@ export function createServerRequestHandler(): http.RequestListener {
         return;
       }
 
+      if (req.method === "GET" && pathname === "/api/aso/compare/keywords") {
+        asoRouteHandlers.handleCompareKeywordsGet(res, query);
+        return;
+      }
+
+      if (req.method === "POST" && pathname === "/api/aso/compare/matrix") {
+        await asoRouteHandlers.handleCompareMatrixPost(req, res);
+        return;
+      }
+
       if (req.method === "GET" && pathname && !pathname.startsWith("/api/")) {
         const staticPath = resolveStaticPath(DASHBOARD_PUBLIC_DIR, pathname);
         if (staticPath && staticFileExists(staticPath)) {

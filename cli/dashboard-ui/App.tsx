@@ -34,6 +34,7 @@ import { AuthDialog } from "./components/auth-dialog";
 import { KeywordActionMenu } from "./components/keyword-action-menu";
 import { AddAppDialog } from "./components/add-app-dialog";
 import { AppActionMenu } from "./components/app-action-menu";
+import { CompareView } from "./components/CompareView";
 import {
   DASHBOARD_FILTER_DEFAULTS,
   DASHBOARD_FILTER_OPTIONS,
@@ -304,6 +305,7 @@ export function App() {
   const [openFilterMenu, setOpenFilterMenu] = useState<FilterMenuKey | null>(null);
   const [keywordActionMenu, setKeywordActionMenu] = useState<KeywordActionMenuState | null>(null);
   const [appActionMenu, setAppActionMenu] = useState<AppActionMenuState | null>(null);
+  const [compareOpen, setCompareOpen] = useState(false);
   const [researchSectionCollapsed, setResearchSectionCollapsed] = useState(false);
 
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -1797,7 +1799,28 @@ export function App() {
           </section>
 
           <section className="apps-section">
-            <p className="apps-section-title">Apps</p>
+            <div className="apps-section-header">
+              <p className="apps-section-title">Apps</p>
+              <Button
+                id="compare-apps-toggle-sidebar"
+                className="apps-section-compare"
+                variant={compareOpen ? "primary" : "ghost"}
+                size="sm"
+                type="button"
+                disabled={ownedApps.length < 2}
+                title={
+                  ownedApps.length < 2
+                    ? "Add at least 2 apps to compare"
+                    : compareOpen
+                      ? "Exit compare mode"
+                      : "Compare rank across apps"
+                }
+                aria-pressed={compareOpen}
+                onClick={() => setCompareOpen((value) => !value)}
+              >
+                {compareOpen ? "Exit" : "Compare"}
+              </Button>
+            </div>
             {ownedApps.map((app) => {
               const isSelected = selectedAppId === app.id;
               const iconUrl = getIconUrl({
@@ -2071,6 +2094,17 @@ export function App() {
           ) : null}
         </Card>
 
+        {compareOpen ? (
+          <CompareView
+            apps={apps
+              .filter((app) => app.kind === "owned")
+              .map((app) => ({ id: app.id, name: app.name, icon: app.icon }))}
+            currentAppId={selectedAppId}
+            country={DEFAULT_ASO_COUNTRY}
+            initialKeywords={filteredRows.map((row) => row.keyword)}
+            onExit={() => setCompareOpen(false)}
+          />
+        ) : (
         <Card className="table-card">
           <div className="table-wrap">
             <table>
@@ -2327,6 +2361,7 @@ export function App() {
             </p>
           ) : null}
         </Card>
+        )}
       </main>
       {keywordActionMenu ? (
         <KeywordActionMenu
