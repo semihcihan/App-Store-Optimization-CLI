@@ -71,6 +71,9 @@ Define failure boundaries, retry rules, and recovery behavior across CLI, dashbo
 - Contract-drift events are deduped for `15` minutes per unique signature (`provider + operation + endpoint + drift kind + status bucket`) to reduce alert spam during repeated failures.
 - Bugsnag redaction is centralized at SDK startup via global `redactedKeys` and `onError` sanitization before event delivery (including nested metadata and keychain command-arg payloads such as `spawnargs` values after `-w`).
 - Runtime telemetry startup resolves Bugsnag API key in this order: explicit runtime option, runtime `BUGSNAG_API_KEY`, then packaged fallback key injected in release CI from GitHub Secret `BUGSNAG_API_KEY`; startup is skipped with a warning only when all are missing.
+- Runtime telemetry startup resolves PostHog settings before shared init: API key from `ASO_POSTHOG_API_KEY` (or packaged fallback when unset) plus optional `ASO_POSTHOG_HOST` override; `posthog-shared` passes host only when explicitly provided and otherwise relies on the PostHog SDK default host, and initialization is skipped in development mode.
+- CLI usage tracking persists a stable PostHog `distinctId` in `~/.aso/config.json` (`userId`) and emits `cli_started` with `$set_once.first_seen_at` plus `$set.last_seen_at/cli_version/node_version` on each process start.
+- CLI process exit paths explicitly call PostHog shutdown before exiting so short-lived command runs flush queued analytics events.
 - Release pipeline enforces packaged-key integrity by requiring the secret, replacing exactly one source placeholder, and failing if placeholder text remains in built artifacts.
 - Dashboard Bugsnag startup enables browser session tracking and includes `request`/`navigation` breadcrumbs; CLI/MCP keep stricter defaults.
 - Dashboard server reports failures with structured metadata (path, phase, counts).

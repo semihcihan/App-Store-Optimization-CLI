@@ -16,10 +16,18 @@ import {
   isStdoutKeywordsRun,
   toMachineReadableErrorMessage,
 } from "./services/runtime/stdout-contract";
+import {
+  shutdownPostHog,
+  trackCliStarted,
+} from "./services/telemetry/posthog-usage-tracking";
 
 assertSupportedNodeVersion();
 const processArgs = process.argv?.slice(2) || [];
 const stdoutKeywordsRun = isStdoutKeywordsRun(processArgs);
+const commandName =
+  typeof processArgs[0] === "string" && processArgs[0].trim()
+    ? processArgs[0].trim()
+    : "dashboard";
 
 const isDebugEnabled = process.env.NODE_ENV == "development";
 
@@ -34,6 +42,7 @@ if (isDebugEnabled) {
 }
 
 async function main() {
+  trackCliStarted({ command: commandName });
   checkVersionUpdateSync({ allowStdoutMessage: !stdoutKeywordsRun });
 
   const parser = yargs(hideBin(process.argv))
@@ -51,14 +60,16 @@ async function main() {
           "Use 'aso --help' to see available commands and options."
         );
       }
+      await shutdownPostHog();
       process.exit(1);
     })
     .help();
 
   await parser.parseAsync();
+  await shutdownPostHog();
 }
 
-main().catch((err) => {
+main().catch(async (err) => {
   let command = "unknown";
 
   try {
@@ -81,5 +92,6 @@ main().catch((err) => {
     command,
     context: processedError,
   });
+  await shutdownPostHog();
   process.exitCode = 1;
 });

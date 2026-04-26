@@ -1,6 +1,6 @@
 {
   "name": "aso-cli",
-  "version": "0.8.0",
+  "version": "0.9.0",
   "description": "Local App Store Optimization CLI",
   "main": "cli/dist/cli.js",
   "bin": {
@@ -75,6 +75,7 @@
     "dotenv": "^16.6.1",
     "inquirer": "^8.2.5",
     "ora": "^8.2.0",
+    "posthog-node": "^5.30.4",
     "winston": "^3.17.0",
     "yargs": "^17.7.2",
     "zod": "4.1.9",

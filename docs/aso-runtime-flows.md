@@ -20,6 +20,7 @@ Runtime flow contracts across CLI commands, local dashboard API, and ASO service
 - `aso keywords "..." --stdout`: machine-friendly mode; emits JSON-only stdout, attempts silent reauth, and fails when interactive user input is required.
 - `aso auth`: run only Apple Search Ads reauthentication.
 - `aso reset-credentials`: clear saved ASO keychain credentials and local cookies.
+- Any `aso` process start emits PostHog `cli_started` telemetry using a persisted user id at `~/.aso/config.json` (`userId`), then flushes telemetry on normal/error exits.
 - MCP `aso_evaluate_keywords`: accept explicit keywords (max 100), run `aso keywords "<comma-separated-keywords>" --stdout`, return evaluated keyword results.
 - Dashboard API mutations: app add (single-item POST; UI may batch multiple selections), app delete, keyword add/delete, keyword favorite toggle, auth start.
 
