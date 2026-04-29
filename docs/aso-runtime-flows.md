@@ -37,6 +37,7 @@ Runtime flow contracts across CLI commands, local dashboard API, and ASO service
   - apps handlers (`apps-handler.ts`)
   - keyword/app-doc handlers (`routes/keyword-handlers.ts`, `routes/app-doc-handlers.ts`)
   - static assets (`static-files.ts`)
+- `cli/cli.ts` owns machine-readable stdout failure formatting for `aso keywords --stdout`; parser hooks may classify failures, but stdout JSON emission happens in one top-level path only.
 
 ## Flow A: CLI Keyword Fetch
 1. Normalize and validate keywords.
@@ -76,6 +77,8 @@ Runtime flow contracts across CLI commands, local dashboard API, and ASO service
     - `error.code` (`CLI_VALIDATION_ERROR` or `CLI_RUNTIME_ERROR`)
     - `error.message`
     - optional `error.help`
+    - exactly one failure envelope is emitted per failed run.
+    - parser/CLI-option failures emit `CLI_VALIDATION_ERROR`; command-execution failures (for example missing Primary App ID during handler execution) emit `CLI_RUNTIME_ERROR`.
 11. Suppress CLI startup update notifications and keep logger failure text off stdout so output remains machine-parseable JSON.
 
 ## Flow B: Dashboard Add Keywords (`POST /api/aso/keywords`)
