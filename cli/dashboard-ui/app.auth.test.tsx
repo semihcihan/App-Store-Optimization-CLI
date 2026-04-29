@@ -140,11 +140,6 @@ describe("dashboard auth modal UI flow", () => {
     fireEvent.change(input, { target: { value: "term" } });
     fireEvent.click(screen.getByRole("button", { name: "Add Keywords" }));
 
-    expect(
-      await screen.findByText("Checking Apple session for 1 keyword...")
-    ).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Add Keywords" })).toBeDisabled();
-
     await waitFor(() =>
       expect(fetchMock).toHaveBeenCalledWith(
         "/api/aso/auth/start",
@@ -153,12 +148,18 @@ describe("dashboard auth modal UI flow", () => {
         })
       )
     );
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Add Keywords" })).not.toBeDisabled()
+    );
+    expect(
+      screen.queryByText("Checking Apple session for 1 keyword...")
+    ).not.toBeInTheDocument();
     expect(
       screen.queryByRole("heading", { name: "Apple Reauthentication Required" })
     ).not.toBeInTheDocument();
   });
 
-  it("auto-retries pending keyword add after auth status becomes succeeded", async () => {
+  it("does not auto-retry the keyword add after auth succeeds", async () => {
     let keywordPostCount = 0;
     let authStatusCount = 0;
     const fetchMock = jest.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -275,7 +276,9 @@ describe("dashboard auth modal UI flow", () => {
     fireEvent.change(input, { target: { value: "term" } });
     fireEvent.click(screen.getByRole("button", { name: "Add Keywords" }));
 
-    await waitFor(() => expect(keywordPostCount).toBe(2));
+    await waitFor(() => expect(authStatusCount).toBeGreaterThan(0));
+    expect(keywordPostCount).toBe(1);
+    expect(screen.getByRole("button", { name: "Add Keywords" })).not.toBeDisabled();
   });
 
   it("collects a missing Primary App ID through the dashboard setup flow", async () => {

@@ -345,7 +345,6 @@ export function App() {
   const keywordLoadRequestIdRef = useRef(0);
   const keywordQueryKeyRef = useRef<string | null>(null);
   const selectedAppIdRef = useRef(selectedAppId);
-  const autoRetryInFlightRef = useRef(false);
   const startupAppSyncAtRef = useRef<string | null>(null);
   const resumeStartupRefreshAfterAuthRef = useRef(false);
   const startupRefreshAuthAttemptKeyRef = useRef<string | null>(null);
@@ -401,7 +400,6 @@ export function App() {
     isStartingAuth,
     isSubmittingAuthPrompt,
     authPendingPrompt,
-    pendingAddContext,
     setPendingAddContext,
     openAuthModalForPendingAdd,
     requestStartupRefreshReauthentication,
@@ -1264,17 +1262,6 @@ export function App() {
     openSetupModalForPrimaryAppAccessError,
     selectedAppId,
   ]);
-
-  useEffect(() => {
-    if (authStatus !== "succeeded") return;
-    if (!pendingAddContext) return;
-    if (autoRetryInFlightRef.current) return;
-
-    autoRetryInFlightRef.current = true;
-    void submitKeywords(pendingAddContext.keywords).finally(() => {
-      autoRetryInFlightRef.current = false;
-    });
-  }, [authStatus, pendingAddContext, submitKeywords]);
 
   useEffect(() => {
     if (authStatus !== "succeeded") return;

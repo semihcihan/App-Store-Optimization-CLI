@@ -122,9 +122,9 @@ Runtime flow contracts across CLI commands, local dashboard API, and ASO service
 4. Server runs single-flight `asoAuthService.reAuthenticate()` with a dashboard prompt handler instead of a terminal-only prompt path.
 5. Client polls `GET /api/aso/auth/status` until terminal state and submits prompt answers through `POST /api/aso/auth/respond`.
 6. Shared auth service can request browser-collected credentials, Keychain-save confirmation, 2FA method choice, trusted phone choice, and verification code without duplicating auth logic.
-7. On success, client retries the pending add-keyword action and can resume a previously paused startup refresh.
+7. On success, client can resume a previously paused startup refresh. Add-keyword auth handoff does not retry the original add automatically; the user retries that mutation explicitly.
 8. On failure, the same dashboard auth modal remains the single recovery surface for both add-keyword and startup-refresh flows.
-9. While reauth is auto-starting or in progress for a pending add-keyword action, the dashboard keeps the add action in a loading state (`Checking Apple session...`) so the button never appears idle.
+9. While reauth is auto-starting for an add-keyword auth handoff, the dashboard may briefly show `Checking Apple session...`, then clears the add-keyword loading state once auth takes over so the user can retry manually after authentication.
 
 ## Flow D: Startup Background Refresh
 1. Start once at dashboard boot after Primary App ID is already configured, or immediately after dashboard setup completes.

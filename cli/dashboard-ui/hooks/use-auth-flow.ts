@@ -28,7 +28,7 @@ export type PendingAddContext = {
 };
 
 type AuthFlowContext =
-  | { kind: "add-keywords"; keywords: string[] }
+  | { kind: "add-keywords" }
   | { kind: "startup-refresh" }
   | null;
 
@@ -68,6 +68,8 @@ export function useAuthFlow(params: UseAuthFlowParams) {
   const [submittedAuthPromptIdentity, setSubmittedAuthPromptIdentity] =
     useState<string | null>(null);
   const [authFlowContext, setAuthFlowContext] = useState<AuthFlowContext>(null);
+  const [pendingAddContext, setPendingAddContextState] =
+    useState<PendingAddContext | null>(null);
   const [authPendingPrompt, setAuthPendingPrompt] =
     useState<AsoInteractivePrompt | null>(null);
   const isSubmittingAuthPrompt =
@@ -96,6 +98,9 @@ export function useAuthFlow(params: UseAuthFlowParams) {
   const startReauthentication = useCallback(async () => {
     try {
       setIsStartingAuth(true);
+      if (authFlowContext?.kind === "add-keywords") {
+        setPendingAddContextState(null);
+      }
       setAuthStatus("in_progress");
       setAuthStatusError("");
       const data = await apiWrite<DashboardAuthStatusPayload>(
@@ -121,7 +126,7 @@ export function useAuthFlow(params: UseAuthFlowParams) {
     } finally {
       setIsStartingAuth(false);
     }
-  }, [applyAuthState]);
+  }, [applyAuthState, authFlowContext]);
 
   const submitAuthPromptResponse = useCallback(
     async (response: AsoInteractivePromptResponse) => {
@@ -168,29 +173,21 @@ export function useAuthFlow(params: UseAuthFlowParams) {
     submittedAuthPromptIdentity,
   ]);
 
-  const pendingAddContext = useMemo<PendingAddContext | null>(() => {
-    if (authFlowContext?.kind !== "add-keywords") return null;
-    return { keywords: authFlowContext.keywords };
-  }, [authFlowContext]);
-
   const setPendingAddContext = useCallback((next: PendingAddContext | null) => {
-    setAuthFlowContext((current) => {
-      if (next) {
-        return { kind: "add-keywords", keywords: next.keywords };
-      }
-      return current?.kind === "add-keywords" ? null : current;
-    });
+    setPendingAddContextState(next);
   }, []);
 
   const openAuthModalForPendingAdd = useCallback(
     (error: unknown, keywords: string[]): boolean => {
       const errorCode = getDashboardApiErrorCode(error);
       if (!isAuthFlowErrorCode(errorCode)) return false;
-      setAuthFlowContext({ kind: "add-keywords", keywords });
+      setAuthFlowContext({ kind: "add-keywords" });
       if (errorCode === "AUTH_IN_PROGRESS") {
+        setPendingAddContextState(null);
         setAuthStatus("in_progress");
         setAuthStatusError("");
       } else {
+        setPendingAddContextState({ keywords });
         setAuthStatus("idle");
         setAuthStatusError("");
       }
@@ -263,9 +260,8 @@ export function useAuthFlow(params: UseAuthFlowParams) {
 
   useEffect(() => {
     if (authStatus !== "succeeded") return;
-    setAuthFlowContext((current) =>
-      current?.kind === "startup-refresh" ? null : current
-    );
+    setPendingAddContextState(null);
+    setAuthFlowContext(null);
   }, [authStatus]);
 
   const pendingAddKeywordCount = pendingAddContext?.keywords.length ?? 0;
