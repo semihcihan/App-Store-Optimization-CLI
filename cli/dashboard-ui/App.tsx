@@ -28,9 +28,10 @@ import { useFiltersSort, type SortDir, type SortKey } from "./hooks/use-filters-
 import { useSelection } from "./hooks/use-selection";
 import { sanitizeKeywords } from "../domain/keywords/policy";
 import { useAuthFlow } from "./hooks/use-auth-flow";
+import { usePrimaryAppSetupFlow } from "./hooks/use-primary-app-setup-flow";
 import { useAddAppSearch } from "./hooks/use-add-app-search";
 import { StatusBanners } from "./components/status-banners";
-import { AuthDialog } from "./components/auth-dialog";
+import { AsoPromptDialog } from "./components/aso-prompt-dialog";
 import { KeywordActionMenu } from "./components/keyword-action-menu";
 import { AddAppDialog } from "./components/add-app-dialog";
 import { AppActionMenu } from "./components/app-action-menu";
@@ -398,11 +399,14 @@ export function App() {
     authStatus,
     authStatusError,
     isStartingAuth,
+    isSubmittingAuthPrompt,
+    authPendingPrompt,
     pendingAddContext,
     setPendingAddContext,
     openAuthModalForPendingAdd,
     requestStartupRefreshReauthentication,
     startReauthentication,
+    submitAuthPromptResponse,
     authCheckLoadingText,
     authStatusLabel,
     activeAuthContext,
@@ -411,6 +415,16 @@ export function App() {
   } = useAuthFlow({
     isAddingKeywords,
   });
+  const {
+    setupStatusError,
+    setupPendingPrompt,
+    isStartingSetup,
+    isSubmittingSetupPrompt,
+    setupModalOpen,
+    startSetup,
+    submitSetupPromptResponse,
+    openSetupModalForPrimaryAppAccessError,
+  } = usePrimaryAppSetupFlow();
   const {
     isAddAppPopoverOpen,
     addAppSearchTerm,
@@ -1166,6 +1180,7 @@ export function App() {
         return true;
       } catch (error) {
         if (openAuthModalForPendingAdd(error, kws)) return false;
+        if (openSetupModalForPrimaryAppAccessError(error)) return false;
         setErrorText(toActionableErrorMessage(error, "Failed to add keywords"));
         return false;
       } finally {
@@ -1179,6 +1194,7 @@ export function App() {
       loadApps,
       loadKeywords,
       openAuthModalForPendingAdd,
+      openSetupModalForPrimaryAppAccessError,
     ]
   );
 
@@ -1235,12 +1251,19 @@ export function App() {
         );
       }
     } catch (error) {
+      if (openSetupModalForPrimaryAppAccessError(error)) return;
       setErrorText(toActionableErrorMessage(error, "Failed to retry failed keywords"));
     } finally {
       setIsRetryingFailedKeywords(false);
       setLoadingText("");
     }
-  }, [failedKeywordCount, keywordPage, loadKeywords, selectedAppId]);
+  }, [
+    failedKeywordCount,
+    keywordPage,
+    loadKeywords,
+    openSetupModalForPrimaryAppAccessError,
+    selectedAppId,
+  ]);
 
   useEffect(() => {
     if (authStatus !== "succeeded") return;
@@ -2710,16 +2733,51 @@ export function App() {
         isColdStart={isColdStart}
         isOwnedAppId={(appId) => existingOwnedAppIds.has(appId)}
       />
-      <AuthDialog
-        open={authModalOpen}
-        statusLabel={authStatusLabel}
-        statusError={authStatusError}
-        showReauthButton={showReauthButton}
-        canStartReauth={canStartReauth}
-        isStartingAuth={isStartingAuth}
-        onStartReauthentication={() => {
-          void startReauthentication();
+      <AsoPromptDialog
+        open={setupModalOpen}
+        fallbackTitle="Primary App ID Required"
+        fallbackMessage="Enter a Primary App ID so the dashboard can refresh Apple Search Ads keyword data."
+        statusError={setupStatusError}
+        prompt={setupPendingPrompt}
+        isSubmittingPrompt={isSubmittingSetupPrompt}
+        onSubmitPrompt={(response) => {
+          void submitSetupPromptResponse(response);
         }}
+        actionButton={
+          !setupPendingPrompt
+            ? {
+                label: "Retry Setup",
+                busyLabel: "Starting...",
+                disabled: isStartingSetup,
+                onClick: () => {
+                  void startSetup();
+                },
+              }
+            : null
+        }
+      />
+      <AsoPromptDialog
+        open={!setupModalOpen && authModalOpen}
+        fallbackTitle="Apple Reauthentication Required"
+        fallbackMessage={authStatusLabel}
+        statusError={authStatusError}
+        prompt={authPendingPrompt}
+        isSubmittingPrompt={isSubmittingAuthPrompt}
+        onSubmitPrompt={(response) => {
+          void submitAuthPromptResponse(response);
+        }}
+        actionButton={
+          showReauthButton
+            ? {
+                label: "Reauthenticate",
+                busyLabel: "Starting...",
+                disabled: !canStartReauth || isStartingAuth,
+                onClick: () => {
+                  void startReauthentication();
+                },
+              }
+            : null
+        }
       />
     </div>
   );

@@ -1178,10 +1178,107 @@ tbody tr.selected:hover td {
   margin-top: 22px;
 }
 
+.aso-prompt-form {
+  display: grid;
+  gap: 14px;
+}
+
+.aso-prompt-fieldset {
+  display: grid;
+  gap: 14px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-inline-size: 0;
+}
+
+.aso-prompt-field {
+  display: grid;
+  gap: 6px;
+}
+
+.aso-prompt-field > span,
+.aso-prompt-checkbox > span {
+  color: var(--foreground);
+  font-size: 0.94rem;
+  font-weight: 600;
+}
+
+.aso-prompt-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.aso-prompt-checkbox input,
+.aso-prompt-choice input {
+  accent-color: var(--accent);
+}
+
+.aso-prompt-choice-list {
+  display: grid;
+  gap: 10px;
+}
+
+.aso-prompt-choice {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid color-mix(in oklab, var(--border) 86%, transparent);
+  border-radius: 12px;
+  padding: 10px 12px;
+  background: color-mix(in oklab, var(--card) 90%, transparent);
+}
+
 .auth-action-button {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   font-size: 1.02rem;
   font-weight: 600;
   min-height: 40px;
+}
+
+.auth-action-button-label {
+  display: inline-block;
+}
+
+.auth-action-button-label.is-hidden {
+  visibility: hidden;
+}
+
+.auth-action-button-spinner {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  display: block;
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  line-height: 0;
+  box-sizing: border-box;
+  transform: translate(-50%, -50%);
+  border-radius: 999px;
+  border: 2px solid
+    color-mix(in oklab, var(--primary-foreground) 34%, transparent);
+  border-top-color: var(--primary-foreground);
+  opacity: 0;
+  pointer-events: none;
+}
+
+.auth-action-button-spinner.visible {
+  opacity: 1;
+  animation: auth-action-button-spin 700ms linear infinite;
+}
+
+@keyframes auth-action-button-spin {
+  from {
+    transform: translate(-50%, -50%) rotate(0deg);
+  }
+  to {
+    transform: translate(-50%, -50%) rotate(360deg);
+  }
 }
 
 .top-apps-list {
@@ -2329,6 +2426,13 @@ td.updated-value {
   font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 0.08em;
+}
+
+.auth-action-button-spinner {
+  width: 12px;
+  height: 12px;
+  border: 2px solid rgba(255, 255, 255, 0.25);
+  border-top-color: #ffffff;
 }
 
 .top-apps-list {

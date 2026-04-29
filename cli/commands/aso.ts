@@ -185,7 +185,9 @@ const asoCommand: CommandModule = {
           "Keyword options are only supported in `aso keywords`."
         );
       }
-      await resolveAsoAdamId({ adamId: primaryAppId, allowPrompt: true });
+      if (primaryAppId != null) {
+        await resolveAsoAdamId({ adamId: primaryAppId, allowPrompt: false });
+      }
       await startDashboard(true);
       return;
     }

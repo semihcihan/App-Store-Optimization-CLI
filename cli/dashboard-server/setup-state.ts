@@ -1,24 +1,33 @@
-import type { AsoInteractivePrompt, AsoInteractivePromptResponse } from "../shared/aso-interactive-prompts";
+import type {
+  AsoInteractivePrompt,
+  AsoInteractivePromptResponse,
+} from "../shared/aso-interactive-prompts";
 import type { AsoPromptHandler } from "../services/prompts/aso-prompt-handler";
 import { logger } from "../utils/logger";
 import { createDashboardPromptSession } from "./prompt-session";
 
-export type DashboardAuthStatus = "idle" | "in_progress" | "failed" | "succeeded";
+export type DashboardSetupStatus =
+  | "idle"
+  | "in_progress"
+  | "failed"
+  | "succeeded";
 
-export type DashboardAuthState = {
-  status: DashboardAuthStatus;
+export type DashboardSetupState = {
+  status: DashboardSetupStatus;
   updatedAt: string | null;
   lastError: string | null;
-  requiresTerminalAction: boolean;
   canPrompt: boolean;
+  isRequired: boolean;
   pendingPrompt: AsoInteractivePrompt | null;
 };
 
-type CreateDashboardAuthStateParams = {
-  reAuthenticate: (options?: {
-    onUserActionRequired?: () => void;
+type CreateDashboardSetupStateParams = {
+  isSetupRequired: () => boolean;
+  resolvePrimaryAppId: (options?: {
+    forcePrompt?: boolean;
     promptHandler?: AsoPromptHandler;
-  }) => Promise<unknown>;
+  }) => Promise<string>;
+  onResolved?: (adamId: string) => void;
   onError: (error: unknown) => void;
 };
 
@@ -26,42 +35,38 @@ function nowIsoString(): string {
   return new Date().toISOString();
 }
 
-export function createDashboardAuthStateManager(
-  params: CreateDashboardAuthStateParams
+export function createDashboardSetupStateManager(
+  params: CreateDashboardSetupStateParams
 ) {
-  const state: Omit<DashboardAuthState, "canPrompt" | "pendingPrompt"> = {
+  const promptSession = createDashboardPromptSession();
+  const state: Omit<DashboardSetupState, "canPrompt" | "isRequired" | "pendingPrompt"> = {
     status: "idle",
     updatedAt: null,
     lastError: null,
-    requiresTerminalAction: false,
   };
-  const promptSession = createDashboardPromptSession();
 
   let inFlight: Promise<void> | null = null;
+  let forcePromptActive = false;
 
   const setState = (
-    status: DashboardAuthStatus,
+    status: DashboardSetupStatus,
     lastError: string | null = null
-  ): void => {
+  ) => {
     state.status = status;
     state.updatedAt = nowIsoString();
     state.lastError = lastError;
-    state.requiresTerminalAction = false;
-  };
-
-  const markPrompted = (): void => {
-    if (state.status !== "in_progress") return;
-    state.updatedAt = nowIsoString();
   };
 
   return {
-    getState(): DashboardAuthState {
+    getState(): DashboardSetupState {
       return {
         status: state.status,
         updatedAt: state.updatedAt,
         lastError: state.lastError,
-        requiresTerminalAction: state.requiresTerminalAction,
         canPrompt: true,
+        isRequired:
+          (params.isSetupRequired() || forcePromptActive) &&
+          state.status !== "succeeded",
         pendingPrompt: promptSession.getPendingPrompt(),
       };
     },
@@ -79,28 +84,32 @@ export function createDashboardAuthStateManager(
       return accepted;
     },
 
-    start(): boolean {
-      if (inFlight) return false;
+    start(options?: { forcePrompt?: boolean }): boolean {
+      const forcePrompt = options?.forcePrompt === true;
+      if ((!params.isSetupRequired() && !forcePrompt) || inFlight) {
+        return false;
+      }
 
+      forcePromptActive = forcePrompt;
       setState("in_progress", null);
       promptSession.reset();
       inFlight = params
-        .reAuthenticate({
-          onUserActionRequired: () => {
-            markPrompted();
-          },
+        .resolvePrimaryAppId({
+          forcePrompt,
           promptHandler: promptSession.createPromptHandler(),
         })
-        .then(() => {
+        .then((adamId) => {
           promptSession.reset();
+          forcePromptActive = false;
           setState("succeeded", null);
+          params.onResolved?.(adamId);
         })
         .catch((error) => {
           promptSession.failPendingPrompt(error);
           const message = error instanceof Error ? error.message : String(error);
-          setState("failed", message || "Authentication failed.");
+          setState("failed", message || "Primary App ID setup failed.");
           params.onError(error);
-          logger.error(`ASO dashboard reauthentication failed: ${message}`);
+          logger.error(`ASO dashboard setup failed: ${message}`);
         })
         .finally(() => {
           inFlight = null;

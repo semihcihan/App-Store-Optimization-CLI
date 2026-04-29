@@ -528,7 +528,7 @@ describe("dashboard server routes", () => {
     ]);
   });
 
-  it("returns auth status and tty-required auth-start error", async () => {
+  it("returns auth status and starts dashboard auth without requiring a tty", async () => {
     const status = await request({
       method: "GET",
       path: "/api/aso/auth/status",
@@ -545,8 +545,13 @@ describe("dashboard server routes", () => {
       method: "POST",
       path: "/api/aso/auth/start",
     });
-    expect(start.statusCode).toBe(503);
-    expect(start.json?.errorCode).toBe("TTY_REQUIRED");
+    expect(start.statusCode).toBe(202);
+    expect(start.json?.data).toEqual(
+      expect.objectContaining({
+        status: "in_progress",
+        pendingPrompt: null,
+      })
+    );
   });
 
   it("returns auth-in-progress when auth start is requested concurrently", async () => {
@@ -588,6 +593,65 @@ describe("dashboard server routes", () => {
         Object.defineProperty(process.stdout, "isTTY", stdoutDescriptor);
       }
     }
+  });
+
+  it("does not treat prompt responses as invalid while auth is between steps", async () => {
+    let allowAuthToFinish: (() => void) | null = null;
+    mockReAuthenticate.mockImplementation(
+      async (options?: any) => {
+        await options?.promptHandler?.prompt({
+          kind: "verification_code",
+          title: "Verification Code Required",
+          message: "Enter code",
+          digits: 6,
+        });
+        await new Promise<void>((resolve) => {
+          allowAuthToFinish = resolve;
+        });
+        return "ok";
+      }
+    );
+
+    const start = await request({
+      method: "POST",
+      path: "/api/aso/auth/start",
+    });
+    expect(start.statusCode).toBe(202);
+
+    const firstRespond = await request({
+      method: "POST",
+      path: "/api/aso/auth/respond",
+      body: {
+        kind: "verification_code",
+        code: "123456",
+      },
+    });
+    expect(firstRespond.statusCode).toBe(202);
+    expect(firstRespond.json?.data).toEqual(
+      expect.objectContaining({
+        status: "in_progress",
+      })
+    );
+
+    const secondRespond = await request({
+      method: "POST",
+      path: "/api/aso/auth/respond",
+      body: {
+        kind: "verification_code",
+        code: "123456",
+      },
+    });
+    expect(secondRespond.statusCode).toBe(202);
+    expect(secondRespond.json?.data).toEqual(
+      expect.objectContaining({
+        status: "in_progress",
+        pendingPrompt: null,
+      })
+    );
+
+    const releaseAuth = allowAuthToFinish as (() => void) | null;
+    releaseAuth?.();
+    await new Promise((resolve) => setImmediate(resolve));
   });
 
   it("returns keywords with app-specific positions and failure metadata", async () => {
@@ -1353,6 +1417,27 @@ describe("dashboard server routes", () => {
     });
     expect(networkError.statusCode).toBe(500);
     expect(networkError.json?.errorCode).toBe("NETWORK_ERROR");
+  });
+
+  it("maps inaccessible Primary App ID errors to the reconfigure error code", async () => {
+    mockFetchKeywordStage.mockRejectedValueOnce(
+      new Error(
+        "Primary App ID 345345 is not accessible for this Apple Ads account. (messageCode=NO_USER_OWNED_APPS_FOUND_CODE)"
+      )
+    );
+
+    const response = await request({
+      method: "POST",
+      path: "/api/aso/keywords",
+      body: {
+        appId: "app-1",
+        country: "US",
+        keywords: ["term"],
+      },
+    });
+
+    expect(response.statusCode).toBe(403);
+    expect(response.json?.errorCode).toBe("PRIMARY_APP_ID_RECONFIGURE_REQUIRED");
   });
 
   it("returns auth-required for keyword routes when reauth is required", async () => {
