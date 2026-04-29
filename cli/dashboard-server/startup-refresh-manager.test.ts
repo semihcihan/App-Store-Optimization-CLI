@@ -190,6 +190,7 @@ describe("startup-refresh-manager", () => {
     expect(state.counters.eligibleKeywordCount).toBe(3);
     expect(state.counters.refreshedKeywordCount).toBe(3);
     expect(state.counters.failedKeywordCount).toBe(0);
+    expect(state.requiresReauthentication).toBe(false);
     expect(enrichCalls).toHaveLength(3);
     expect(errors).toHaveLength(0);
   });
@@ -228,6 +229,62 @@ describe("startup-refresh-manager", () => {
     expect(state.status).toBe("failed");
     expect(state.counters.refreshedKeywordCount).toBe(0);
     expect(state.counters.failedKeywordCount).toBe(1);
+    expect(state.requiresReauthentication).toBe(false);
     expect(errors).toHaveLength(1);
+  });
+
+  it("marks auth-required failures and allows restart after failure", async () => {
+    let attempt = 0;
+
+    const manager = createStartupRefreshManager({
+      country: "US",
+      listKeywords: () => [
+        buildKeyword({
+          keyword: "k1",
+          normalizedKeyword: "k1",
+          orderExpiresAt: "2026-03-06T00:00:00.000Z",
+        }),
+      ],
+      listAppKeywords: () => [buildAssociation({ keyword: "k1", appId: "app-1" })],
+      listAssociatedAppIds: () => new Set(["app-1"]),
+      listOrderRelevantAppIds: () => new Set(["app-1"]),
+      enrichKeywords: async () => {
+        attempt += 1;
+        if (attempt === 1) {
+          throw new Error(
+            "Apple Search Ads session expired. Reauthentication is required."
+          );
+        }
+      },
+      isForegroundBusy: () => false,
+      isAuthReauthRequiredError: (error) =>
+        error instanceof Error &&
+        error.message.includes("Reauthentication is required"),
+      nowMs: () => Date.parse("2026-03-07T00:00:00.000Z"),
+      sleep: async () => {},
+      keywordBatchSize: 25,
+    });
+
+    manager.start();
+    await waitForManagerToFinish(manager);
+
+    expect(manager.getState()).toEqual(
+      expect.objectContaining({
+        status: "failed",
+        requiresReauthentication: true,
+      })
+    );
+
+    await Promise.resolve();
+    manager.start();
+    await waitForManagerToFinish(manager);
+
+    expect(manager.getState()).toEqual(
+      expect.objectContaining({
+        status: "completed",
+        requiresReauthentication: false,
+      })
+    );
+    expect(attempt).toBe(2);
   });
 });

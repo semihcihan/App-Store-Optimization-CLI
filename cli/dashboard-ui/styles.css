@@ -513,17 +513,32 @@ body {
 
 .startup-refresh-status {
   margin: 0 4px 0 0;
+  max-width: min(52vw, 420px);
+  display: none;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.startup-refresh-status.visible {
+  display: flex;
+}
+
+.startup-refresh-status-copy {
+  margin: 0;
   font-size: 0.78rem;
   color: var(--muted-foreground);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: min(52vw, 420px);
-  display: none;
 }
 
-.startup-refresh-status.visible {
-  display: block;
+.startup-refresh-status.error .startup-refresh-status-copy {
+  color: var(--danger);
+}
+
+.startup-refresh-action {
+  flex: 0 0 auto;
 }
 
 .add-card,
@@ -1969,6 +1984,9 @@ body::before {
 .startup-refresh-status {
   margin-right: auto;
   max-width: min(56vw, 420px);
+}
+
+.startup-refresh-status-copy {
   font-size: 11px;
   color: #7d7d7d;
 }
@@ -2485,6 +2503,10 @@ td.updated-value {
   .startup-refresh-status {
     margin-right: 0;
     max-width: 100%;
+  }
+
+  .startup-refresh-status-copy {
+    white-space: normal;
   }
 
   .add-form {

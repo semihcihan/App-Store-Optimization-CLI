@@ -22,6 +22,11 @@ export type PendingAddContext = {
   keywords: string[];
 };
 
+type AuthFlowContext =
+  | { kind: "add-keywords"; keywords: string[] }
+  | { kind: "startup-refresh" }
+  | null;
+
 type UseAuthFlowParams = {
   isAddingKeywords: boolean;
 };
@@ -33,7 +38,7 @@ export function useAuthFlow(params: UseAuthFlowParams) {
   const [authNeedsTerminalAction, setAuthNeedsTerminalAction] = useState(false);
   const [authStatusError, setAuthStatusError] = useState("");
   const [isStartingAuth, setIsStartingAuth] = useState(false);
-  const [pendingAddContext, setPendingAddContext] = useState<PendingAddContext | null>(null);
+  const [authFlowContext, setAuthFlowContext] = useState<AuthFlowContext>(null);
 
   const startReauthentication = useCallback(async () => {
     try {
@@ -68,11 +73,25 @@ export function useAuthFlow(params: UseAuthFlowParams) {
     }
   }, []);
 
+  const pendingAddContext = useMemo<PendingAddContext | null>(() => {
+    if (authFlowContext?.kind !== "add-keywords") return null;
+    return { keywords: authFlowContext.keywords };
+  }, [authFlowContext]);
+
+  const setPendingAddContext = useCallback((next: PendingAddContext | null) => {
+    setAuthFlowContext((current) => {
+      if (next) {
+        return { kind: "add-keywords", keywords: next.keywords };
+      }
+      return current?.kind === "add-keywords" ? null : current;
+    });
+  }, []);
+
   const openAuthModalForPendingAdd = useCallback(
     (error: unknown, keywords: string[]): boolean => {
       const errorCode = getDashboardApiErrorCode(error);
       if (!isAuthFlowErrorCode(errorCode)) return false;
-      setPendingAddContext({ keywords });
+      setAuthFlowContext({ kind: "add-keywords", keywords });
       if (errorCode === "AUTH_IN_PROGRESS") {
         setAuthStatus("in_progress");
         setAuthCanPrompt(true);
@@ -93,6 +112,13 @@ export function useAuthFlow(params: UseAuthFlowParams) {
     },
     []
   );
+
+  const requestStartupRefreshReauthentication = useCallback(() => {
+    setAuthFlowContext((current) => current ?? { kind: "startup-refresh" });
+    if (!authCanPrompt || isStartingAuth) return;
+    if (authStatus !== "idle" && authStatus !== "failed") return;
+    void startReauthentication();
+  }, [authCanPrompt, authStatus, isStartingAuth, startReauthentication]);
 
   useEffect(() => {
     if (!isStartingAuth && authStatus !== "in_progress") return;
@@ -143,7 +169,7 @@ export function useAuthFlow(params: UseAuthFlowParams) {
   ]);
 
   useEffect(() => {
-    if (!pendingAddContext) {
+    if (!authFlowContext) {
       setAuthModalOpen(false);
       return;
     }
@@ -160,7 +186,14 @@ export function useAuthFlow(params: UseAuthFlowParams) {
       return;
     }
     setAuthModalOpen(false);
-  }, [pendingAddContext, authCanPrompt, authStatus, authNeedsTerminalAction]);
+  }, [authFlowContext, authCanPrompt, authStatus, authNeedsTerminalAction]);
+
+  useEffect(() => {
+    if (authStatus !== "succeeded") return;
+    setAuthFlowContext((current) =>
+      current?.kind === "startup-refresh" ? null : current
+    );
+  }, [authStatus]);
 
   const pendingAddKeywordCount = pendingAddContext?.keywords.length ?? 0;
   const authCheckLoadingText =
@@ -197,10 +230,13 @@ export function useAuthFlow(params: UseAuthFlowParams) {
     pendingAddContext,
     setPendingAddContext,
     openAuthModalForPendingAdd,
+    requestStartupRefreshReauthentication,
     startReauthentication,
     authCheckLoadingText,
     authStatusLabel,
-    canStartReauth: authCanPrompt && !isStartingAuth,
+    activeAuthContext: authFlowContext?.kind ?? null,
+    canStartReauth:
+      authCanPrompt && !isStartingAuth && authStatus !== "in_progress",
     showReauthButton: authStatus === "failed" && authCanPrompt,
   };
 }

@@ -141,10 +141,15 @@ const startupRefreshManager = createStartupRefreshManager({
       context: "startup-refresh",
     });
   },
+  isAuthReauthRequiredError: isAsoAuthReauthRequiredError,
 });
 
 function getStartupRefreshState(): StartupRefreshState {
   return startupRefreshManager.getState();
+}
+
+function startStartupRefresh(): void {
+  startupRefreshManager.start();
 }
 
 const dashboardAuthStateManager = createDashboardAuthStateManager({
@@ -201,6 +206,11 @@ function handleApiAsoAuthStatusGet(res: http.ServerResponse): void {
 
 function handleApiAsoRefreshStatusGet(res: http.ServerResponse): void {
   sendJson(res, 200, { success: true, data: getStartupRefreshState() });
+}
+
+function handleApiAsoRefreshStartPost(res: http.ServerResponse): void {
+  startStartupRefresh();
+  sendJson(res, 202, { success: true, data: getStartupRefreshState() });
 }
 
 function handleApiAsoAuthStartPost(res: http.ServerResponse): void {
@@ -348,6 +358,13 @@ export function createServerRequestHandler(): http.RequestListener {
 
       if (req.method === "GET" && pathname === "/api/aso/refresh-status") {
         handleApiAsoRefreshStatusGet(res);
+        return;
+      }
+
+      if (req.method === "POST" && pathname === "/api/aso/refresh/start") {
+        runAsForegroundMutationSync(() => {
+          handleApiAsoRefreshStartPost(res);
+        });
         return;
       }
 

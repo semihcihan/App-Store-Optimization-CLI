@@ -108,11 +108,13 @@ Runtime flow contracts across CLI commands, local dashboard API, and ASO service
 
 ## Flow C: Dashboard Reauthentication
 1. Add-keyword flow returns `AUTH_REQUIRED` or `AUTH_IN_PROGRESS` when auth state blocks stage 1.
-2. Client calls `POST /api/aso/auth/start`.
-3. Server runs single-flight `asoAuthService.reAuthenticate()`.
-4. Client polls `GET /api/aso/auth/status` until terminal state.
-5. On success, client retries pending add-keyword action.
-6. While reauth is auto-starting or in progress for a pending add-keyword action, the dashboard keeps the add action in a loading state (`Checking Apple session...`) so the button never appears idle.
+2. Startup-refresh auth-required failures also enter this same flow automatically once, instead of waiting for a separate explicit auth action.
+3. Client calls `POST /api/aso/auth/start`.
+4. Server runs single-flight `asoAuthService.reAuthenticate()`.
+5. Client polls `GET /api/aso/auth/status` until terminal state.
+6. On success, client retries the pending add-keyword action and can resume a previously paused startup refresh.
+7. If terminal input is required or auth fails, the same dashboard auth modal is used for both add-keyword and startup-refresh flows.
+8. While reauth is auto-starting or in progress for a pending add-keyword action, the dashboard keeps the add action in a loading state (`Checking Apple session...`) so the button never appears idle.
 
 ## Flow D: Startup Background Refresh
 1. Start once at dashboard boot.
@@ -121,7 +123,9 @@ Runtime flow contracts across CLI commands, local dashboard API, and ASO service
    - difficulty has never been computed
    - order TTL is stale (owned-associated keywords only; research-only keywords do not use order staleness as a refresh trigger)
 3. Run the same keyword pipeline used by CLI fetch in non-interactive mode, in batches while pausing for foreground mutations.
-4. Publish refresh status via `GET /api/aso/refresh-status`.
+4. Publish refresh status via `GET /api/aso/refresh-status`, including whether the failure requires Search Ads reauthentication.
+5. If auth is required, the dashboard auto-starts the same reauthentication flow used by add-keyword once; silent session reuse stays invisible, while terminal-input/failure states surface through the shared auth modal.
+6. Allow explicit restart via `POST /api/aso/refresh/start`; the UI uses this after reauthentication or manual retry.
 
 ## Flow E: App Doc Hydration
 - `GET /api/apps` (owned app list):

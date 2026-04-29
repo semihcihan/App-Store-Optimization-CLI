@@ -28,6 +28,8 @@ Define failure boundaries, retry rules, and recovery behavior across CLI, dashbo
 - App Store web fetches retry `429`, `5xx`, and transient network errors with jittered exponential backoff.
 - Enrichment applies one bounded retry/backoff cycle for competitive keywords when top-5 difficulty docs are incomplete (`reasonCode=INSUFFICIENT_DOCS` when still unresolved).
 - Startup refresh manager retries each unit once and records failures without crashing runtime.
+- Startup refresh auth failures are exposed as structured refresh-status state so the dashboard can prompt for reauthentication instead of silently stopping.
+- Startup refresh auth failures reuse the same dashboard reauthentication UX as add-keyword: one automatic auth-start attempt, then shared modal/button handling if terminal input or retry is needed.
 - `keywordPipelineService` isolates terminal failures per keyword and stores normalized failure metadata in `aso_keyword_failures` via `keywordWriteRepository` (single write owner).
 
 ## Recovery Behavior
@@ -92,6 +94,7 @@ Define failure boundaries, retry rules, and recovery behavior across CLI, dashbo
 - Dashboard UI Bugsnag metadata includes only failed local dashboard traces by default (max `3`); set `ASO_BUGSNAG_VERBOSE_TRACES=1` to include full recent local trace bundles for deep debugging.
 - MCP reports runtime/transport/parse-contract failures; non-zero child CLI exits are suppressed by default.
 - Startup refresh state (`status`, counters, timestamps, lastError) is exposed via API.
+- Startup refresh can be restarted explicitly from the dashboard after recovery (`POST /api/aso/refresh/start`).
 - CLI ASO retry/fallback diagnostics (auth, popularity, and enrichment fallback traces) are logged at `debug`; user-facing flows should surface terminal outcomes and actionable prompts/errors instead of intermediate warning noise.
 
 ## Request Payload Limits

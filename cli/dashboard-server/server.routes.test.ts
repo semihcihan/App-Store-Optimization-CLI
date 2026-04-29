@@ -341,6 +341,21 @@ describe("dashboard server routes", () => {
     );
   });
 
+  it("starts startup refresh on demand", async () => {
+    const response = await request({
+      method: "POST",
+      path: "/api/aso/refresh/start",
+    });
+
+    expect(response.statusCode).toBe(202);
+    expect(response.json?.success).toBe(true);
+    expect(response.json?.data).toEqual(
+      expect.objectContaining({
+        status: expect.any(String),
+      })
+    );
+  });
+
   it("returns apps sorted and ensures default research app", async () => {
     mockListOwnedApps.mockReturnValue([
       { id: "2", kind: "owned", name: "Beta", lastFetchedAt: null } as any,

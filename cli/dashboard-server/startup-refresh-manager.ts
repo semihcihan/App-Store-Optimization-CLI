@@ -19,6 +19,7 @@ export type StartupRefreshState = {
   startedAt: string | null;
   finishedAt: string | null;
   lastError: string | null;
+  requiresReauthentication: boolean;
   counters: StartupRefreshCounters;
 };
 
@@ -43,6 +44,7 @@ type StartupRefreshDeps = {
   ) => Promise<unknown>;
   isForegroundBusy: () => boolean;
   reportError?: (error: unknown, metadata: Record<string, unknown>) => void;
+  isAuthReauthRequiredError?: (error: unknown) => boolean;
   nowMs?: () => number;
   sleep?: (ms: number) => Promise<void>;
   keywordBatchSize?: number;
@@ -124,6 +126,7 @@ function initialState(): StartupRefreshState {
     startedAt: null,
     finishedAt: null,
     lastError: null,
+    requiresReauthentication: false,
     counters: initialCounters(),
   };
 }
@@ -138,11 +141,15 @@ function errorToMessage(error: unknown): string {
 
 async function withOneRetry(
   operation: () => Promise<void>,
-  sleep: (ms: number) => Promise<void>
+  sleep: (ms: number) => Promise<void>,
+  shouldRetry?: (error: unknown) => boolean
 ): Promise<void> {
   try {
     await operation();
-  } catch {
+  } catch (error) {
+    if (shouldRetry?.(error) === false) {
+      throw error;
+    }
     await sleep(RETRY_DELAY_MS);
     await operation();
   }
@@ -166,6 +173,8 @@ export function createStartupRefreshManager(
   const setFailure = (error: unknown, metadata: Record<string, unknown>) => {
     if (!state.lastError) {
       state.lastError = errorToMessage(error);
+      state.requiresReauthentication =
+        deps.isAuthReauthRequiredError?.(error) === true;
     }
     deps.reportError?.(error, metadata);
   };
@@ -189,7 +198,7 @@ export function createStartupRefreshManager(
       try {
         await withOneRetry(async () => {
           await deps.enrichKeywords(deps.country, batch);
-        }, sleep);
+        }, sleep, (error) => deps.isAuthReauthRequiredError?.(error) !== true);
         state.counters.refreshedKeywordCount += batch.length;
       } catch (error) {
         state.counters.failedKeywordCount += batch.length;
@@ -208,6 +217,7 @@ export function createStartupRefreshManager(
       startedAt: new Date(nowMs()).toISOString(),
       finishedAt: null,
       lastError: null,
+      requiresReauthentication: false,
       counters: initialCounters(),
     };
 
@@ -223,14 +233,18 @@ export function createStartupRefreshManager(
   return {
     start: () => {
       if (runPromise) return;
-      runPromise = run().catch((error) => {
-        setFailure(error, { phase: "startup-refresh-unhandled" });
-        state = {
-          ...state,
-          status: "failed",
-          finishedAt: new Date(nowMs()).toISOString(),
-        };
-      });
+      runPromise = run()
+        .catch((error) => {
+          setFailure(error, { phase: "startup-refresh-unhandled" });
+          state = {
+            ...state,
+            status: "failed",
+            finishedAt: new Date(nowMs()).toISOString(),
+          };
+        })
+        .finally(() => {
+          runPromise = null;
+        });
     },
     getState: () => ({
       ...state,

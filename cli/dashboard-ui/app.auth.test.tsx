@@ -381,6 +381,224 @@ describe("dashboard auth modal UI flow", () => {
     );
   });
 
+  it("surfaces startup refresh auth failures and resumes the refresh after reauthentication", async () => {
+    let refreshStatusCount = 0;
+    let refreshStartCount = 0;
+    let authStartCount = 0;
+
+    const fetchMock = jest.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = (init?.method ?? "GET").toUpperCase();
+
+      if (method === "GET" && url === "/api/apps") {
+        return jsonResponse({ status: 200, body: { success: true, data: [] } });
+      }
+      if (method === "GET" && url.startsWith("/api/aso/keywords?")) {
+        return jsonResponse({
+          status: 200,
+          body: { success: true, data: emptyKeywordPagedPayload() },
+        });
+      }
+      if (method === "GET" && url === "/api/aso/refresh-status") {
+        refreshStatusCount += 1;
+        if (refreshStatusCount === 1) {
+          return jsonResponse({
+            status: 200,
+            body: {
+              success: true,
+              data: {
+                status: "failed",
+                startedAt: "2026-03-07T00:00:00.000Z",
+                finishedAt: "2026-03-07T00:00:10.000Z",
+                lastError:
+                  "Apple Search Ads session expired. Reauthentication is required.",
+                requiresReauthentication: true,
+                counters: {
+                  eligibleKeywordCount: 1086,
+                  refreshedKeywordCount: 0,
+                  failedKeywordCount: 1086,
+                },
+              },
+            },
+          });
+        }
+        return jsonResponse({
+          status: 200,
+          body: {
+            success: true,
+            data: {
+              status: "running",
+              startedAt: "2026-03-07T00:00:20.000Z",
+              finishedAt: null,
+              lastError: null,
+              requiresReauthentication: false,
+              counters: {
+                eligibleKeywordCount: 1086,
+                refreshedKeywordCount: 0,
+                failedKeywordCount: 0,
+              },
+            },
+          },
+        });
+      }
+      if (method === "POST" && url === "/api/aso/auth/start") {
+        authStartCount += 1;
+        return jsonResponse({
+          status: 202,
+          body: {
+            success: true,
+            data: {
+              status: "in_progress",
+              updatedAt: "2026-03-07T00:00:11.000Z",
+              lastError: null,
+              requiresTerminalAction: false,
+              canPrompt: true,
+            },
+          },
+        });
+      }
+      if (method === "GET" && url === "/api/aso/auth/status") {
+        return jsonResponse({
+          status: 200,
+          body: {
+            success: true,
+            data: {
+              status: "succeeded",
+              updatedAt: "2026-03-07T00:00:12.000Z",
+              lastError: null,
+              requiresTerminalAction: false,
+              canPrompt: true,
+            },
+          },
+        });
+      }
+      if (method === "POST" && url === "/api/aso/refresh/start") {
+        refreshStartCount += 1;
+        return jsonResponse({
+          status: 202,
+          body: {
+            success: true,
+            data: {
+              status: "running",
+              startedAt: "2026-03-07T00:00:20.000Z",
+              finishedAt: null,
+              lastError: null,
+              requiresReauthentication: false,
+              counters: {
+                eligibleKeywordCount: 1086,
+                refreshedKeywordCount: 0,
+                failedKeywordCount: 0,
+              },
+            },
+          },
+        });
+      }
+
+      throw new Error(`Unhandled fetch: ${method} ${url}`);
+    });
+    global.fetch = fetchMock as typeof fetch;
+
+    render(<App />);
+
+    expect(
+      await screen.findByText(
+        "Checking Apple session for background refresh after 0/1086 keywords..."
+      )
+    ).toBeInTheDocument();
+
+    await waitFor(() => expect(authStartCount).toBe(1));
+    await waitFor(() => expect(refreshStartCount).toBe(1));
+    expect(
+      await screen.findByText(
+        "Refreshing local data in background (0/1086 keywords)..."
+      )
+    ).toBeInTheDocument();
+  });
+
+  it("auto-starts startup refresh reauthentication and shows modal when terminal input is required", async () => {
+    let authStartCount = 0;
+
+    const fetchMock = jest.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = (init?.method ?? "GET").toUpperCase();
+
+      if (method === "GET" && url === "/api/apps") {
+        return jsonResponse({ status: 200, body: { success: true, data: [] } });
+      }
+      if (method === "GET" && url.startsWith("/api/aso/keywords?")) {
+        return jsonResponse({
+          status: 200,
+          body: { success: true, data: emptyKeywordPagedPayload() },
+        });
+      }
+      if (method === "GET" && url === "/api/aso/refresh-status") {
+        return jsonResponse({
+          status: 200,
+          body: {
+            success: true,
+            data: {
+              status: "failed",
+              startedAt: "2026-03-07T00:00:00.000Z",
+              finishedAt: "2026-03-07T00:00:10.000Z",
+              lastError:
+                "Apple Search Ads session expired. Reauthentication is required.",
+              requiresReauthentication: true,
+              counters: {
+                eligibleKeywordCount: 1086,
+                refreshedKeywordCount: 0,
+                failedKeywordCount: 1086,
+              },
+            },
+          },
+        });
+      }
+      if (method === "POST" && url === "/api/aso/auth/start") {
+        authStartCount += 1;
+        return jsonResponse({
+          status: 202,
+          body: {
+            success: true,
+            data: {
+              status: "in_progress",
+              updatedAt: "2026-03-07T00:00:11.000Z",
+              lastError: null,
+              requiresTerminalAction: false,
+              canPrompt: true,
+            },
+          },
+        });
+      }
+      if (method === "GET" && url === "/api/aso/auth/status") {
+        return jsonResponse({
+          status: 200,
+          body: {
+            success: true,
+            data: {
+              status: "in_progress",
+              updatedAt: "2026-03-07T00:00:12.000Z",
+              lastError: null,
+              requiresTerminalAction: true,
+              canPrompt: true,
+            },
+          },
+        });
+      }
+
+      throw new Error(`Unhandled fetch: ${method} ${url}`);
+    });
+    global.fetch = fetchMock as typeof fetch;
+
+    render(<App />);
+
+    await waitFor(() => expect(authStartCount).toBe(1));
+    await screen.findByRole("heading", { name: "Apple Reauthentication Required" });
+    expect(
+      screen.getByText(
+        "Complete reauthentication in the terminal that launched the dashboard."
+      )
+    ).toBeInTheDocument();
+  });
+
   it("shows primary app id access error message instead of generic authorization text", async () => {
     const primaryAppError =
       "Primary App ID 345345 is not accessible for this Apple Ads account. Set a Primary App ID you can access with 'aso --primary-app-id <id>' and retry. (messageCode=NO_USER_OWNED_APPS_FOUND_CODE)";
