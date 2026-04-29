@@ -85,17 +85,18 @@ export function createDashboardSetupStateManager(
     },
 
     start(options?: { forcePrompt?: boolean }): boolean {
-      const forcePrompt = options?.forcePrompt === true;
-      if ((!params.isSetupRequired() && !forcePrompt) || inFlight) {
+      const requestedForcePrompt = options?.forcePrompt === true;
+      const effectiveForcePrompt = requestedForcePrompt || forcePromptActive;
+      if ((!params.isSetupRequired() && !effectiveForcePrompt) || inFlight) {
         return false;
       }
 
-      forcePromptActive = forcePrompt;
+      forcePromptActive = effectiveForcePrompt;
       setState("in_progress", null);
       promptSession.reset();
       inFlight = params
         .resolvePrimaryAppId({
-          forcePrompt,
+          forcePrompt: effectiveForcePrompt,
           promptHandler: promptSession.createPromptHandler(),
         })
         .then((adamId) => {
