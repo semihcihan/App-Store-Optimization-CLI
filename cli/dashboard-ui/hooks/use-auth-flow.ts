@@ -199,7 +199,7 @@ export function useAuthFlow(params: UseAuthFlowParams) {
   const requestStartupRefreshReauthentication = useCallback(() => {
     setAuthFlowContext((current) => current ?? { kind: "startup-refresh" });
     if (!authCanPrompt || isStartingAuth || isSubmittingAuthPrompt) return;
-    if (authStatus !== "idle" && authStatus !== "failed") return;
+    if (authStatus === "in_progress") return;
     void startReauthentication();
   }, [
     authCanPrompt,

@@ -1023,6 +1023,143 @@ describe("dashboard auth modal UI flow", () => {
     ).toBeInTheDocument();
   });
 
+  it("restarts startup refresh reauthentication after a later auth-required failure", async () => {
+    let refreshStatusCount = 0;
+    let refreshStartCount = 0;
+    let authStartCount = 0;
+
+    const fetchMock = jest.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = (init?.method ?? "GET").toUpperCase();
+
+      if (method === "GET" && url === "/api/apps") {
+        return jsonResponse({ status: 200, body: { success: true, data: [] } });
+      }
+      if (method === "GET" && url.startsWith("/api/aso/keywords?")) {
+        return jsonResponse({
+          status: 200,
+          body: { success: true, data: emptyKeywordPagedPayload() },
+        });
+      }
+      if (method === "GET" && url === "/api/aso/refresh-status") {
+        refreshStatusCount += 1;
+        if (refreshStatusCount <= 2) {
+          return jsonResponse({
+            status: 200,
+            body: {
+              success: true,
+              data: {
+                status: "failed",
+                startedAt:
+                  refreshStatusCount === 1
+                    ? "2026-03-07T00:00:00.000Z"
+                    : "2026-03-07T00:01:00.000Z",
+                finishedAt:
+                  refreshStatusCount === 1
+                    ? "2026-03-07T00:00:10.000Z"
+                    : "2026-03-07T00:01:10.000Z",
+                lastError:
+                  "Apple Search Ads session expired. Reauthentication is required.",
+                requiresReauthentication: true,
+                counters: {
+                  eligibleKeywordCount: 1086,
+                  refreshedKeywordCount: 0,
+                  failedKeywordCount: 1086,
+                },
+              },
+            },
+          });
+        }
+        return jsonResponse({
+          status: 200,
+          body: {
+            success: true,
+            data: {
+              status: "running",
+              startedAt: "2026-03-07T00:01:20.000Z",
+              finishedAt: null,
+              lastError: null,
+              requiresReauthentication: false,
+              counters: {
+                eligibleKeywordCount: 1086,
+                refreshedKeywordCount: 0,
+                failedKeywordCount: 0,
+              },
+            },
+          },
+        });
+      }
+      if (method === "POST" && url === "/api/aso/auth/start") {
+        authStartCount += 1;
+        return jsonResponse({
+          status: 202,
+          body: {
+            success: true,
+            data: {
+              status: "in_progress",
+              updatedAt: "2026-03-07T00:00:11.000Z",
+              lastError: null,
+              requiresTerminalAction: false,
+              canPrompt: true,
+            },
+          },
+        });
+      }
+      if (method === "GET" && url === "/api/aso/auth/status") {
+        return jsonResponse({
+          status: 200,
+          body: {
+            success: true,
+            data: {
+              status: "succeeded",
+              updatedAt: "2026-03-07T00:00:12.000Z",
+              lastError: null,
+              requiresTerminalAction: false,
+              canPrompt: true,
+            },
+          },
+        });
+      }
+      if (method === "POST" && url === "/api/aso/refresh/start") {
+        refreshStartCount += 1;
+        return jsonResponse({
+          status: 202,
+          body: {
+            success: true,
+            data: {
+              status: "running",
+              startedAt:
+                refreshStartCount === 1
+                  ? "2026-03-07T00:00:20.000Z"
+                  : "2026-03-07T00:01:20.000Z",
+              finishedAt: null,
+              lastError: null,
+              requiresReauthentication: false,
+              counters: {
+                eligibleKeywordCount: 1086,
+                refreshedKeywordCount: 0,
+                failedKeywordCount: 0,
+              },
+            },
+          },
+        });
+      }
+
+      throw new Error(`Unhandled fetch: ${method} ${url}`);
+    });
+    global.fetch = fetchMock as typeof fetch;
+
+    render(<App />);
+
+    await waitFor(() => expect(authStartCount).toBe(2));
+    await waitFor(() => expect(refreshStartCount).toBe(2));
+    expect(
+      await screen.findByText(
+        "Refreshing local data in background (0/1086 keywords)..."
+      )
+    ).toBeInTheDocument();
+  });
+
   it("auto-starts startup refresh reauthentication and shows browser auth prompts when input is required", async () => {
     let authStartCount = 0;
 
