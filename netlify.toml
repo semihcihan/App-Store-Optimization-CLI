@@ -1,0 +1,19 @@
+[build]
+  base = "website"
+  command = "npm run build"
+  publish = "dist"
+
+[build.environment]
+  NODE_VERSION = "20"
+
+[context.production.environment]
+  PUBLIC_SITE_ORIGIN = "https://asocli.com"
+  PUBLIC_SITE_BASE_PATH = "/"
+
+[context.deploy-preview.environment]
+  PUBLIC_SITE_ORIGIN = "https://asocli.com"
+  PUBLIC_SITE_BASE_PATH = "/"
+
+[context.branch-deploy.environment]
+  PUBLIC_SITE_ORIGIN = "https://asocli.com"
+  PUBLIC_SITE_BASE_PATH = "/"

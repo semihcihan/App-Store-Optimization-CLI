@@ -1,0 +1,356 @@
+---
+import iconUrl from "../../../assets/app-icon/aso-icon-readme.png?url";
+import dashboardUrl from "../../../cli/dashboard-ui/public/dashboard.jpg?url";
+import mcpUrl from "../../../cli/dashboard-ui/public/mcp.jpg?url";
+import "../styles/site.css";
+import { resolveSiteUrl, siteOrigin } from "../../site-config.mjs";
+import {
+  faqEntries,
+  featureList,
+  installCommand,
+  keywordMeta,
+  npmUrl,
+  projectName,
+  repoUrl,
+  siteDescription,
+  siteTitle,
+  socialDescription,
+} from "../site-content";
+
+const canonicalUrl = resolveSiteUrl("/");
+const iconAbsoluteUrl = new URL(iconUrl, siteOrigin).toString();
+const ogImageUrl = new URL(dashboardUrl, siteOrigin).toString();
+const faqSchema = faqEntries.map(({ question, answer }) => ({
+  "@type": "Question",
+  name: question,
+  acceptedAnswer: {
+    "@type": "Answer",
+    text: answer,
+  },
+}));
+const structuredData = {
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "Organization",
+      "@id": `${canonicalUrl}#organization`,
+      name: "Semih Cihan",
+      url: repoUrl,
+      logo: iconAbsoluteUrl,
+      sameAs: [repoUrl, npmUrl],
+    },
+    {
+      "@type": "WebSite",
+      "@id": `${canonicalUrl}#website`,
+      url: canonicalUrl,
+      name: projectName,
+      description: siteDescription,
+      publisher: {
+        "@id": `${canonicalUrl}#organization`,
+      },
+    },
+    {
+      "@type": "SoftwareApplication",
+      "@id": `${canonicalUrl}#application`,
+      name: projectName,
+      url: canonicalUrl,
+      applicationCategory: "DeveloperApplication",
+      operatingSystem: "macOS, Linux, Windows",
+      offers: {
+        "@type": "Offer",
+        price: "0",
+        priceCurrency: "USD",
+      },
+      description: siteDescription,
+      featureList,
+      image: ogImageUrl,
+      screenshot: [ogImageUrl],
+      downloadUrl: npmUrl,
+      codeRepository: repoUrl,
+      creator: {
+        "@id": `${canonicalUrl}#organization`,
+      },
+    },
+    {
+      "@type": "FAQPage",
+      "@id": `${canonicalUrl}#faq`,
+      mainEntity: faqSchema,
+    },
+  ],
+};
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>{siteTitle}</title>
+    <meta name="description" content={siteDescription} />
+    <meta name="keywords" content={keywordMeta} />
+    <meta name="author" content="Semih Cihan" />
+    <meta name="application-name" content={projectName} />
+    <meta
+      name="robots"
+      content="index,follow,max-image-preview:large,max-snippet:-1,max-video-preview:-1"
+    />
+    <meta
+      name="googlebot"
+      content="index,follow,max-image-preview:large,max-snippet:-1,max-video-preview:-1"
+    />
+    <meta name="referrer" content="strict-origin-when-cross-origin" />
+    <link rel="canonical" href={canonicalUrl} />
+    <link rel="icon" type="image/png" sizes="256x256" href={iconUrl} />
+    <link rel="apple-touch-icon" href={iconUrl} />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="anonymous" />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700;800&display=swap"
+    />
+    <meta property="og:title" content={siteTitle} />
+    <meta property="og:description" content={socialDescription} />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content={canonicalUrl} />
+    <meta property="og:site_name" content={projectName} />
+    <meta property="og:locale" content="en_US" />
+    <meta property="og:image" content={ogImageUrl} />
+    <meta property="og:image:alt" content="ASO CLI local dashboard keyword research view" />
+    <meta property="og:image:width" content="2068" />
+    <meta property="og:image:height" content="1652" />
+    <meta property="og:image:type" content="image/jpeg" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content={siteTitle} />
+    <meta name="twitter:description" content={socialDescription} />
+    <meta name="twitter:image" content={ogImageUrl} />
+    <meta name="twitter:image:alt" content="ASO CLI local dashboard keyword research view" />
+    <meta name="theme-color" content="#0d1317" />
+    <script type="application/ld+json" set:html={JSON.stringify(structuredData)}></script>
+  </head>
+  <body>
+    <div class="noise"></div>
+    <main class="page">
+      <div class="topbar-wrap reveal" style="--delay: 0ms;">
+        <header class="topbar section-inner">
+          <a class="brand" href="#top">
+            <img src={iconUrl} alt="ASO CLI icon" width="34" height="34" />
+            <span>ASO CLI</span>
+          </a>
+          <nav>
+            <a href="#top">Overview</a>
+            <a href="#mcp">MCP</a>
+            <a href="#faq">FAQ</a>
+          </nav>
+        </header>
+      </div>
+
+      <section class="hero band-hero reveal" id="top" style="--delay: 120ms;">
+        <div class="section-inner">
+          <p class="kicker">LOCAL-FIRST APP STORE OPTIMIZATION</p>
+          <h1>App Store Optimization research and automation with CLI and MCP.</h1>
+          <p class="lede">
+            ASO CLI is a local-first App Store Optimization tool for keyword research,
+            keyword evaluation, and automation. Run ASO workflows in terminal, inspect
+            results in a local dashboard, and plug the same pipeline into agents with
+            <strong>aso-mcp</strong>.
+          </p>
+
+          <div class="cta-stack">
+            <div class="install-box" role="group" aria-label="Install ASO CLI">
+              <code id="install-command">{installCommand}</code>
+              <button
+                type="button"
+                class="copy-icon-button"
+                data-copy={installCommand}
+                aria-label="Copy install command"
+                title="Copy install command"
+              >
+                <span class="copy-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" width="18" height="18">
+                    <rect x="8" y="8" width="14" height="14" rx="2"></rect>
+                    <path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path>
+                  </svg>
+                </span>
+                <span class="check-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" width="18" height="18">
+                    <path d="m6 12 4 4 8-8"></path>
+                  </svg>
+                </span>
+              </button>
+            </div>
+            <a class="github-cta" href={repoUrl} target="_blank" rel="noreferrer">
+              <span class="github-star-count" data-github-stars aria-label="GitHub star count">
+                -
+              </span>
+              <span class="github-mark" aria-hidden="true">
+                <svg viewBox="0 0 16 16" width="15" height="15">
+                  <path
+                    fill="currentColor"
+                    d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38
+                    0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13
+                    -.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66
+                    .07-.52.28-.87.5-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15
+                    -.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.64 7.64 0 0 1 4 0c1.53-1.04
+                    2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87
+                    3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46
+                    .55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"
+                  ></path>
+                </svg>
+              </span>
+              <span class="github-label">View on GitHub</span>
+            </a>
+          </div>
+
+          <ul class="quick-links" aria-label="ASO CLI highlights">
+            <li><span class="tag-chip">Free</span></li>
+            <li><span class="tag-chip">Open Source</span></li>
+            <li><span class="tag-chip">100% local</span></li>
+            <li><span class="tag-chip">MCP</span></li>
+            <li><span class="tag-chip">Automation</span></li>
+            <li><span class="tag-chip">CLI</span></li>
+          </ul>
+        </div>
+      </section>
+
+      <section class="capabilities band-capabilities reveal" style="--delay: 180ms;">
+        <div class="section-inner">
+          <h2>What ASO CLI helps you evaluate</h2>
+          <div class="capability-grid">
+            <article class="capability-card">
+              <h3>Keyword research</h3>
+              <p>
+                Explore App Store keyword ideas, popularity context, and long-tail
+                opportunities before shipping metadata changes.
+              </p>
+            </article>
+            <article class="capability-card">
+              <h3>Local analysis</h3>
+              <p>
+                Review rankings, difficulty signals, and brand context in a local dashboard
+                instead of a hosted SaaS workflow.
+              </p>
+            </article>
+            <article class="capability-card">
+              <h3>Automation</h3>
+              <p>
+                Use <code>aso-mcp</code> for agent workflows or pipe
+                <code>aso keywords ... --stdout</code> into your own scripts.
+              </p>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section class="showcase band-showcase reveal" style="--delay: 240ms;">
+        <div class="section-inner">
+          <h2>Local dashboard for App Store Optimization workflows</h2>
+          <p>
+            The website stays focused on discovery. The workflow stays in your local CLI and
+            local dashboard runtime, where you can inspect keyword results without handing the
+            project over to a hosted dashboard.
+          </p>
+          <img
+            src={dashboardUrl}
+            alt="ASO CLI local dashboard screenshot"
+            width="2068"
+            height="1652"
+            loading="lazy"
+            decoding="async"
+          />
+        </div>
+      </section>
+
+      <section class="mcp band-mcp reveal" id="mcp" style="--delay: 320ms;">
+        <div class="section-inner">
+          <h2>MCP for agent-driven ASO automation</h2>
+          <p>
+            Use <code>aso-mcp</code> when you want agent-driven app store optimization
+            automation. It runs the same CLI research pipeline with machine-readable results
+            so tools and agents can evaluate keywords with the same local-first flow.
+          </p>
+          <pre><code>{`{
+  "mcpServers": {
+    "aso": {
+      "command": "aso-mcp"
+    }
+  }
+}`}</code></pre>
+          <img
+            src={mcpUrl}
+            alt="ASO MCP workflow screenshot"
+            width="2138"
+            height="2302"
+            loading="lazy"
+            decoding="async"
+          />
+        </div>
+      </section>
+
+      <section class="faq band-faq reveal" id="faq" style="--delay: 380ms;">
+        <div class="section-inner">
+          <h2>FAQ</h2>
+          {faqEntries.map(({ question, answer }) => (
+            <article class="faq-item">
+              <h3>{question}</h3>
+              <p>
+                {question === "Where can I find troubleshooting and release updates?" ? (
+                  <>
+                    See{" "}
+                    <a
+                      href={`${repoUrl}#apple-search-ads-setup`}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      setup and troubleshooting
+                    </a>{" "}
+                    and{" "}
+                    <a href={`${repoUrl}/releases`} target="_blank" rel="noreferrer">
+                      release notes
+                    </a>
+                    .
+                  </>
+                ) : (
+                  answer
+                )}
+              </p>
+            </article>
+          ))}
+        </div>
+      </section>
+    </main>
+
+    <script is:inline>
+      const copyButton = document.querySelector("button[data-copy]");
+      if (copyButton instanceof HTMLButtonElement) {
+        copyButton.addEventListener("click", async () => {
+          const value = copyButton.dataset.copy ?? "";
+          await navigator.clipboard.writeText(value);
+          copyButton.classList.add("is-copied");
+          window.setTimeout(() => {
+            copyButton.classList.remove("is-copied");
+          }, 1200);
+        });
+      }
+
+      const starCount = document.querySelector("[data-github-stars]");
+      if (starCount instanceof HTMLElement) {
+        fetch("https://api.github.com/repos/semihcihan/App-Store-Optimization-CLI", {
+          headers: {
+            Accept: "application/vnd.github+json",
+          },
+        })
+          .then((response) => {
+            if (!response.ok) return null;
+            return response.json();
+          })
+          .then((data) => {
+            if (typeof data?.stargazers_count !== "number") return;
+            starCount.textContent = new Intl.NumberFormat("en-US").format(data.stargazers_count);
+          })
+          .catch(() => {
+            // keep fallback placeholder
+          });
+      }
+    </script>
+  </body>
+</html>

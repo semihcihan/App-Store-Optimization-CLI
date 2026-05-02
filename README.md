@@ -189,3 +189,4 @@ Example MCP config:
 ## Project Docs
 
 - Contribution guide: [CONTRIBUTING.md](CONTRIBUTING.md)
+- Website architecture: [docs/website-architecture.md](docs/website-architecture.md)

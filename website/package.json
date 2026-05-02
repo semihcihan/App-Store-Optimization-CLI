@@ -1,0 +1,17 @@
+{
+  "name": "aso-cli-website",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "astro dev",
+    "dev:local": "astro dev --host localhost --port 4321",
+    "dev:watch": "nodemon --watch src --watch astro.config.mjs --ext astro,css,js,ts,mjs --exec \"npm run dev:local\"",
+    "build": "astro build",
+    "preview": "astro preview"
+  },
+  "devDependencies": {
+    "astro": "^5.18.1",
+    "nodemon": "^3.1.10"
+  }
+}
