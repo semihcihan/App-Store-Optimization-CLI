@@ -84,7 +84,7 @@ const structuredData = {
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>{siteTitle}</title>
     <meta name="description" content={siteDescription} />
     <meta name="keywords" content={keywordMeta} />
@@ -98,6 +98,7 @@ const structuredData = {
       name="googlebot"
       content="index,follow,max-image-preview:large,max-snippet:-1,max-video-preview:-1"
     />
+    <meta name="color-scheme" content="dark light" />
     <meta name="referrer" content="strict-origin-when-cross-origin" />
     <link rel="canonical" href={canonicalUrl} />
     <link rel="icon" type="image/png" sizes="256x256" href={iconUrl} />
@@ -124,7 +125,8 @@ const structuredData = {
     <meta name="twitter:description" content={socialDescription} />
     <meta name="twitter:image" content={ogImageUrl} />
     <meta name="twitter:image:alt" content="ASO CLI local dashboard keyword research view" />
-    <meta name="theme-color" content="#0d1317" />
+    <meta name="theme-color" content="#0d1317" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#0d1317" media="(prefers-color-scheme: dark)" />
     <script type="application/ld+json" set:html={JSON.stringify(structuredData)}></script>
   </head>
   <body>
