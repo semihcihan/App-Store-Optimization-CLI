@@ -30,6 +30,11 @@
   - `llms.txt`
   - JSON-LD graph for website, software application, and FAQ
 
+## Analytics Contract
+- Firebase Analytics is enabled for the website to capture default GA4 web events, including page views.
+- Initialization is client-side only from `website/src/pages/index.astro` via `website/src/firebase-analytics.ts`.
+- No custom click/CTA event tracking is implemented; behavior is intentionally limited to default analytics signals.
+
 ## Deploy Contract
 - Netlify is the deployment platform for `website/`.
 - Root `netlify.toml` defines:

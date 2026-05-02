@@ -321,6 +321,12 @@ const structuredData = {
       </section>
     </main>
 
+    <script>
+      import { startFirebaseAnalytics } from "../firebase-analytics";
+
+      void startFirebaseAnalytics();
+    </script>
+
     <script is:inline>
       const copyButton = document.querySelector("button[data-copy]");
       if (copyButton instanceof HTMLButtonElement) {
