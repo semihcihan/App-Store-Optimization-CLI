@@ -389,14 +389,16 @@ h2 {
   max-width: 65ch;
 }
 
-.showcase img,
-.mcp img {
-  width: min(940px, 100%);
+.feature-shot {
+  width: 100%;
+  max-width: 940px;
+  height: auto;
   display: block;
   margin: 1rem auto 0;
   border-radius: 16px;
   border: 1px solid #2d4f59;
   box-shadow: 0 20px 48px #00000055;
+  object-fit: contain;
 }
 
 pre {
