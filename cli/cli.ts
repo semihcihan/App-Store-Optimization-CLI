@@ -11,8 +11,10 @@ import { checkVersionUpdateSync } from "./services/runtime/version-check-service
 import { reportBugsnagError } from "./services/telemetry/error-reporter";
 import { assertSupportedNodeVersion } from "./services/runtime/node-version-guard";
 import {
+  CliValidationError,
   emitStdoutRuntimeFailure,
   emitStdoutValidationFailure,
+  isCliValidationError,
   isStdoutKeywordsRun,
   toMachineReadableErrorMessage,
 } from "./services/runtime/stdout-contract";
@@ -48,20 +50,14 @@ async function main() {
   const parser = yargs(hideBin(process.argv))
     .command(asoCmd)
     .strict()
-    .fail(async (msg, err) => {
+    .fail((msg, err) => {
       const failureMessage =
         (typeof msg === "string" && msg.trim()) ||
         toMachineReadableErrorMessage(err);
-      if (stdoutKeywordsRun) {
-        emitStdoutValidationFailure(failureMessage);
-      } else {
-        logger.error(
-          failureMessage,
-          "Use 'aso --help' to see available commands and options."
-        );
+      if (err) {
+        throw err;
       }
-      await shutdownPostHog();
-      process.exit(1);
+      throw new CliValidationError(failureMessage);
     })
     .help();
 
@@ -81,7 +77,13 @@ main().catch(async (err) => {
   const processedError = processNestedErrors(err, false);
 
   if (stdoutKeywordsRun) {
-    emitStdoutRuntimeFailure(toMachineReadableErrorMessage(processedError));
+    if (isCliValidationError(err)) {
+      emitStdoutValidationFailure(err.message);
+    } else {
+      emitStdoutRuntimeFailure(toMachineReadableErrorMessage(processedError));
+    }
+  } else if (isCliValidationError(err)) {
+    logger.error(err.message, err.help);
   } else {
     logger.error(`Command '${command}' failed`, processedError);
   }

@@ -2,6 +2,7 @@ import { notifyDashboardError } from "./bugsnag";
 import {
   authFlowErrorMessage as authFlowErrorMessageFromDomain,
   isAuthFlowErrorCode as isAuthFlowErrorCodeFromDomain,
+  isPrimaryAppIdReconfigureErrorCode as isPrimaryAppIdReconfigureErrorCodeFromDomain,
   toDashboardActionableErrorMessage,
 } from "../domain/errors/dashboard-errors";
 import { DEFAULT_ASO_COUNTRY as DOMAIN_DEFAULT_ASO_COUNTRY } from "../domain/keywords/policy";
@@ -168,6 +169,10 @@ export function isAuthFlowErrorCode(code: string | null): boolean {
 
 export function authFlowErrorMessage(code: string | null): string {
   return authFlowErrorMessageFromDomain(code);
+}
+
+export function isPrimaryAppIdReconfigureErrorCode(code: string | null): boolean {
+  return isPrimaryAppIdReconfigureErrorCodeFromDomain(code);
 }
 
 export function toActionableErrorMessage(

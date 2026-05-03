@@ -3,6 +3,17 @@ import { processNestedErrors } from "../../utils/logger";
 export const CLI_VALIDATION_ERROR_CODE = "CLI_VALIDATION_ERROR";
 export const CLI_RUNTIME_ERROR_CODE = "CLI_RUNTIME_ERROR";
 
+export class CliValidationError extends Error {
+  readonly code = CLI_VALIDATION_ERROR_CODE;
+  readonly help = "Use `aso --help` to see available commands and options.";
+
+  constructor(message: string) {
+    super(message);
+    this.name = "CliValidationError";
+    Object.setPrototypeOf(this, CliValidationError.prototype);
+  }
+}
+
 type StdoutErrorPayload = {
   error: {
     code: string;
@@ -69,4 +80,10 @@ export function emitStdoutRuntimeFailure(message: string): void {
       message,
     },
   });
+}
+
+export function isCliValidationError(
+  error: unknown
+): error is CliValidationError {
+  return error instanceof CliValidationError;
 }

@@ -81,10 +81,7 @@ describe("aso command", () => {
     } as any);
 
     expect(startDashboard).toHaveBeenCalledWith(true);
-    expect(resolveAsoAdamId).toHaveBeenCalledWith({
-      adamId: undefined,
-      allowPrompt: true,
-    });
+    expect(resolveAsoAdamId).not.toHaveBeenCalled();
     expect(keywordPipelineService.run).not.toHaveBeenCalled();
   });
 
@@ -212,7 +209,7 @@ describe("aso command", () => {
 
     expect(resolveAsoAdamId).toHaveBeenCalledWith({
       adamId: "555666777",
-      allowPrompt: true,
+      allowPrompt: false,
     });
     expect(startDashboard).toHaveBeenCalledWith(true);
   });

@@ -22,19 +22,22 @@ Runtime flow contracts across CLI commands, local dashboard API, and ASO service
 - `aso reset-credentials`: clear saved ASO keychain credentials and local cookies.
 - Any `aso` process start emits PostHog `cli_started` telemetry using a persisted user id at `~/.aso/config.json` (`userId`), then flushes telemetry on normal/error exits.
 - MCP `aso_evaluate_keywords`: accept explicit keywords (max 100), run `aso keywords "<comma-separated-keywords>" --stdout`, return evaluated keyword results.
-- Dashboard API mutations: app add (single-item POST; UI may batch multiple selections), app delete, keyword add/delete, keyword favorite toggle, auth start.
+- Dashboard API mutations: app add (single-item POST; UI may batch multiple selections), app delete, keyword add/delete, keyword favorite toggle, auth start/respond, setup start/respond.
 
 ## Boundary Ownership
 - Domain policy (`cli/domain/keywords/*`, `cli/domain/errors/*`) is shared across CLI/server/UI for country guardrails, keyword normalization, limits, and dashboard-safe error/message mapping.
 - `keywordPipelineService` (`cli/services/keywords/keyword-pipeline-service.ts`) is the only keyword orchestration entrypoint.
 - `keywordWriteRepository` (`cli/services/keywords/keyword-write-repository.ts`) is the only write-side owner for keyword cache rows, failure rows, competitor app docs, and previous-position updates.
+- Interactive setup/auth prompts are emitted from shared services and fulfilled by either CLI prompts or dashboard prompt sessions; the prompt transport is not duplicated per surface.
 - Dashboard HTTP wiring is split by concern:
   - bootstrap (`server.ts`)
   - auth state (`auth-state.ts`)
+  - setup state (`setup-state.ts`)
   - request/response helpers (`http-utils.ts`)
   - apps handlers (`apps-handler.ts`)
   - keyword/app-doc handlers (`routes/keyword-handlers.ts`, `routes/app-doc-handlers.ts`)
   - static assets (`static-files.ts`)
+- `cli/cli.ts` owns machine-readable stdout failure formatting for `aso keywords --stdout`; parser hooks may classify failures, but stdout JSON emission happens in one top-level path only.
 
 ## Flow A: CLI Keyword Fetch
 1. Normalize and validate keywords.
@@ -74,6 +77,8 @@ Runtime flow contracts across CLI commands, local dashboard API, and ASO service
     - `error.code` (`CLI_VALIDATION_ERROR` or `CLI_RUNTIME_ERROR`)
     - `error.message`
     - optional `error.help`
+    - exactly one failure envelope is emitted per failed run.
+    - parser/CLI-option failures emit `CLI_VALIDATION_ERROR`; command-execution failures (for example missing Primary App ID during handler execution) emit `CLI_RUNTIME_ERROR`.
 11. Suppress CLI startup update notifications and keep logger failure text off stdout so output remains machine-parseable JSON.
 
 ## Flow B: Dashboard Add Keywords (`POST /api/aso/keywords`)
@@ -106,22 +111,34 @@ Runtime flow contracts across CLI commands, local dashboard API, and ASO service
 3. Server updates `app_keywords.is_favorite` for the exact `(appId, keyword, country)` association.
 4. Favorite state is app-scoped: the same keyword associated to a different app keeps its own favorite state.
 
+## Flow C0: Dashboard Primary App Setup
+1. Plain `aso` starts the dashboard immediately; it does not block startup on a terminal-only Primary App ID prompt.
+2. If Primary App ID is already configured (`--primary-app-id` save, env, or saved local value), dashboard setup is skipped unless a later API call proves that the configured ID is inaccessible for the current Apple Ads account.
+3. If Primary App ID is missing, or if the dashboard receives `PRIMARY_APP_ID_RECONFIGURE_REQUIRED`, server starts a single-flight setup session and exposes its prompt state via `GET /api/aso/setup/status`.
+4. Dashboard submits the chosen Primary App ID through `POST /api/aso/setup/respond`.
+5. On success, the value is persisted through the same `resolveAsoAdamId` / `saveAsoAdamId` path used by CLI, becomes active for the current dashboard process immediately, and startup refresh begins.
+
 ## Flow C: Dashboard Reauthentication
 1. Add-keyword flow returns `AUTH_REQUIRED` or `AUTH_IN_PROGRESS` when auth state blocks stage 1.
-2. Client calls `POST /api/aso/auth/start`.
-3. Server runs single-flight `asoAuthService.reAuthenticate()`.
-4. Client polls `GET /api/aso/auth/status` until terminal state.
-5. On success, client retries pending add-keyword action.
-6. While reauth is auto-starting or in progress for a pending add-keyword action, the dashboard keeps the add action in a loading state (`Checking Apple session...`) so the button never appears idle.
+2. Startup-refresh auth-required failures also enter this same flow automatically once, instead of waiting for a separate explicit auth action.
+3. Client calls `POST /api/aso/auth/start`.
+4. Server runs single-flight `asoAuthService.reAuthenticate()` with a dashboard prompt handler instead of a terminal-only prompt path.
+5. Client polls `GET /api/aso/auth/status` until terminal state and submits prompt answers through `POST /api/aso/auth/respond`.
+6. Shared auth service can request browser-collected credentials, Keychain-save confirmation, 2FA method choice, trusted phone choice, and verification code without duplicating auth logic.
+7. On success, client can resume a previously paused startup refresh. Add-keyword auth handoff does not retry the original add automatically; the user retries that mutation explicitly.
+8. On failure, the same dashboard auth modal remains the single recovery surface for both add-keyword and startup-refresh flows.
+9. While reauth is auto-starting for an add-keyword auth handoff, the dashboard may briefly show `Checking Apple session...`, then clears the add-keyword loading state once auth takes over so the user can retry manually after authentication.
 
 ## Flow D: Startup Background Refresh
-1. Start once at dashboard boot.
+1. Start once at dashboard boot after Primary App ID is already configured, or immediately after dashboard setup completes.
 2. Select keywords associated with owned or research apps and finite popularity where at least one is true:
    - popularity TTL is stale
    - difficulty has never been computed
    - order TTL is stale (owned-associated keywords only; research-only keywords do not use order staleness as a refresh trigger)
 3. Run the same keyword pipeline used by CLI fetch in non-interactive mode, in batches while pausing for foreground mutations.
-4. Publish refresh status via `GET /api/aso/refresh-status`.
+4. Publish refresh status via `GET /api/aso/refresh-status`, including whether the failure requires Search Ads reauthentication.
+5. If auth is required, the dashboard auto-starts the same reauthentication flow used by add-keyword once; silent session reuse stays invisible, while browser prompt steps/failure states surface through the shared auth modal.
+6. Allow explicit restart via `POST /api/aso/refresh/start`; the UI uses this after reauthentication or manual retry.
 
 ## Flow E: App Doc Hydration
 - `GET /api/apps` (owned app list):
@@ -198,6 +215,7 @@ Accepted row fields:
    - Prompt for credentials only when missing/invalid keychain credentials.
 4. Complete Apple login + 2FA as needed, save refreshed cookie/auth state, then exit.
 5. Exit without dashboard startup, keyword fetch, or Primary App ID resolution.
+6. This uses the same auth service that powers dashboard browser prompts; only the prompt transport differs.
 
 2FA fallback behavior:
 - If `noTrustedDevices=true` and exactly one trusted phone exists, treat code delivery as already triggered and prompt only for code.
@@ -210,6 +228,8 @@ Accepted row fields:
 3. Exit without dashboard startup, keyword fetch, or reauthentication.
 
 ## Prompt / TTY Contract
-- Credential and 2FA prompts require an interactive terminal (`stdin` + `stdout` TTY).
-- When prompt-required auth runs in non-interactive mode, auth fails with explicit actionable guidance.
+- Shared services emit structured setup/auth prompts instead of hard-coding surface-specific UX.
+- CLI fulfills those prompts through an interactive terminal (`stdin` + `stdout` TTY).
+- Dashboard fulfills those prompts through local prompt-session APIs and browser modals.
+- When prompt-required auth runs in a non-interactive surface with no prompt handler (for example `--stdout`), auth fails with explicit actionable guidance.
 - `aso keywords --stdout` keeps machine-friendly behavior: JSON-only stdout (success envelope or failure envelope), silent session reuse only, and no interactive auth prompts.

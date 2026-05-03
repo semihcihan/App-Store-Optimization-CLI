@@ -1,7 +1,7 @@
 import { ContextualError } from "../../utils/error-handling-helpers";
 import { logger } from "../../utils/logger";
 import { asoAuthService } from "../auth/aso-auth-service";
-import { getSavedAsoAdamId } from "./aso-adam-id-service";
+import { getConfiguredAsoAdamId } from "./aso-adam-id-service";
 import {
   requestPopularitiesWithKwsRetry,
   type PopularityResponse,
@@ -59,7 +59,7 @@ function sanitizeKeyword(keyword: string): string {
 }
 
 function requireAdamId(): string {
-  const adamId = getSavedAsoAdamId();
+  const adamId = getConfiguredAsoAdamId();
   if (!adamId) {
     throw new ContextualError(
       "Primary App ID is missing. Run 'aso --primary-app-id <id>' or run 'aso' to set it."
