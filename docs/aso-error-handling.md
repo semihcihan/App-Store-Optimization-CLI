@@ -29,7 +29,7 @@ Define failure boundaries, retry rules, and recovery behavior across CLI, dashbo
 - Popularity fetch retries transient responses (`429`, `5xx`, `KWS_NO_ORG_CONTENT_PROVIDERS`) and transient network errors.
 - App Store web fetches retry `429`, `5xx`, and transient network errors with jittered exponential backoff.
 - Enrichment applies one bounded retry/backoff cycle for competitive keywords when top-5 difficulty docs are incomplete (`reasonCode=INSUFFICIENT_DOCS` when still unresolved).
-- Startup refresh manager retries each unit once and records failures without crashing runtime.
+- Startup refresh manager retries each unit once for non-auth failures; auth-required failures are terminal for the current run and stop remaining batches.
 - Startup refresh auth failures are exposed as structured refresh-status state so the dashboard can prompt for reauthentication instead of silently stopping.
 - Startup refresh auth failures reuse the same dashboard reauthentication UX as add-keyword: one automatic auth-start attempt, then shared browser prompt / retry handling if user input is needed.
 - `keywordPipelineService` isolates terminal failures per keyword and stores normalized failure metadata in `aso_keyword_failures` via `keywordWriteRepository` (single write owner).
@@ -38,6 +38,8 @@ Define failure boundaries, retry rules, and recovery behavior across CLI, dashbo
 - Dashboard add-keyword:
   - If auth is invalid in stage 1, return `AUTH_REQUIRED` (no interactive prompt in request path).
   - If the configured Primary App ID is inaccessible for the current Apple Ads account, return `PRIMARY_APP_ID_RECONFIGURE_REQUIRED` so the dashboard can reopen the shared Primary App ID setup flow.
+- Dashboard startup-refresh auth recovery:
+  - While refresh status reports `requiresReauthentication=true`, keyword mutations (`Add Keywords`, `Retry Failed`) are disabled until reauthentication succeeds.
 - If stage-2 enrichment fails, stage-1 writes remain; caller can retry later.
 - Stage-2 enrichment writes are per-keyword progressive: successful keywords are visible in cache/UI polling as soon as that keyword finishes, while other keywords continue running.
 - For `appCount >= 5`, enrichment does not persist fallback `difficultyScore=1` when top-5 docs are incomplete; it records a retryable enrichment failure instead.

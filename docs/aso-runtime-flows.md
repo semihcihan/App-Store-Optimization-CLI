@@ -136,9 +136,12 @@ Runtime flow contracts across CLI commands, local dashboard API, and ASO service
    - difficulty has never been computed
    - order TTL is stale (owned-associated keywords only; research-only keywords do not use order staleness as a refresh trigger)
 3. Run the same keyword pipeline used by CLI fetch in non-interactive mode, in batches while pausing for foreground mutations.
+   - Non-auth batch failures get one bounded retry.
+   - Auth-required failures skip retry and stop remaining startup batches for that run.
 4. Publish refresh status via `GET /api/aso/refresh-status`, including whether the failure requires Search Ads reauthentication.
 5. If auth is required, the dashboard auto-starts the same reauthentication flow used by add-keyword once; silent session reuse stays invisible, while browser prompt steps/failure states surface through the shared auth modal.
 6. Allow explicit restart via `POST /api/aso/refresh/start`; the UI uses this after reauthentication or manual retry.
+7. While startup refresh is paused on `requiresReauthentication=true`, dashboard keyword mutations (`Add Keywords`, `Retry Failed`) stay disabled until reauthentication succeeds.
 
 ## Flow E: App Doc Hydration
 - `GET /api/apps` (owned app list):

@@ -171,10 +171,13 @@ export function createStartupRefreshManager(
   let runPromise: Promise<void> | null = null;
 
   const setFailure = (error: unknown, metadata: Record<string, unknown>) => {
+    const isAuthReauthRequired =
+      deps.isAuthReauthRequiredError?.(error) === true;
     if (!state.lastError) {
       state.lastError = errorToMessage(error);
-      state.requiresReauthentication =
-        deps.isAuthReauthRequiredError?.(error) === true;
+    }
+    if (isAuthReauthRequired) {
+      state.requiresReauthentication = true;
     }
     deps.reportError?.(error, metadata);
   };
@@ -201,12 +204,18 @@ export function createStartupRefreshManager(
         }, sleep, (error) => deps.isAuthReauthRequiredError?.(error) !== true);
         state.counters.refreshedKeywordCount += batch.length;
       } catch (error) {
+        const isAuthReauthRequired =
+          deps.isAuthReauthRequiredError?.(error) === true;
         state.counters.failedKeywordCount += batch.length;
         setFailure(error, {
           phase: "startup-keyword-refresh",
           batchSize: batch.length,
           keywordPreview: batch.slice(0, 5).map((item) => item.keyword),
+          isAuthReauthRequired,
         });
+        if (isAuthReauthRequired) {
+          break;
+        }
       }
     }
   };

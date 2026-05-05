@@ -1010,7 +1010,7 @@ describe("dashboard auth modal UI flow", () => {
 
     expect(
       await screen.findByText(
-        "Checking Apple session for background refresh after 0/1086 keywords..."
+        "Checking Apple session..."
       )
     ).toBeInTheDocument();
 
@@ -1019,6 +1019,123 @@ describe("dashboard auth modal UI flow", () => {
     expect(
       await screen.findByText(
         "Refreshing local data in background (0/1086 keywords)..."
+      )
+    ).toBeInTheDocument();
+  });
+
+  it("disables add/retry keyword mutations while startup refresh reauthentication is required", async () => {
+    let keywordPostCount = 0;
+
+    const fetchMock = jest.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = (init?.method ?? "GET").toUpperCase();
+
+      if (method === "GET" && url === "/api/apps") {
+        return jsonResponse({ status: 200, body: { success: true, data: [] } });
+      }
+      if (method === "GET" && url.startsWith("/api/aso/keywords?")) {
+        return jsonResponse({
+          status: 200,
+          body: {
+            success: true,
+            data: {
+              ...emptyKeywordPagedPayload(),
+              failedCount: 2,
+            },
+          },
+        });
+      }
+      if (method === "GET" && url === "/api/aso/refresh-status") {
+        return jsonResponse({
+          status: 200,
+          body: {
+            success: true,
+            data: {
+              status: "failed",
+              startedAt: "2026-03-07T00:00:00.000Z",
+              finishedAt: "2026-03-07T00:00:10.000Z",
+              lastError:
+                "Apple Search Ads session expired. Reauthentication is required.",
+              requiresReauthentication: true,
+              counters: {
+                eligibleKeywordCount: 1086,
+                refreshedKeywordCount: 0,
+                failedKeywordCount: 1086,
+              },
+            },
+          },
+        });
+      }
+      if (method === "POST" && url === "/api/aso/auth/start") {
+        return jsonResponse({
+          status: 202,
+          body: {
+            success: true,
+            data: {
+              status: "in_progress",
+              updatedAt: "2026-03-07T00:00:11.000Z",
+              lastError: null,
+              requiresTerminalAction: false,
+              canPrompt: true,
+            },
+          },
+        });
+      }
+      if (method === "GET" && url === "/api/aso/auth/status") {
+        return jsonResponse({
+          status: 200,
+          body: {
+            success: true,
+            data: {
+              status: "in_progress",
+              updatedAt: "2026-03-07T00:00:12.000Z",
+              lastError: null,
+              requiresTerminalAction: false,
+              canPrompt: true,
+            },
+          },
+        });
+      }
+      if (method === "POST" && url === "/api/aso/keywords") {
+        keywordPostCount += 1;
+        return jsonResponse({
+          status: 201,
+          body: {
+            success: true,
+            data: {
+              cachedCount: 0,
+              pendingCount: 0,
+              failedCount: 0,
+            },
+          },
+        });
+      }
+
+      throw new Error(`Unhandled fetch: ${method} ${url}`);
+    });
+    global.fetch = fetchMock as typeof fetch;
+
+    render(<App />);
+
+    expect(
+      await screen.findByText(
+        "Checking Apple session..."
+      )
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Add Keywords" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Retry Failed (2)" })).toBeDisabled();
+
+    const input = screen.getByPlaceholderText("Add keywords (comma-separated)");
+    fireEvent.change(input, { target: { value: "term" } });
+    const addForm = document.querySelector("#add-form");
+    if (!(addForm instanceof HTMLFormElement)) {
+      throw new Error("Expected add keywords form to be present.");
+    }
+    fireEvent.submit(addForm);
+    expect(keywordPostCount).toBe(0);
+    expect(
+      await screen.findByText(
+        "Finish Apple reauthentication before adding or retrying keywords."
       )
     ).toBeInTheDocument();
   });

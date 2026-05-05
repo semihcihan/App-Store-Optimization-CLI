@@ -513,7 +513,8 @@ body {
 
 .startup-refresh-status {
   margin: 0 4px 0 0;
-  max-width: min(52vw, 420px);
+  flex: 1 1 auto;
+  max-width: none;
   display: none;
   align-items: center;
   gap: 8px;
@@ -526,6 +527,8 @@ body {
 
 .startup-refresh-status-copy {
   margin: 0;
+  flex: 1 1 auto;
+  min-width: 0;
   font-size: 0.78rem;
   color: var(--muted-foreground);
   white-space: nowrap;
@@ -2080,7 +2083,8 @@ body::before {
 
 .startup-refresh-status {
   margin-right: auto;
-  max-width: min(56vw, 420px);
+  flex: 1 1 auto;
+  max-width: none;
 }
 
 .startup-refresh-status-copy {

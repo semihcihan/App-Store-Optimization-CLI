@@ -458,6 +458,8 @@ export function App() {
     () => apps.some((app) => Boolean(app.lastKeywordAddedAt)),
     [apps]
   );
+  const isKeywordMutationBlockedByStartupReauth =
+    startupRefreshState?.requiresReauthentication === true;
 
   const loadApps = useCallback(async (): Promise<AppItem[]> => {
     const list = await apiGet<AppItem[]>(`/api/apps`);
@@ -1156,6 +1158,10 @@ export function App() {
 
   const submitKeywords = useCallback(
     async (kws: string[]): Promise<boolean> => {
+      if (isKeywordMutationBlockedByStartupReauth) {
+        setErrorText("Finish Apple reauthentication before adding or retrying keywords.");
+        return false;
+      }
       try {
         setIsAddingKeywords(true);
         setErrorText("");
@@ -1193,6 +1199,7 @@ export function App() {
       loadKeywords,
       openAuthModalForPendingAdd,
       openSetupModalForPrimaryAppAccessError,
+      isKeywordMutationBlockedByStartupReauth,
     ]
   );
 
@@ -1224,6 +1231,10 @@ export function App() {
 
   const onRetryFailedKeywords = useCallback(async () => {
     if (failedKeywordCount <= 0) return;
+    if (isKeywordMutationBlockedByStartupReauth) {
+      setErrorText("Finish Apple reauthentication before adding or retrying keywords.");
+      return;
+    }
     try {
       setIsRetryingFailedKeywords(true);
       setErrorText("");
@@ -1261,6 +1272,7 @@ export function App() {
     loadKeywords,
     openSetupModalForPrimaryAppAccessError,
     selectedAppId,
+    isKeywordMutationBlockedByStartupReauth,
   ]);
 
   useEffect(() => {
@@ -1724,7 +1736,28 @@ export function App() {
   const showError = !showLoading && errorText !== "";
   const showSuccess = !showLoading && !showError && successText !== "";
   const addButtonLabel = isCompactLayout ? "Add" : "Add Keywords";
+  const isStartupRefreshAuthRecoveryActive =
+    isKeywordMutationBlockedByStartupReauth &&
+    activeAuthContext === "startup-refresh" &&
+    (isStartingAuth ||
+      authStatus === "idle" ||
+      authStatus === "in_progress" ||
+      authStatus === "succeeded");
+  const keywordMutationStatusText = isStartupRefreshAuthRecoveryActive
+    ? "Checking Apple session..."
+    : authCheckLoadingText !== ""
+      ? "Checking Apple session..."
+      : isKeywordMutationBlockedByStartupReauth
+        ? "Apple reauthentication required."
+        : "";
   const startupRefreshBanner = useMemo(() => {
+    if (keywordMutationStatusText) {
+      return {
+        tone: isKeywordMutationBlockedByStartupReauth ? ("error" as const) : ("muted" as const),
+        action: null,
+        text: keywordMutationStatusText,
+      };
+    }
     if (!startupRefreshState) return null;
     const { eligibleKeywordCount, refreshedKeywordCount } =
       startupRefreshState.counters;
@@ -1744,23 +1777,10 @@ export function App() {
     if (startupRefreshState.status !== "failed") return null;
     const progressSuffix = progressLabel ? ` after ${progressLabel}` : "";
     if (startupRefreshState.requiresReauthentication) {
-      if (
-        activeAuthContext === "startup-refresh" &&
-        (isStartingAuth ||
-          authStatus === "idle" ||
-          authStatus === "in_progress" ||
-          authStatus === "succeeded")
-      ) {
-        return {
-          tone: "muted" as const,
-          action: null,
-          text: `Checking Apple session for background refresh${progressSuffix}...`,
-        };
-      }
       return {
         tone: "error" as const,
         action: null,
-        text: `Background refresh paused${progressSuffix}. Apple Search Ads session expired.`,
+        text: "Apple reauthentication required.",
       };
     }
     const detail = startupRefreshState.lastError?.trim();
@@ -1771,7 +1791,14 @@ export function App() {
         ? `Background refresh failed${progressSuffix}. ${detail}`
         : `Background refresh failed${progressSuffix}.`,
     };
-  }, [activeAuthContext, authStatus, isStartingAuth, startupRefreshState]);
+  }, [
+    authCheckLoadingText,
+    authStatus,
+    isKeywordMutationBlockedByStartupReauth,
+    isStartingAuth,
+    keywordMutationStatusText,
+    startupRefreshState,
+  ]);
   const hasRankFiltersApplied =
     showRankingColumns &&
     (minRank !== DEFAULT_MIN_RANK || maxRank !== DEFAULT_MAX_RANK);
@@ -2065,7 +2092,15 @@ export function App() {
                 onChange={(e) => setAddInput(e.target.value)}
               />
             </div>
-            <Button id="add-submit" type="submit" disabled={isAddKeywordsBusy || isColdStart}>
+            <Button
+              id="add-submit"
+              type="submit"
+              disabled={
+                isAddKeywordsBusy ||
+                isColdStart ||
+                isKeywordMutationBlockedByStartupReauth
+              }
+            >
               <span className={`add-submit-label ${isAddKeywordsBusy ? "is-loading" : ""}`}>{addButtonLabel}</span>
               <span className={`button-loading-spinner ${isAddKeywordsBusy ? "visible" : ""}`} aria-hidden="true" />
             </Button>
@@ -2075,7 +2110,11 @@ export function App() {
                 className="retry-failed-button"
                 type="button"
                 variant="ghost"
-                disabled={isRetryingFailedKeywords || isColdStart}
+                disabled={
+                  isRetryingFailedKeywords ||
+                  isColdStart ||
+                  isKeywordMutationBlockedByStartupReauth
+                }
                 onClick={() => {
                   void onRetryFailedKeywords();
                 }}

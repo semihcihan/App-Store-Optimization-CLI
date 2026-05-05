@@ -287,4 +287,60 @@ describe("startup-refresh-manager", () => {
     );
     expect(attempt).toBe(2);
   });
+
+  it("stops startup refresh after first auth-required batch failure", async () => {
+    let attempt = 0;
+
+    const manager = createStartupRefreshManager({
+      country: "US",
+      listKeywords: () => [
+        buildKeyword({
+          keyword: "k1",
+          normalizedKeyword: "k1",
+          orderExpiresAt: "2026-03-06T00:00:00.000Z",
+        }),
+        buildKeyword({
+          keyword: "k2",
+          normalizedKeyword: "k2",
+          orderExpiresAt: "2026-03-06T00:00:00.000Z",
+        }),
+        buildKeyword({
+          keyword: "k3",
+          normalizedKeyword: "k3",
+          orderExpiresAt: "2026-03-06T00:00:00.000Z",
+        }),
+      ],
+      listAppKeywords: () => [
+        buildAssociation({ keyword: "k1", appId: "app-1" }),
+        buildAssociation({ keyword: "k2", appId: "app-1" }),
+        buildAssociation({ keyword: "k3", appId: "app-1" }),
+      ],
+      listAssociatedAppIds: () => new Set(["app-1"]),
+      listOrderRelevantAppIds: () => new Set(["app-1"]),
+      enrichKeywords: async () => {
+        attempt += 1;
+        throw new Error(
+          "Apple Search Ads session expired. Reauthentication is required."
+        );
+      },
+      isForegroundBusy: () => false,
+      isAuthReauthRequiredError: (error) =>
+        error instanceof Error &&
+        error.message.includes("Reauthentication is required"),
+      nowMs: () => Date.parse("2026-03-07T00:00:00.000Z"),
+      sleep: async () => {},
+      keywordBatchSize: 1,
+    });
+
+    manager.start();
+    await waitForManagerToFinish(manager);
+
+    const state = manager.getState();
+    expect(state.status).toBe("failed");
+    expect(state.requiresReauthentication).toBe(true);
+    expect(state.counters.eligibleKeywordCount).toBe(3);
+    expect(state.counters.refreshedKeywordCount).toBe(0);
+    expect(state.counters.failedKeywordCount).toBe(1);
+    expect(attempt).toBe(1);
+  });
 });
