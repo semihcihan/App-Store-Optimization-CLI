@@ -1010,7 +1010,7 @@ describe("dashboard auth modal UI flow", () => {
 
     expect(
       await screen.findByText(
-        "Checking Apple session..."
+        "Reauthenticating with Apple..."
       )
     ).toBeInTheDocument();
 
@@ -1119,7 +1119,7 @@ describe("dashboard auth modal UI flow", () => {
 
     expect(
       await screen.findByText(
-        "Checking Apple session..."
+        "Reauthenticating with Apple..."
       )
     ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Add Keywords" })).toBeDisabled();
@@ -1136,6 +1136,154 @@ describe("dashboard auth modal UI flow", () => {
     expect(
       await screen.findByText(
         "Finish Apple reauthentication before adding or retrying keywords."
+      )
+    ).toBeInTheDocument();
+  });
+
+  it("shows auto-resume status while startup refresh restart is in flight after auth succeeds", async () => {
+    let refreshStatusCount = 0;
+    let refreshStartCount = 0;
+    let authStartCount = 0;
+    let resolveRefreshStart: ((value: Response) => void) | null = null;
+    const refreshStartPromise = new Promise<Response>((resolve) => {
+      resolveRefreshStart = resolve;
+    });
+
+    const fetchMock = jest.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = (init?.method ?? "GET").toUpperCase();
+
+      if (method === "GET" && url === "/api/apps") {
+        return jsonResponse({ status: 200, body: { success: true, data: [] } });
+      }
+      if (method === "GET" && url.startsWith("/api/aso/keywords?")) {
+        return jsonResponse({
+          status: 200,
+          body: { success: true, data: emptyKeywordPagedPayload() },
+        });
+      }
+      if (method === "GET" && url === "/api/aso/refresh-status") {
+        refreshStatusCount += 1;
+        if (refreshStatusCount === 1) {
+          return jsonResponse({
+            status: 200,
+            body: {
+              success: true,
+              data: {
+                status: "failed",
+                startedAt: "2026-03-07T00:00:00.000Z",
+                finishedAt: "2026-03-07T00:00:10.000Z",
+                lastError:
+                  "Apple Search Ads session expired. Reauthentication is required.",
+                requiresReauthentication: true,
+                counters: {
+                  eligibleKeywordCount: 1086,
+                  refreshedKeywordCount: 0,
+                  failedKeywordCount: 1086,
+                },
+              },
+            },
+          });
+        }
+        return jsonResponse({
+          status: 200,
+          body: {
+            success: true,
+            data: {
+              status: "running",
+              startedAt: "2026-03-07T00:00:20.000Z",
+              finishedAt: null,
+              lastError: null,
+              requiresReauthentication: false,
+              counters: {
+                eligibleKeywordCount: 1086,
+                refreshedKeywordCount: 0,
+                failedKeywordCount: 0,
+              },
+            },
+          },
+        });
+      }
+      if (method === "POST" && url === "/api/aso/auth/start") {
+        authStartCount += 1;
+        return jsonResponse({
+          status: 202,
+          body: {
+            success: true,
+            data: {
+              status: "in_progress",
+              updatedAt: "2026-03-07T00:00:11.000Z",
+              lastError: null,
+              requiresTerminalAction: false,
+              canPrompt: true,
+            },
+          },
+        });
+      }
+      if (method === "GET" && url === "/api/aso/auth/status") {
+        return jsonResponse({
+          status: 200,
+          body: {
+            success: true,
+            data: {
+              status: "succeeded",
+              updatedAt: "2026-03-07T00:00:12.000Z",
+              lastError: null,
+              requiresTerminalAction: false,
+              canPrompt: true,
+            },
+          },
+        });
+      }
+      if (method === "POST" && url === "/api/aso/refresh/start") {
+        refreshStartCount += 1;
+        return refreshStartPromise;
+      }
+
+      throw new Error(`Unhandled fetch: ${method} ${url}`);
+    });
+    global.fetch = fetchMock as typeof fetch;
+
+    render(<App />);
+
+    await waitFor(() => expect(authStartCount).toBe(1));
+    await waitFor(() => expect(refreshStartCount).toBe(1));
+    expect(
+      await screen.findByText("Resuming background refresh...")
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText("Apple reauthentication required.")
+    ).not.toBeInTheDocument();
+
+    const finishRefreshStart =
+      resolveRefreshStart as ((value: Response) => void) | null;
+    if (!finishRefreshStart) {
+      throw new Error("Expected startup refresh restart request to be pending.");
+    }
+    finishRefreshStart(
+      jsonResponse({
+        status: 202,
+        body: {
+          success: true,
+          data: {
+            status: "running",
+            startedAt: "2026-03-07T00:00:20.000Z",
+            finishedAt: null,
+            lastError: null,
+            requiresReauthentication: false,
+            counters: {
+              eligibleKeywordCount: 1086,
+              refreshedKeywordCount: 0,
+              failedKeywordCount: 0,
+            },
+          },
+        },
+      }) as Response
+    );
+
+    expect(
+      await screen.findByText(
+        "Refreshing local data in background (0/1086 keywords)..."
       )
     ).toBeInTheDocument();
   });

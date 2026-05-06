@@ -1736,15 +1736,22 @@ export function App() {
   const showError = !showLoading && errorText !== "";
   const showSuccess = !showLoading && !showError && successText !== "";
   const addButtonLabel = isCompactLayout ? "Add" : "Add Keywords";
-  const isStartupRefreshAuthRecoveryActive =
+  const isStartupRefreshAuthRecoveryAttemptActive =
     isKeywordMutationBlockedByStartupReauth &&
     activeAuthContext === "startup-refresh" &&
     (isStartingAuth ||
       authStatus === "idle" ||
-      authStatus === "in_progress" ||
-      authStatus === "succeeded");
-  const keywordMutationStatusText = isStartupRefreshAuthRecoveryActive
-    ? "Checking Apple session..."
+      authStatus === "in_progress");
+  const isStartupRefreshResumeInProgress =
+    isKeywordMutationBlockedByStartupReauth &&
+    (isRestartingStartupRefresh || authStatus === "succeeded");
+  const isStartupRefreshAutoRecoveryActive =
+    isStartupRefreshAuthRecoveryAttemptActive ||
+    isStartupRefreshResumeInProgress;
+  const keywordMutationStatusText = isStartupRefreshAuthRecoveryAttemptActive
+    ? "Reauthenticating with Apple..."
+    : isStartupRefreshResumeInProgress
+      ? "Resuming background refresh..."
     : authCheckLoadingText !== ""
       ? "Checking Apple session..."
       : isKeywordMutationBlockedByStartupReauth
@@ -1753,7 +1760,11 @@ export function App() {
   const startupRefreshBanner = useMemo(() => {
     if (keywordMutationStatusText) {
       return {
-        tone: isKeywordMutationBlockedByStartupReauth ? ("error" as const) : ("muted" as const),
+        tone:
+          isKeywordMutationBlockedByStartupReauth &&
+          !isStartupRefreshAutoRecoveryActive
+            ? ("error" as const)
+            : ("muted" as const),
         action: null,
         text: keywordMutationStatusText,
       };
@@ -1792,10 +1803,8 @@ export function App() {
         : `Background refresh failed${progressSuffix}.`,
     };
   }, [
-    authCheckLoadingText,
-    authStatus,
     isKeywordMutationBlockedByStartupReauth,
-    isStartingAuth,
+    isStartupRefreshAutoRecoveryActive,
     keywordMutationStatusText,
     startupRefreshState,
   ]);
