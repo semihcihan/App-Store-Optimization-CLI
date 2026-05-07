@@ -117,6 +117,70 @@ describe("aso-app-doc-service", () => {
     );
   });
 
+  it("fills missing date fields from itunes lookup fallback", async () => {
+    mockedAsoAppleGet
+      .mockResolvedValueOnce({
+        data: {
+          storePlatformData: {
+            "product-dv": {
+              results: {
+                "10": {
+                  id: "10",
+                  name: "Lookup Missing Dates",
+                  userRating: { value: 4.2, ratingCount: 99 },
+                },
+              },
+            },
+          },
+          pageData: {
+            versionHistory: [],
+          },
+        },
+      } as never)
+      .mockResolvedValueOnce({
+        data: {
+          resultCount: 1,
+          results: [
+            {
+              trackId: 10,
+              wrapperType: "software",
+              trackName: "Lookup Missing Dates",
+              sellerName: "Fallback Seller",
+              releaseDate: "2024-01-01T00:00:00Z",
+              currentVersionReleaseDate: "2025-01-01T00:00:00Z",
+            },
+          ],
+        },
+      } as never);
+
+    const result = await fetchAppStoreLookupAppDocs({
+      country: "US",
+      appIds: ["10"],
+    });
+
+    expect(result).toEqual([
+      expect.objectContaining({
+        appId: "10",
+        country: "US",
+        name: "Lookup Missing Dates",
+        releaseDate: "2024-01-01T00:00:00Z",
+        currentVersionReleaseDate: "2025-01-01T00:00:00Z",
+      }),
+    ]);
+    expect(mockedAsoAppleGet).toHaveBeenNthCalledWith(
+      2,
+      "https://itunes.apple.com/lookup",
+      expect.objectContaining({
+        operation: "itunes.lookup",
+        params: expect.objectContaining({
+          id: "10",
+          country: "us",
+          entity: "software",
+        }),
+      })
+    );
+  });
+
   it("returns cached docs first, fetches missing docs, and persists them", async () => {
     const repository = createRepository({
       getAppDocs: (jest.fn(async () => [

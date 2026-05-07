@@ -26,10 +26,13 @@ Define failure boundaries, retry rules, and recovery behavior across CLI, dashbo
 
 ## Retry Policy
 - Shared resilience config lives in `cli/shared/aso-resilience.ts` (env defaults/parsing centralized in `cli/shared/aso-env.ts`).
-- Popularity fetch retries transient responses (`429`, `5xx`, `KWS_NO_ORG_CONTENT_PROVIDERS`) and transient network errors.
-- App Store web fetches retry `429`, `5xx`, and transient network errors with jittered exponential backoff.
+- Popularity fetch retries transient responses (`429`, `5xx`, `KWS_NO_ORG_CONTENT_PROVIDERS`) and transient network errors with bounded request attempts (default: 2 total attempts, i.e. one retry).
+- App Store web fetches retry `429`, `5xx`, and transient network errors with jittered exponential backoff using the same bounded request-attempt policy (default: 2 total attempts).
+- Popularity batch isolation requests (`one keyword per request` after a terminal batch failure) run single-attempt (`maxAttempts=1`) to avoid retry multiplication.
 - Enrichment applies one bounded retry/backoff cycle for competitive keywords when top-5 difficulty docs are incomplete (`reasonCode=INSUFFICIENT_DOCS` when still unresolved).
-- Startup refresh manager retries each unit once for non-auth failures; auth-required failures are terminal for the current run and stop remaining batches.
+- Enrichment applies a short in-process cooldown for top-app IDs that still return incomplete lookup docs, so nearby keywords do not repeat the same expensive lookup loop immediately.
+- App-doc hydration now falls back to iTunes Lookup for IDs that App Store lookup leaves missing/incomplete, reducing false `INSUFFICIENT_DOCS` failures caused by lookup payload gaps.
+- Startup refresh manager retries each unit once for transient non-auth failures; it does not retry exhausted `All keywords failed (...)` batch failures, and auth-required failures are terminal for the current run and stop remaining batches.
 - Startup refresh auth failures are exposed as structured refresh-status state so the dashboard can prompt for reauthentication instead of silently stopping.
 - Startup refresh auth failures reuse the same dashboard reauthentication UX as add-keyword: one automatic auth-start attempt, then shared browser prompt / retry handling if user input is needed.
 - `keywordPipelineService` isolates terminal failures per keyword and stores normalized failure metadata in `aso_keyword_failures` via `keywordWriteRepository` (single write owner).

@@ -1,6 +1,10 @@
 import type { StoredAppKeyword, StoredAsoKeyword } from "../db/types";
 import { normalizeKeyword } from "../shared/aso-keyword-utils";
 import {
+  isKnownTransientStatusCode,
+  isTransientTransportFailure,
+} from "../shared/aso-transient-error";
+import {
   isCompleteStoredAsoKeyword,
   isStoredKeywordOrderFresh,
   isStoredKeywordPopularityFresh,
@@ -139,6 +143,25 @@ function errorToMessage(error: unknown): string {
   return raw.trim() || "Background refresh failed.";
 }
 
+function isExhaustedBatchFailure(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  const message = error.message.trim();
+  if (!message) return false;
+  return message.startsWith("All keywords failed (");
+}
+
+function isTransientStartupFailure(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const statusCode = (error as { statusCode?: unknown }).statusCode;
+  if (typeof statusCode === "number" && isKnownTransientStatusCode(statusCode)) {
+    return true;
+  }
+  return isTransientTransportFailure({
+    code: String((error as { code?: unknown }).code ?? ""),
+    message: String((error as { message?: unknown }).message ?? ""),
+  });
+}
+
 async function withOneRetry(
   operation: () => Promise<void>,
   sleep: (ms: number) => Promise<void>,
@@ -201,7 +224,15 @@ export function createStartupRefreshManager(
       try {
         await withOneRetry(async () => {
           await deps.enrichKeywords(deps.country, batch);
-        }, sleep, (error) => deps.isAuthReauthRequiredError?.(error) !== true);
+        }, sleep, (error) => {
+          if (deps.isAuthReauthRequiredError?.(error) === true) {
+            return false;
+          }
+          if (isExhaustedBatchFailure(error)) {
+            return false;
+          }
+          return isTransientStartupFailure(error);
+        });
         state.counters.refreshedKeywordCount += batch.length;
       } catch (error) {
         const isAuthReauthRequired =

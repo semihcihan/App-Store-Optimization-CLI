@@ -1,6 +1,12 @@
 import axios from "axios";
 import { logger } from "../../utils/logger";
 import { getAsoResilienceConfig } from "../../shared/aso-resilience";
+import { getRetryDelayMs as getSharedRetryDelayMs } from "../../shared/aso-retry-delay";
+import {
+  isKnownTransientStatusCode,
+  isRetryableTransientStatusCode,
+  isTransientTransportFailure,
+} from "../../shared/aso-transient-error";
 import {
   attachAppleHttpTracing,
   withAppleHttpTraceContext,
@@ -9,7 +15,6 @@ import {
 const APPLE_POPULARITY_URL =
   "https://app-ads.apple.com/cm/api/v2/keywords/popularities";
 const KWS_NO_ORG_CONTENT_PROVIDERS = "KWS_NO_ORG_CONTENT_PROVIDERS";
-const TRANSIENT_STATUS_CODES = new Set([429, 500, 502, 503, 504]);
 
 export interface PopularityItem {
   name: string;
@@ -96,98 +101,45 @@ async function requestPopularitiesOnce(
   }
 }
 
-function getHeaderValue(
-  headers: Record<string, unknown> | undefined,
-  headerName: string
-): string | undefined {
-  if (!headers) return undefined;
-  const match = Object.entries(headers).find(
-    ([key]) => key.toLowerCase() === headerName.toLowerCase()
-  );
-  if (!match) return undefined;
-  const value = match[1];
-  if (Array.isArray(value)) return value[0] != null ? String(value[0]) : undefined;
-  return value != null ? String(value) : undefined;
-}
-
-function parseRetryAfterMs(headers: Record<string, unknown> | undefined): number | null {
-  const retryAfterRaw = getHeaderValue(headers, "retry-after");
-  if (!retryAfterRaw) return null;
-
-  const retryAfterSeconds = Number.parseInt(retryAfterRaw, 10);
-  if (Number.isFinite(retryAfterSeconds)) {
-    return Math.max(0, retryAfterSeconds * 1000);
-  }
-
-  const retryAfterDateMs = Date.parse(retryAfterRaw);
-  if (Number.isFinite(retryAfterDateMs)) {
-    return Math.max(0, retryAfterDateMs - Date.now());
-  }
-
-  return null;
-}
-
-function calculateJitteredDelay(baseDelayMs: number): number {
-  const { jitterFactor, maxDelayMs } = getAsoResilienceConfig();
-  const jittered = baseDelayMs + Math.random() * jitterFactor * baseDelayMs;
-  return Math.min(maxDelayMs, jittered);
-}
-
 function getRetryDelayMs(params: {
   statusCode: number;
   headers?: Record<string, unknown>;
   attempt: number;
 }): number {
-  const retryAfterMs =
-    params.statusCode === 429 ? parseRetryAfterMs(params.headers) : null;
-  if (retryAfterMs != null) {
-    return calculateJitteredDelay(retryAfterMs);
-  }
-
-  const { baseDelayMs, rateLimitBaseDelayMs, maxDelayMs } =
-    getAsoResilienceConfig();
-  const fallbackBaseDelayMs =
-    params.statusCode === 429 ? rateLimitBaseDelayMs : baseDelayMs;
-  const exponentialDelay =
-    fallbackBaseDelayMs * Math.pow(2, params.attempt - 1);
-  return Math.min(maxDelayMs, calculateJitteredDelay(exponentialDelay));
+  const { baseDelayMs, rateLimitBaseDelayMs } = getAsoResilienceConfig();
+  return getSharedRetryDelayMs({
+    statusCode: params.statusCode,
+    headers: params.headers,
+    attempt: params.attempt,
+    defaultBaseDelayMs: baseDelayMs,
+    rateLimitBaseDelayMs,
+  });
 }
 
 function isTransientStatus(statusCode: number, data: PopularityResponse): boolean {
   if (isNoOrgContentProvidersError(statusCode, data)) return true;
-  return TRANSIENT_STATUS_CODES.has(statusCode);
+  return isKnownTransientStatusCode(statusCode);
 }
 
 function isTransientAxiosError(error: unknown): boolean {
   if (!axios.isAxiosError(error)) return false;
-  if (error.response?.status != null) {
-    return error.response.status === 429 || error.response.status >= 500;
-  }
-  const code = error.code ?? "";
-  if (
-    code === "ECONNRESET" ||
-    code === "ETIMEDOUT" ||
-    code === "UND_ERR_CONNECT_TIMEOUT" ||
-    code === "UND_ERR_SOCKET" ||
-    code === "UND_ERR_ABORTED" ||
-    code === "UND_ERR_DESTROYED"
-  ) {
-    return true;
-  }
-  const message = (error.message ?? "").toLowerCase();
-  return (
-    message.includes("network") ||
-    message.includes("timeout") ||
-    message.includes("fetch failed")
-  );
+  if (isRetryableTransientStatusCode(error.response?.status)) return true;
+  return isTransientTransportFailure({
+    code: error.code,
+    message: error.message,
+  });
 }
 
 export async function requestPopularitiesWithKwsRetry(
   terms: string[],
   cookieHeader: string,
-  adamId: string
+  adamId: string,
+  options?: { maxAttempts?: number }
 ): Promise<{ statusCode: number; data: PopularityResponse; attempts: number }> {
-  const { maxAttempts } = getAsoResilienceConfig();
+  const maxAttempts = Math.max(
+    1,
+    options?.maxAttempts ?? getAsoResilienceConfig().maxAttempts
+  );
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     try {
       const response = await requestPopularitiesOnce(terms, cookieHeader, adamId);

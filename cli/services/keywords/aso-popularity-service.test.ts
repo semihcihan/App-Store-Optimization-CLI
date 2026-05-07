@@ -79,7 +79,8 @@ describe("AsoPopularityService", () => {
       expect(mockRequestPopularitiesWithKwsRetry).toHaveBeenCalledWith(
         ["keyword", "another"],
         "cookie=value",
-        expect.any(String)
+        expect.any(String),
+        undefined
       );
       expect(asoAuthService.getCookieHeader).toHaveBeenCalledWith(
         "https://app-ads.apple.com/cm/api/v2/keywords/popularities"
@@ -158,7 +159,8 @@ describe("AsoPopularityService", () => {
       expect(mockRequestPopularitiesWithKwsRetry).toHaveBeenCalledWith(
         ["x"],
         "new-cookie",
-        expect.any(String)
+        expect.any(String),
+        undefined
       );
     });
 
@@ -339,6 +341,20 @@ describe("AsoPopularityService", () => {
         keyword: "bad",
         stage: "popularity",
       });
+      expect(mockRequestPopularitiesWithKwsRetry).toHaveBeenNthCalledWith(
+        2,
+        ["good"],
+        "cookie=value",
+        expect.any(String),
+        { maxAttempts: 1 }
+      );
+      expect(mockRequestPopularitiesWithKwsRetry).toHaveBeenNthCalledWith(
+        3,
+        ["bad"],
+        "cookie=value",
+        expect.any(String),
+        { maxAttempts: 1 }
+      );
     });
   });
 });

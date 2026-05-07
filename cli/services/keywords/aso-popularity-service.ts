@@ -177,7 +177,8 @@ export class AsoPopularityService {
     }
     const requestWithAuthRecovery = async (
       terms: string[],
-      stageLabel: string
+      stageLabel: string,
+      options?: { maxAttempts?: number }
     ): Promise<{ statusCode: number; data: PopularityResponse; attempts: number }> => {
       logger.debug(
         `[aso-popularity] sending ${stageLabel} request cookieHeaderLength=${cookieHeader.length} terms=${terms.length}`
@@ -185,7 +186,8 @@ export class AsoPopularityService {
       let response = await requestPopularitiesWithKwsRetry(
         terms,
         cookieHeader,
-        adamId
+        adamId,
+        options
       );
       logPopularityResponse(stageLabel, response.statusCode, response.data);
 
@@ -202,7 +204,8 @@ export class AsoPopularityService {
         response = await requestPopularitiesWithKwsRetry(
           terms,
           cookieHeader,
-          adamId
+          adamId,
+          options
         );
         logPopularityResponse(
           `${stageLabel}-post-reauth`,
@@ -371,7 +374,8 @@ export class AsoPopularityService {
         try {
           const singleResponse = await requestWithAuthRecovery(
             [term],
-            `isolation:${term}`
+            `isolation:${term}`,
+            { maxAttempts: 1 }
           );
           if (
             singleResponse.statusCode === 200 &&

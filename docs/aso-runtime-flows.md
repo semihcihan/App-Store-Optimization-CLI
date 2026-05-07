@@ -44,13 +44,17 @@ Runtime flow contracts across CLI commands, local dashboard API, and ASO service
 2. Cache lookup (`/aso/cache-lookup`).
 3. Classify misses:
    - popularity missing/expired -> fetch popularity from Search Ads, then full enrich.
+   - popularity request retries are request-scoped and bounded (default: 2 total attempts); keyword-level isolation requests after terminal batch failure are single-attempt to avoid retry fan-out.
    - popularity fresh + difficulty/order incomplete -> full enrich with cached popularity.
    - popularity fresh + difficulty complete + order expired -> order-only refresh.
    - when `--min-popularity` is set, rows below threshold are marked `filteredOut(low_popularity)` and skip enrich/difficulty calculation.
 4. Persist popularity-only local rows for keywords awaiting full enrich.
 5. Enrich required keywords (`/aso/enrich`) and persist enriched keywords + competitor app docs.
+   - Search-page bundle results are excluded from top-app difficulty input; only app-like results feed top-id difficulty hydration.
    - For top difficulty docs, enrichment fetches configured additional locales for the country and stores locale-keyed `name/subtitle` under competitor docs (`aso_apps.additionalLocalizations`) for per-localization keyword matching.
+   - Top-id doc hydration uses App Store lookup first, then iTunes Lookup fallback when release-date fields remain missing/incomplete for those IDs.
    - For `appCount>=5`, enrichment backfills missing top ids from cache/lookup and retries unresolved ids once; if still incomplete, keyword enrichment fails with `INSUFFICIENT_DOCS` instead of persisting fallback score `1`.
+   - When the same top app id keeps returning incomplete lookup docs, enrichment applies a short in-process cooldown before trying that id again for nearby keywords.
    - During enrichment, brand classification is computed as `isBrandKeyword` from top-doc publisher signals (`publisherName`) after hydration/backfill; this is a flag only and does not adjust difficulty scores.
 6. Refresh order-only keywords and persist updated `orderedAppIds` + `appCount` without refetching popularity.
    - Order refresh may include lightweight app metadata from search-page parsing, but Flow A persists only keyword order fields in this step; competitor doc cache (`aso_apps`) is hydrated later by Flow E endpoints when docs are missing/expired.
@@ -136,7 +140,8 @@ Runtime flow contracts across CLI commands, local dashboard API, and ASO service
    - difficulty has never been computed
    - order TTL is stale (owned-associated keywords only; research-only keywords do not use order staleness as a refresh trigger)
 3. Run the same keyword pipeline used by CLI fetch in non-interactive mode, in batches while pausing for foreground mutations.
-   - Non-auth batch failures get one bounded retry.
+   - Transient non-auth batch failures get one bounded retry.
+   - Exhausted `All keywords failed (...)` batch failures are not retried at startup-manager level.
    - Auth-required failures skip retry and stop remaining startup batches for that run.
 4. Publish refresh status via `GET /api/aso/refresh-status`, including whether the failure requires Search Ads reauthentication.
 5. If auth is required, the dashboard auto-starts the same reauthentication flow used by add-keyword once; silent session reuse stays invisible, while browser prompt steps/failure states surface through the shared auth modal.

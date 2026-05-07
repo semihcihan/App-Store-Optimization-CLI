@@ -19,7 +19,7 @@ describe("aso-apple-popularity-client", () => {
     jest.clearAllMocks();
     jest.useFakeTimers();
     jest.spyOn(Math, "random").mockReturnValue(0);
-    process.env.ASO_RETRY_MAX_ATTEMPTS = "4";
+    process.env.ASO_RETRY_MAX_ATTEMPTS = "2";
     process.env.ASO_RETRY_BASE_DELAY_MS = "1000";
     process.env.ASO_RETRY_MAX_DELAY_MS = "30000";
     process.env.ASO_RETRY_JITTER_FACTOR = "0.1";
@@ -34,7 +34,7 @@ describe("aso-apple-popularity-client", () => {
     delete process.env.ASO_RETRY_JITTER_FACTOR;
   });
 
-  it("retries KWS_NO_ORG_CONTENT_PROVIDERS up to 3 times and succeeds", async () => {
+  it("retries KWS_NO_ORG_CONTENT_PROVIDERS once and succeeds", async () => {
     (mockPost as any)
       .mockResolvedValueOnce({
         status: 403,
@@ -52,31 +52,15 @@ describe("aso-apple-popularity-client", () => {
         },
       })
       .mockResolvedValueOnce({
-        status: 403,
-        data: {
-          status: "error",
-          requestID: "req2",
-          error: {
-            errors: [
-              {
-                messageCode: "KWS_NO_ORG_CONTENT_PROVIDERS",
-                message: "No org content providers",
-              },
-            ],
-          },
-        },
-      })
-      .mockResolvedValueOnce({
         status: 200,
         data: { status: "success", data: [{ name: "z", popularity: 9 }] },
       });
 
     const promise = requestPopularitiesWithKwsRetry(["z"], "cookie=value", "adam");
     await jest.advanceTimersByTimeAsync(1000);
-    await jest.advanceTimersByTimeAsync(2000);
     const result = await promise;
 
-    expect(mockPost).toHaveBeenCalledTimes(3);
+    expect(mockPost).toHaveBeenCalledTimes(2);
     expect(result.statusCode).toBe(200);
     expect(result.data.status).toBe("success");
   });
@@ -104,11 +88,9 @@ describe("aso-apple-popularity-client", () => {
       "adam"
     );
     await jest.advanceTimersByTimeAsync(1000);
-    await jest.advanceTimersByTimeAsync(2000);
-    await jest.advanceTimersByTimeAsync(4000);
     const result = await promise;
 
-    expect(mockPost).toHaveBeenCalledTimes(4);
+    expect(mockPost).toHaveBeenCalledTimes(2);
     expect(result.statusCode).toBe(403);
     expect(result.data.error?.errors?.[0]?.messageCode).toBe(
       "KWS_NO_ORG_CONTENT_PROVIDERS"
@@ -147,7 +129,6 @@ describe("aso-apple-popularity-client", () => {
     });
     (mockPost as any)
       .mockRejectedValueOnce(networkError)
-      .mockRejectedValueOnce(networkError)
       .mockResolvedValueOnce({
         status: 200,
         data: { status: "success", data: [{ name: "z", popularity: 5 }] },
@@ -155,10 +136,26 @@ describe("aso-apple-popularity-client", () => {
 
     const promise = requestPopularitiesWithKwsRetry(["z"], "cookie=value", "adam");
     await jest.advanceTimersByTimeAsync(1000);
-    await jest.advanceTimersByTimeAsync(2000);
     const result = await promise;
 
-    expect(mockPost).toHaveBeenCalledTimes(3);
+    expect(mockPost).toHaveBeenCalledTimes(2);
     expect(result.statusCode).toBe(200);
+  });
+
+  it("does not retry when maxAttempts override is 1", async () => {
+    (mockPost as any).mockResolvedValue({
+      status: 503,
+      data: { status: "error", requestID: "req-no-retry" },
+    });
+
+    const result = await requestPopularitiesWithKwsRetry(
+      ["z"],
+      "cookie=value",
+      "adam",
+      { maxAttempts: 1 }
+    );
+
+    expect(mockPost).toHaveBeenCalledTimes(1);
+    expect(result.statusCode).toBe(503);
   });
 });

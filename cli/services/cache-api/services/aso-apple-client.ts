@@ -2,6 +2,11 @@ import axios, { AxiosError, AxiosRequestConfig, AxiosResponse } from "axios";
 import { ContextualError } from "../../../utils/error-handling-helpers";
 import { logger } from "../../../utils/logger";
 import { getAsoResilienceConfig } from "../../../shared/aso-resilience";
+import { getRetryDelayMs } from "../../../shared/aso-retry-delay";
+import {
+  isRetryableTransientStatusCode,
+  isTransientTransportFailure,
+} from "../../../shared/aso-transient-error";
 import { attachAppleHttpTracing } from "../../keywords/apple-http-trace";
 
 const SENSITIVE_HEADER_KEYS = ["authorization", "cookie", "set-cookie", "x-api-key"];
@@ -38,64 +43,14 @@ function sanitizeHeaders(
   return sanitized;
 }
 
-function getHeaderValue(
-  headers: Record<string, unknown> | undefined,
-  headerName: string
-): string | undefined {
-  if (!headers) return undefined;
-  const match = Object.entries(headers).find(
-    ([key]) => key.toLowerCase() === headerName.toLowerCase()
-  );
-  if (!match) return undefined;
-  const value = match[1];
-  if (Array.isArray(value)) return value[0];
-  return value != null ? String(value) : undefined;
-}
-
 function shouldRetry(error: AxiosError): boolean {
-  if (error.response?.status != null) {
-    return error.response.status === 429 || error.response.status >= 500;
-  }
-  const code = error.code ?? "";
-  if (
-    code === "ECONNRESET" ||
-    code === "ETIMEDOUT" ||
-    code === "UND_ERR_CONNECT_TIMEOUT" ||
-    code === "UND_ERR_SOCKET" ||
-    code === "UND_ERR_ABORTED" ||
-    code === "UND_ERR_DESTROYED"
-  ) {
+  if (isRetryableTransientStatusCode(error.response?.status)) {
     return true;
   }
-  const message = (error.message ?? "").toLowerCase();
-  return message.includes("network") || message.includes("timeout") || message.includes("fetch failed");
-}
-
-function calculateJitteredDelay(baseDelay: number): number {
-  const { jitterFactor, maxDelayMs } = getAsoResilienceConfig();
-  const delayWithJitter = baseDelay + Math.random() * jitterFactor * baseDelay;
-  return Math.min(maxDelayMs, delayWithJitter);
-}
-
-function parseRetryAfterMs(error: AxiosError): number | null {
-  if (error.response?.status !== 429) return null;
-  const retryAfterRaw = getHeaderValue(
-    error.response.headers as Record<string, unknown> | undefined,
-    "retry-after"
-  );
-  if (!retryAfterRaw) return null;
-
-  const retryAfterSeconds = Number.parseInt(retryAfterRaw, 10);
-  if (Number.isFinite(retryAfterSeconds)) {
-    return Math.max(0, retryAfterSeconds * 1000);
-  }
-
-  const retryAfterDateMs = Date.parse(retryAfterRaw);
-  if (Number.isFinite(retryAfterDateMs)) {
-    return Math.max(0, retryAfterDateMs - Date.now());
-  }
-
-  return null;
+  return isTransientTransportFailure({
+    code: error.code,
+    message: error.message,
+  });
 }
 
 async function waitBeforeRetry(
@@ -103,25 +58,13 @@ async function waitBeforeRetry(
   attempt: number,
   delayMs: number
 ): Promise<number> {
-  const retryAfterMs = parseRetryAfterMs(error);
-  if (retryAfterMs != null) {
-    const waitedMs = calculateJitteredDelay(retryAfterMs);
-    await new Promise((resolve) => setTimeout(resolve, waitedMs));
-    return waitedMs;
-  }
-
-  if (error.response?.status === 429) {
-    const { rateLimitBaseDelayMs, maxDelayMs } = getAsoResilienceConfig();
-    const exponentialDelay = rateLimitBaseDelayMs * Math.pow(2, attempt - 1);
-    const waitedMs = calculateJitteredDelay(
-      Math.min(maxDelayMs, exponentialDelay)
-    );
-    await new Promise((resolve) => setTimeout(resolve, waitedMs));
-    return waitedMs;
-  }
-
-  const exponentialDelay = delayMs * Math.pow(2, attempt - 1);
-  const waitedMs = calculateJitteredDelay(exponentialDelay);
+  const waitedMs = getRetryDelayMs({
+    statusCode: error.response?.status,
+    headers: error.response?.headers as Record<string, unknown> | undefined,
+    attempt,
+    defaultBaseDelayMs: delayMs,
+    rateLimitBaseDelayMs: getAsoResilienceConfig().rateLimitBaseDelayMs,
+  });
   await new Promise((resolve) => setTimeout(resolve, waitedMs));
   return waitedMs;
 }

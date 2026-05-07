@@ -8,7 +8,7 @@ export const ASO_DEFAULTS = {
   appleWidgetKeyFallback:
     "a01459d797984726ee0914a7097e53fad42b70e1f08d09294d14523a1d4f61e1",
   authMode: "auto",
-  retryMaxAttempts: 4,
+  retryMaxAttempts: 2,
   retryBaseDelayMs: 1000,
   retryMaxDelayMs: 30000,
   rateLimitBaseDelayMs: 5000,

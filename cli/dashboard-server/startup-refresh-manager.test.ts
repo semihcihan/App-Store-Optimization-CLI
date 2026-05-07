@@ -169,7 +169,9 @@ describe("startup-refresh-manager", () => {
       enrichKeywords: async (_country, items) => {
         enrichCalls.push(items);
         if (enrichCalls.length === 1) {
-          throw new Error("first batch failed");
+          throw Object.assign(new Error("transient network failure"), {
+            code: "ECONNRESET",
+          });
         }
       },
       isForegroundBusy: () => false,
@@ -211,7 +213,9 @@ describe("startup-refresh-manager", () => {
       listAssociatedAppIds: () => new Set(["app-1"]),
       listOrderRelevantAppIds: () => new Set(["app-1"]),
       enrichKeywords: async () => {
-        throw new Error("always fails");
+        throw Object.assign(new Error("always fails transiently"), {
+          code: "ETIMEDOUT",
+        });
       },
       isForegroundBusy: () => false,
       reportError: (error) => {
@@ -231,6 +235,41 @@ describe("startup-refresh-manager", () => {
     expect(state.counters.failedKeywordCount).toBe(1);
     expect(state.requiresReauthentication).toBe(false);
     expect(errors).toHaveLength(1);
+  });
+
+  it("does not retry deterministic non-transient batch failures", async () => {
+    let enrichCalls = 0;
+
+    const manager = createStartupRefreshManager({
+      country: "US",
+      listKeywords: () => [
+        buildKeyword({
+          keyword: "k1",
+          normalizedKeyword: "k1",
+          orderExpiresAt: "2026-03-06T00:00:00.000Z",
+        }),
+      ],
+      listAppKeywords: () => [buildAssociation({ keyword: "k1", appId: "app-1" })],
+      listAssociatedAppIds: () => new Set(["app-1"]),
+      listOrderRelevantAppIds: () => new Set(["app-1"]),
+      enrichKeywords: async () => {
+        enrichCalls += 1;
+        throw new Error("deterministic failure");
+      },
+      isForegroundBusy: () => false,
+      nowMs: () => Date.parse("2026-03-07T00:00:00.000Z"),
+      sleep: async () => {},
+      keywordBatchSize: 25,
+    });
+
+    manager.start();
+    await waitForManagerToFinish(manager);
+
+    const state = manager.getState();
+    expect(state.status).toBe("failed");
+    expect(state.counters.refreshedKeywordCount).toBe(0);
+    expect(state.counters.failedKeywordCount).toBe(1);
+    expect(enrichCalls).toBe(1);
   });
 
   it("marks auth-required failures and allows restart after failure", async () => {
@@ -342,5 +381,55 @@ describe("startup-refresh-manager", () => {
     expect(state.counters.refreshedKeywordCount).toBe(0);
     expect(state.counters.failedKeywordCount).toBe(1);
     expect(attempt).toBe(1);
+  });
+
+  it("does not retry exhausted all-keywords-failed batches", async () => {
+    let enrichCalls = 0;
+
+    const manager = createStartupRefreshManager({
+      country: "US",
+      listKeywords: () => [
+        buildKeyword({
+          keyword: "k1",
+          normalizedKeyword: "k1",
+          orderExpiresAt: "2026-03-06T00:00:00.000Z",
+        }),
+        buildKeyword({
+          keyword: "k2",
+          normalizedKeyword: "k2",
+          orderExpiresAt: "2026-03-06T00:00:00.000Z",
+        }),
+        buildKeyword({
+          keyword: "k3",
+          normalizedKeyword: "k3",
+          orderExpiresAt: "2026-03-06T00:00:00.000Z",
+        }),
+      ],
+      listAppKeywords: () => [
+        buildAssociation({ keyword: "k1", appId: "app-1" }),
+        buildAssociation({ keyword: "k2", appId: "app-1" }),
+        buildAssociation({ keyword: "k3", appId: "app-1" }),
+      ],
+      listAssociatedAppIds: () => new Set(["app-1"]),
+      listOrderRelevantAppIds: () => new Set(["app-1"]),
+      enrichKeywords: async () => {
+        enrichCalls += 1;
+        throw new Error("All keywords failed (1): k1:INSUFFICIENT_DOCS(503)");
+      },
+      isForegroundBusy: () => false,
+      nowMs: () => Date.parse("2026-03-07T00:00:00.000Z"),
+      sleep: async () => {},
+      keywordBatchSize: 1,
+    });
+
+    manager.start();
+    await waitForManagerToFinish(manager);
+
+    const state = manager.getState();
+    expect(state.status).toBe("failed");
+    expect(state.counters.eligibleKeywordCount).toBe(3);
+    expect(state.counters.refreshedKeywordCount).toBe(0);
+    expect(state.counters.failedKeywordCount).toBe(3);
+    expect(enrichCalls).toBe(3);
   });
 });

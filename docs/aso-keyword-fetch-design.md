@@ -91,6 +91,7 @@ Also covers MCP keyword evaluation entrypoint (`aso_evaluate_keywords`) that eva
 - Fallback ordering source: MZSearch.
 - App detail sources:
   - App Store lookup payloads for competitor docs and release-date fields.
+  - iTunes Lookup fallback (`itunes.apple.com/lookup`) for top-app IDs that are missing or incomplete from App Store lookup, so release-date fields can still be hydrated for difficulty scoring.
   - Localized app-page `serialized-server-data` JSON for `title`, `subtitle`, `icon`, `ratingAverage`, `totalNumberOfRatings`.
   - During enrichment, top difficulty docs aggregate additional locale `name/subtitle` into `aso_apps.additionalLocalizations` for per-localization keyword matching.
   - When search-page lockups are sparse but `nextPage` contributes top ids, enrichment backfills those missing top ids from cached competitor docs and App Lookup before difficulty scoring.

@@ -1,5 +1,9 @@
 import { jest } from "@jest/globals";
-import { enrichKeyword, refreshKeywordOrder } from "./aso-enrichment-service";
+import {
+  __resetIncompleteTopDocLookupCooldownForTests,
+  enrichKeyword,
+  refreshKeywordOrder,
+} from "./aso-enrichment-service";
 import { asoAppleGet } from "./aso-apple-client";
 import { fetchAppStoreLookupAppDocs } from "./aso-app-doc-service";
 import { fetchAppStoreAdditionalLocalizations } from "./aso-app-store-details";
@@ -51,9 +55,15 @@ function buildSearchHtmlForIds(
   options?: {
     developerNamesById?: Record<string, string>;
     ratingCountById?: Record<string, string | number>;
+    kindsById?: Record<string, string>;
+    resultTypesById?: Record<string, string>;
   }
 ): string {
   const items = ids.map((id, index) => ({
+    ...(options?.kindsById?.[id] ? { $kind: options.kindsById[id] } : {}),
+    ...(options?.resultTypesById?.[id]
+      ? { resultType: options.resultTypesById[id] }
+      : {}),
     lockup: {
       adamId: id,
       title: `App ${id}`,
@@ -108,6 +118,7 @@ function buildCompleteCachedTopDocs(
 describe("aso-enrichment-service", () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    __resetIncompleteTopDocLookupCooldownForTests();
     mockedFetchAppStoreAdditionalLocalizations.mockResolvedValue({});
   });
 
@@ -331,6 +342,199 @@ describe("aso-enrichment-service", () => {
         currentVersionReleaseDate: "2025-01-01T00:00:00.000Z",
       })
     );
+  });
+
+  it("applies lookup cooldown for unresolved top-app docs across nearby keywords", async () => {
+    mockedAsoAppleGet.mockResolvedValue({
+      data: buildSearchHtmlForIds(["1", "2", "3", "4", "5"]),
+    } as never);
+    mockedFetchAppStoreLookupAppDocs.mockResolvedValue([
+      {
+        appId: "1",
+        country: "US",
+        name: "Lookup 1 Missing Dates",
+        averageUserRating: 4.8,
+        userRatingCount: 1111,
+        releaseDate: null,
+        currentVersionReleaseDate: null,
+      },
+    ]);
+
+    const getAppDocs = async () => [
+      {
+        appId: "1",
+        country: "US",
+        name: "Cached 1",
+        averageUserRating: 4.7,
+        userRatingCount: 1000,
+        expiresAt: "2099-01-01T00:00:00.000Z",
+        releaseDate: null,
+        currentVersionReleaseDate: null,
+      },
+      {
+        appId: "2",
+        country: "US",
+        name: "Cached 2",
+        averageUserRating: 4.6,
+        userRatingCount: 2000,
+        expiresAt: "2099-01-01T00:00:00.000Z",
+        releaseDate: "2024-01-01T00:00:00.000Z",
+        currentVersionReleaseDate: "2025-01-01T00:00:00.000Z",
+      },
+      {
+        appId: "3",
+        country: "US",
+        name: "Cached 3",
+        averageUserRating: 4.5,
+        userRatingCount: 3000,
+        expiresAt: "2099-01-01T00:00:00.000Z",
+        releaseDate: "2024-01-01T00:00:00.000Z",
+        currentVersionReleaseDate: "2025-01-01T00:00:00.000Z",
+      },
+      {
+        appId: "4",
+        country: "US",
+        name: "Cached 4",
+        averageUserRating: 4.4,
+        userRatingCount: 4000,
+        expiresAt: "2099-01-01T00:00:00.000Z",
+        releaseDate: "2024-01-01T00:00:00.000Z",
+        currentVersionReleaseDate: "2025-01-01T00:00:00.000Z",
+      },
+      {
+        appId: "5",
+        country: "US",
+        name: "Cached 5",
+        averageUserRating: 4.3,
+        userRatingCount: 5000,
+        expiresAt: "2099-01-01T00:00:00.000Z",
+        releaseDate: "2024-01-01T00:00:00.000Z",
+        currentVersionReleaseDate: "2025-01-01T00:00:00.000Z",
+      },
+    ];
+
+    await expect(
+      enrichKeyword(
+        {
+          keyword: "word game",
+          country: "US",
+          popularity: 66,
+        },
+        { getAppDocs }
+      )
+    ).rejects.toThrow("Insufficient top-app docs for difficulty scoring");
+
+    expect(mockedFetchAppStoreLookupAppDocs).toHaveBeenCalledTimes(2);
+
+    await expect(
+      enrichKeyword(
+        {
+          keyword: "word game plus",
+          country: "US",
+          popularity: 66,
+        },
+        { getAppDocs }
+      )
+    ).rejects.toThrow("Insufficient top-app docs for difficulty scoring");
+
+    expect(mockedFetchAppStoreLookupAppDocs).toHaveBeenCalledTimes(2);
+  });
+
+  it("skips bundle search results when building top app ids for difficulty docs", async () => {
+    const bundleId = "1814195639";
+    mockedAsoAppleGet.mockResolvedValue({
+      data: buildSearchHtmlForIds(
+        ["1", "2", bundleId, "3", "4"],
+        ["5", "6"],
+        {
+          kindsById: {
+            [bundleId]: "BundleSearchResult",
+          },
+          resultTypesById: {
+            [bundleId]: "bundle",
+          },
+        }
+      ),
+    } as never);
+    mockedFetchAppStoreLookupAppDocs.mockResolvedValue([
+      {
+        appId: "1",
+        country: "US",
+        name: "Lookup 1",
+        averageUserRating: 4.8,
+        userRatingCount: 1000,
+        releaseDate: "2024-01-01T00:00:00.000Z",
+        currentVersionReleaseDate: "2025-01-01T00:00:00.000Z",
+      },
+      {
+        appId: "2",
+        country: "US",
+        name: "Lookup 2",
+        averageUserRating: 4.7,
+        userRatingCount: 2000,
+        releaseDate: "2024-01-01T00:00:00.000Z",
+        currentVersionReleaseDate: "2025-01-01T00:00:00.000Z",
+      },
+      {
+        appId: "3",
+        country: "US",
+        name: "Lookup 3",
+        averageUserRating: 4.6,
+        userRatingCount: 3000,
+        releaseDate: "2024-01-01T00:00:00.000Z",
+        currentVersionReleaseDate: "2025-01-01T00:00:00.000Z",
+      },
+      {
+        appId: "4",
+        country: "US",
+        name: "Lookup 4",
+        averageUserRating: 4.5,
+        userRatingCount: 4000,
+        releaseDate: "2024-01-01T00:00:00.000Z",
+        currentVersionReleaseDate: "2025-01-01T00:00:00.000Z",
+      },
+      {
+        appId: "5",
+        country: "US",
+        name: "Lookup 5",
+        averageUserRating: 4.4,
+        userRatingCount: 5000,
+        releaseDate: "2024-01-01T00:00:00.000Z",
+        currentVersionReleaseDate: "2025-01-01T00:00:00.000Z",
+      },
+    ]);
+
+    const result = await enrichKeyword(
+      {
+        keyword: "youtube",
+        country: "US",
+        popularity: 92,
+      },
+      {
+        getAppDocs: async () => [],
+      }
+    );
+
+    expect(result.orderedAppIds.slice(0, 5)).toEqual(["1", "2", "3", "4", "5"]);
+    expect(result.orderedAppIds).not.toContain(bundleId);
+    const lookupCalls = mockedFetchAppStoreLookupAppDocs.mock.calls.map(
+      (call) => call[0]
+    );
+    expect(lookupCalls).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          country: "US",
+          appIds: ["1", "2", "3", "4"],
+        }),
+        expect.objectContaining({
+          country: "US",
+          appIds: ["5"],
+        }),
+      ])
+    );
+    for (const call of lookupCalls) {
+      expect(call?.appIds ?? []).not.toContain(bundleId);
+    }
   });
 
   it("matches keywords per localization and does not mix words across localizations", async () => {
