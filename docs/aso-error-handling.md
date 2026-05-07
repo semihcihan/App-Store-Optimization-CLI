@@ -8,6 +8,7 @@ Define failure boundaries, retry rules, and recovery behavior across CLI, dashbo
 - Dashboard error mapping is centralized in `cli/domain/errors/dashboard-errors.ts` and consumed by both server (`cli/dashboard-server/server.ts`) and UI (`cli/dashboard-ui/app-helpers.ts`).
 - Enrichment services (`cli/services/cache-api/services/aso-enrichment-service.ts`, `cli/services/cache-api/services/aso-apple-client.ts`) handle App Store fetch failures and fallback behavior.
 - Dashboard keyword/app-doc route handlers are split under `cli/dashboard-server/routes/*`, while auth state and HTTP utilities are isolated in `cli/dashboard-server/auth-state.ts` and `cli/dashboard-server/http-utils.ts`.
+- Shared setup/auth prompts are emitted by services and transported through either CLI prompts or dashboard prompt sessions; browser UX does not fork the auth logic.
 
 ## Dashboard Error Codes
 - `INVALID_REQUEST`
@@ -15,6 +16,7 @@ Define failure boundaries, retry rules, and recovery behavior across CLI, dashbo
 - `AUTH_REQUIRED`
 - `AUTH_IN_PROGRESS`
 - `TTY_REQUIRED`
+- `PRIMARY_APP_ID_RECONFIGURE_REQUIRED`
 - `AUTHORIZATION_FAILED`
 - `RATE_LIMITED`
 - `REQUEST_TIMEOUT`
@@ -24,15 +26,23 @@ Define failure boundaries, retry rules, and recovery behavior across CLI, dashbo
 
 ## Retry Policy
 - Shared resilience config lives in `cli/shared/aso-resilience.ts` (env defaults/parsing centralized in `cli/shared/aso-env.ts`).
-- Popularity fetch retries transient responses (`429`, `5xx`, `KWS_NO_ORG_CONTENT_PROVIDERS`) and transient network errors.
-- App Store web fetches retry `429`, `5xx`, and transient network errors with jittered exponential backoff.
+- Popularity fetch retries transient responses (`429`, `5xx`, `KWS_NO_ORG_CONTENT_PROVIDERS`) and transient network errors with bounded request attempts (default: 2 total attempts, i.e. one retry).
+- App Store web fetches retry `429`, `5xx`, and transient network errors with jittered exponential backoff using the same bounded request-attempt policy (default: 2 total attempts).
+- Popularity batch isolation requests (`one keyword per request` after a terminal batch failure) run single-attempt (`maxAttempts=1`) to avoid retry multiplication.
 - Enrichment applies one bounded retry/backoff cycle for competitive keywords when top-5 difficulty docs are incomplete (`reasonCode=INSUFFICIENT_DOCS` when still unresolved).
-- Startup refresh manager retries each unit once and records failures without crashing runtime.
+- Enrichment applies a short in-process cooldown for top-app IDs that still return incomplete lookup docs, so nearby keywords do not repeat the same expensive lookup loop immediately.
+- App-doc hydration now falls back to iTunes Lookup for IDs that App Store lookup leaves missing/incomplete, reducing false `INSUFFICIENT_DOCS` failures caused by lookup payload gaps.
+- Startup refresh manager retries each unit once for transient non-auth failures; it does not retry exhausted `All keywords failed (...)` batch failures, and auth-required failures are terminal for the current run and stop remaining batches.
+- Startup refresh auth failures are exposed as structured refresh-status state so the dashboard can prompt for reauthentication instead of silently stopping.
+- Startup refresh auth failures reuse the same dashboard reauthentication UX as add-keyword: one automatic auth-start attempt, then shared browser prompt / retry handling if user input is needed.
 - `keywordPipelineService` isolates terminal failures per keyword and stores normalized failure metadata in `aso_keyword_failures` via `keywordWriteRepository` (single write owner).
 
 ## Recovery Behavior
 - Dashboard add-keyword:
   - If auth is invalid in stage 1, return `AUTH_REQUIRED` (no interactive prompt in request path).
+  - If the configured Primary App ID is inaccessible for the current Apple Ads account, return `PRIMARY_APP_ID_RECONFIGURE_REQUIRED` so the dashboard can reopen the shared Primary App ID setup flow.
+- Dashboard startup-refresh auth recovery:
+  - While refresh status reports `requiresReauthentication=true`, keyword mutations (`Add Keywords`, `Retry Failed`) are disabled until reauthentication succeeds.
 - If stage-2 enrichment fails, stage-1 writes remain; caller can retry later.
 - Stage-2 enrichment writes are per-keyword progressive: successful keywords are visible in cache/UI polling as soon as that keyword finishes, while other keywords continue running.
 - For `appCount >= 5`, enrichment does not persist fallback `difficultyScore=1` when top-5 docs are incomplete; it records a retryable enrichment failure instead.
@@ -56,6 +66,9 @@ Define failure boundaries, retry rules, and recovery behavior across CLI, dashbo
   - Attempts cached-session reuse before full credential login.
   - Reuses keychain credentials first when full login is required.
   - Clears invalid keychain credentials and reprompts when Apple rejects stored creds.
+- Plain `aso`:
+  - Starts dashboard even when Primary App ID is missing.
+  - Recovers missing Primary App ID through dashboard setup state instead of requiring an immediate terminal prompt.
 
 ## Observability
 - Apple HTTP calls carry trace context.
@@ -92,6 +105,7 @@ Define failure boundaries, retry rules, and recovery behavior across CLI, dashbo
 - Dashboard UI Bugsnag metadata includes only failed local dashboard traces by default (max `3`); set `ASO_BUGSNAG_VERBOSE_TRACES=1` to include full recent local trace bundles for deep debugging.
 - MCP reports runtime/transport/parse-contract failures; non-zero child CLI exits are suppressed by default.
 - Startup refresh state (`status`, counters, timestamps, lastError) is exposed via API.
+- Startup refresh can be restarted explicitly from the dashboard after recovery (`POST /api/aso/refresh/start`).
 - CLI ASO retry/fallback diagnostics (auth, popularity, and enrichment fallback traces) are logged at `debug`; user-facing flows should surface terminal outcomes and actionable prompts/errors instead of intermediate warning noise.
 
 ## Request Payload Limits

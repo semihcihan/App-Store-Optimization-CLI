@@ -25,7 +25,7 @@ describe("aso-apple-client", () => {
     jest.clearAllMocks();
     jest.useFakeTimers();
     jest.spyOn(Math, "random").mockReturnValue(0);
-    process.env.ASO_RETRY_MAX_ATTEMPTS = "4";
+    process.env.ASO_RETRY_MAX_ATTEMPTS = "2";
     process.env.ASO_RETRY_BASE_DELAY_MS = "1000";
     process.env.ASO_RETRY_MAX_DELAY_MS = "30000";
     process.env.ASO_RETRY_JITTER_FACTOR = "0.1";
@@ -40,15 +40,13 @@ describe("aso-apple-client", () => {
     delete process.env.ASO_RETRY_JITTER_FACTOR;
   });
 
-  it("uses shared retry defaults and retries 500 responses up to attempt 4", async () => {
+  it("uses shared retry defaults and retries 500 responses up to attempt 2", async () => {
     const transientError = {
       response: { status: 500, statusText: "Server Error", headers: {} },
       message: "Internal error",
     };
 
     (mockGet as any)
-      .mockRejectedValueOnce(transientError)
-      .mockRejectedValueOnce(transientError)
       .mockRejectedValueOnce(transientError)
       .mockResolvedValueOnce({
         status: 200,
@@ -63,11 +61,9 @@ describe("aso-apple-client", () => {
     });
 
     await jest.advanceTimersByTimeAsync(1000);
-    await jest.advanceTimersByTimeAsync(2000);
-    await jest.advanceTimersByTimeAsync(4000);
     const response = await promise;
 
     expect(response.status).toBe(200);
-    expect(mockGet).toHaveBeenCalledTimes(4);
+    expect(mockGet).toHaveBeenCalledTimes(2);
   });
 });

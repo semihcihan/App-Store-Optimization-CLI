@@ -695,7 +695,7 @@ describe("aso-auth-service 2FA method handling", () => {
     const promptSpy = jest
       .spyOn(inquirer, "prompt")
       .mockResolvedValueOnce({
-        selectedPhone: { id: 8, numberWithDialCode: "+1 ••• ••22" },
+        value: "8",
       } as any)
       .mockResolvedValueOnce({ code: "12345678" } as any);
 

@@ -1,6 +1,10 @@
 import type { StoredAppKeyword, StoredAsoKeyword } from "../db/types";
 import { normalizeKeyword } from "../shared/aso-keyword-utils";
 import {
+  isKnownTransientStatusCode,
+  isTransientTransportFailure,
+} from "../shared/aso-transient-error";
+import {
   isCompleteStoredAsoKeyword,
   isStoredKeywordOrderFresh,
   isStoredKeywordPopularityFresh,
@@ -19,6 +23,7 @@ export type StartupRefreshState = {
   startedAt: string | null;
   finishedAt: string | null;
   lastError: string | null;
+  requiresReauthentication: boolean;
   counters: StartupRefreshCounters;
 };
 
@@ -43,6 +48,7 @@ type StartupRefreshDeps = {
   ) => Promise<unknown>;
   isForegroundBusy: () => boolean;
   reportError?: (error: unknown, metadata: Record<string, unknown>) => void;
+  isAuthReauthRequiredError?: (error: unknown) => boolean;
   nowMs?: () => number;
   sleep?: (ms: number) => Promise<void>;
   keywordBatchSize?: number;
@@ -124,6 +130,7 @@ function initialState(): StartupRefreshState {
     startedAt: null,
     finishedAt: null,
     lastError: null,
+    requiresReauthentication: false,
     counters: initialCounters(),
   };
 }
@@ -136,13 +143,36 @@ function errorToMessage(error: unknown): string {
   return raw.trim() || "Background refresh failed.";
 }
 
+function isExhaustedBatchFailure(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  const message = error.message.trim();
+  if (!message) return false;
+  return message.startsWith("All keywords failed (");
+}
+
+function isTransientStartupFailure(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const statusCode = (error as { statusCode?: unknown }).statusCode;
+  if (typeof statusCode === "number" && isKnownTransientStatusCode(statusCode)) {
+    return true;
+  }
+  return isTransientTransportFailure({
+    code: String((error as { code?: unknown }).code ?? ""),
+    message: String((error as { message?: unknown }).message ?? ""),
+  });
+}
+
 async function withOneRetry(
   operation: () => Promise<void>,
-  sleep: (ms: number) => Promise<void>
+  sleep: (ms: number) => Promise<void>,
+  shouldRetry?: (error: unknown) => boolean
 ): Promise<void> {
   try {
     await operation();
-  } catch {
+  } catch (error) {
+    if (shouldRetry?.(error) === false) {
+      throw error;
+    }
     await sleep(RETRY_DELAY_MS);
     await operation();
   }
@@ -164,8 +194,13 @@ export function createStartupRefreshManager(
   let runPromise: Promise<void> | null = null;
 
   const setFailure = (error: unknown, metadata: Record<string, unknown>) => {
+    const isAuthReauthRequired =
+      deps.isAuthReauthRequiredError?.(error) === true;
     if (!state.lastError) {
       state.lastError = errorToMessage(error);
+    }
+    if (isAuthReauthRequired) {
+      state.requiresReauthentication = true;
     }
     deps.reportError?.(error, metadata);
   };
@@ -189,15 +224,29 @@ export function createStartupRefreshManager(
       try {
         await withOneRetry(async () => {
           await deps.enrichKeywords(deps.country, batch);
-        }, sleep);
+        }, sleep, (error) => {
+          if (deps.isAuthReauthRequiredError?.(error) === true) {
+            return false;
+          }
+          if (isExhaustedBatchFailure(error)) {
+            return false;
+          }
+          return isTransientStartupFailure(error);
+        });
         state.counters.refreshedKeywordCount += batch.length;
       } catch (error) {
+        const isAuthReauthRequired =
+          deps.isAuthReauthRequiredError?.(error) === true;
         state.counters.failedKeywordCount += batch.length;
         setFailure(error, {
           phase: "startup-keyword-refresh",
           batchSize: batch.length,
           keywordPreview: batch.slice(0, 5).map((item) => item.keyword),
+          isAuthReauthRequired,
         });
+        if (isAuthReauthRequired) {
+          break;
+        }
       }
     }
   };
@@ -208,6 +257,7 @@ export function createStartupRefreshManager(
       startedAt: new Date(nowMs()).toISOString(),
       finishedAt: null,
       lastError: null,
+      requiresReauthentication: false,
       counters: initialCounters(),
     };
 
@@ -223,14 +273,18 @@ export function createStartupRefreshManager(
   return {
     start: () => {
       if (runPromise) return;
-      runPromise = run().catch((error) => {
-        setFailure(error, { phase: "startup-refresh-unhandled" });
-        state = {
-          ...state,
-          status: "failed",
-          finishedAt: new Date(nowMs()).toISOString(),
-        };
-      });
+      runPromise = run()
+        .catch((error) => {
+          setFailure(error, { phase: "startup-refresh-unhandled" });
+          state = {
+            ...state,
+            status: "failed",
+            finishedAt: new Date(nowMs()).toISOString(),
+          };
+        })
+        .finally(() => {
+          runPromise = null;
+        });
     },
     getState: () => ({
       ...state,

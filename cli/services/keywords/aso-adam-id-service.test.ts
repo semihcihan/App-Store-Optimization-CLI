@@ -2,6 +2,8 @@ import { beforeEach, describe, expect, it, jest } from "@jest/globals";
 import inquirer from "inquirer";
 import {
   getSavedAsoAdamId,
+  getConfiguredAsoAdamId,
+  resetAsoAdamIdRuntimeOverrideForTests,
   resolveAsoAdamId,
   saveAsoAdamId,
 } from "./aso-adam-id-service";
@@ -20,6 +22,7 @@ describe("aso-adam-id-service", () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    resetAsoAdamIdRuntimeOverrideForTests();
     process.env = { ...originalEnv };
     delete process.env.ASO_PRIMARY_APP_ID;
     jest.mocked(getMetadataValue).mockReturnValue(null);
@@ -81,6 +84,14 @@ describe("aso-adam-id-service", () => {
     expect(mockInquirer.prompt).not.toHaveBeenCalled();
   });
 
+  it("activates saved adam id immediately in the current process", () => {
+    process.env.ASO_PRIMARY_APP_ID = "121212121";
+
+    saveAsoAdamId("900100200");
+
+    expect(getConfiguredAsoAdamId()).toBe("900100200");
+  });
+
   it("ignores invalid env adam id and uses saved adam id", async () => {
     process.env.ASO_PRIMARY_APP_ID = "not-numeric";
     jest.mocked(getMetadataValue).mockReturnValue("101010101");
@@ -118,5 +129,21 @@ describe("aso-adam-id-service", () => {
       "Primary App ID is missing."
     );
     expect(mockInquirer.prompt).not.toHaveBeenCalled();
+  });
+
+  it("forces re-entry when an id is already configured", async () => {
+    jest.mocked(getMetadataValue).mockReturnValue("101010101");
+
+    const result = await resolveAsoAdamId({ forcePrompt: true });
+
+    expect(result).toBe("1234567890");
+    expect(mockInquirer.prompt).toHaveBeenCalledWith(
+      expect.arrayContaining([
+        expect.objectContaining({
+          name: "adamId",
+          default: "101010101",
+        }),
+      ])
+    );
   });
 });

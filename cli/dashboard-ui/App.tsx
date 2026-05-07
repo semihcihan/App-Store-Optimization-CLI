@@ -28,9 +28,10 @@ import { useFiltersSort, type SortDir, type SortKey } from "./hooks/use-filters-
 import { useSelection } from "./hooks/use-selection";
 import { sanitizeKeywords } from "../domain/keywords/policy";
 import { useAuthFlow } from "./hooks/use-auth-flow";
+import { usePrimaryAppSetupFlow } from "./hooks/use-primary-app-setup-flow";
 import { useAddAppSearch } from "./hooks/use-add-app-search";
 import { StatusBanners } from "./components/status-banners";
-import { AuthDialog } from "./components/auth-dialog";
+import { AsoPromptDialog } from "./components/aso-prompt-dialog";
 import { KeywordActionMenu } from "./components/keyword-action-menu";
 import { AddAppDialog } from "./components/add-app-dialog";
 import { AppActionMenu } from "./components/app-action-menu";
@@ -107,6 +108,12 @@ type KeywordPositionHistoryPayload = {
   keyword: string;
   points: KeywordHistoryPoint[];
 };
+type PositionHistoryHoverPoint = {
+  x: number;
+  y: number;
+  capturedAt: string;
+  position: number;
+};
 
 type FilterMenuKey = "popularity" | "difficulty" | "brand" | "favorite" | "rank";
 type KeywordActionMenuState = {
@@ -177,11 +184,14 @@ const SIDEBAR_SELECTION_CONTROL_SELECTOR = ".app-id-copy-target, .app-id-copy-ic
 const KEYWORDS_PAGE_SIZE = 100;
 const POSITION_HISTORY_CHART_WIDTH = 760;
 const POSITION_HISTORY_CHART_HEIGHT = 250;
+const POSITION_HISTORY_RANK_MIN = 1;
+const POSITION_HISTORY_RANK_MAX = 200;
+const POSITION_HISTORY_RANK_TICKS = [25, 50, 75, 100, 125, 150, 175, 200];
 const POSITION_HISTORY_CHART_PADDING = {
-  top: 16,
-  right: 16,
-  bottom: 32,
-  left: 40,
+  top: 14,
+  right: 44,
+  bottom: 34,
+  left: 18,
 };
 
 type StartupRefreshStatus = "idle" | "running" | "completed" | "failed";
@@ -191,6 +201,7 @@ type StartupRefreshStatusPayload = {
   startedAt: string | null;
   finishedAt: string | null;
   lastError: string | null;
+  requiresReauthentication: boolean;
   counters: {
     eligibleKeywordCount: number;
     refreshedKeywordCount: number;
@@ -315,6 +326,8 @@ export function App() {
   const [hasCachedData, setHasCachedData] = useState(false);
   const [isAddingKeywords, setIsAddingKeywords] = useState(false);
   const [isRetryingFailedKeywords, setIsRetryingFailedKeywords] = useState(false);
+  const [isRestartingStartupRefresh, setIsRestartingStartupRefresh] =
+    useState(false);
   const [loadingText, setLoadingText] = useState("");
   const [errorText, setErrorText] = useState("");
   const [successText, setSuccessText] = useState("");
@@ -333,6 +346,8 @@ export function App() {
   >([]);
   const [positionHistoryLoading, setPositionHistoryLoading] = useState(false);
   const [positionHistoryError, setPositionHistoryError] = useState("");
+  const [positionHistoryHoverPoint, setPositionHistoryHoverPoint] =
+    useState<PositionHistoryHoverPoint | null>(null);
   const [startupRefreshState, setStartupRefreshState] =
     useState<StartupRefreshStatusPayload | null>(null);
   const [displayLocale] = useState(() => getBrowserLocale());
@@ -341,8 +356,9 @@ export function App() {
   const keywordLoadRequestIdRef = useRef(0);
   const keywordQueryKeyRef = useRef<string | null>(null);
   const selectedAppIdRef = useRef(selectedAppId);
-  const autoRetryInFlightRef = useRef(false);
   const startupAppSyncAtRef = useRef<string | null>(null);
+  const resumeStartupRefreshAfterAuthRef = useRef(false);
+  const startupRefreshAuthAttemptKeyRef = useRef<string | null>(null);
 
   const appById = useMemo(
     () => new Map(apps.map((app) => [app.id, app])),
@@ -393,17 +409,31 @@ export function App() {
     authStatus,
     authStatusError,
     isStartingAuth,
-    pendingAddContext,
+    isSubmittingAuthPrompt,
+    authPendingPrompt,
     setPendingAddContext,
     openAuthModalForPendingAdd,
+    requestStartupRefreshReauthentication,
     startReauthentication,
+    submitAuthPromptResponse,
     authCheckLoadingText,
     authStatusLabel,
+    activeAuthContext,
     canStartReauth,
     showReauthButton,
   } = useAuthFlow({
     isAddingKeywords,
   });
+  const {
+    setupStatusError,
+    setupPendingPrompt,
+    isStartingSetup,
+    isSubmittingSetupPrompt,
+    setupModalOpen,
+    startSetup,
+    submitSetupPromptResponse,
+    openSetupModalForPrimaryAppAccessError,
+  } = usePrimaryAppSetupFlow();
   const {
     isAddAppPopoverOpen,
     addAppSearchTerm,
@@ -439,11 +469,31 @@ export function App() {
     () => apps.some((app) => Boolean(app.lastKeywordAddedAt)),
     [apps]
   );
+  const isKeywordMutationBlockedByStartupReauth =
+    startupRefreshState?.requiresReauthentication === true;
 
   const loadApps = useCallback(async (): Promise<AppItem[]> => {
     const list = await apiGet<AppItem[]>(`/api/apps`);
     setApps(list);
     return list;
+  }, []);
+
+  const restartStartupRefresh = useCallback(async (): Promise<void> => {
+    try {
+      setIsRestartingStartupRefresh(true);
+      const data = await apiWrite<StartupRefreshStatusPayload>(
+        "POST",
+        "/api/aso/refresh/start",
+        {}
+      );
+      setStartupRefreshState(data);
+    } catch (error) {
+      setErrorText(
+        toActionableErrorMessage(error, "Failed to restart background refresh")
+      );
+    } finally {
+      setIsRestartingStartupRefresh(false);
+    }
   }, []);
 
   const buildKeywordQueryKey = useCallback((appId: string) => {
@@ -755,12 +805,25 @@ export function App() {
   }, [positionHistoryKeyword]);
 
   useEffect(() => {
+    if (positionHistoryKeyword) return;
+    setPositionHistoryHoverPoint(null);
+  }, [positionHistoryKeyword]);
+
+  useEffect(() => {
+    const shouldPoll =
+      !startupRefreshState ||
+      startupRefreshState.status === "idle" ||
+      startupRefreshState.status === "running";
+    if (!shouldPoll) return;
+
     let isActive = true;
     let intervalId: number | null = null;
 
     const pollStatus = async (): Promise<void> => {
       try {
-        const data = await apiGet<StartupRefreshStatusPayload>("/api/aso/refresh-status");
+        const data = await apiGet<StartupRefreshStatusPayload>(
+          "/api/aso/refresh-status"
+        );
         if (!isActive) return;
         setStartupRefreshState(data);
         if (
@@ -777,12 +840,9 @@ export function App() {
     };
 
     void pollStatus();
-    intervalId = window.setInterval(
-      () => {
-        void pollStatus();
-      },
-      STARTUP_REFRESH_STATUS_POLL_INTERVAL_SECONDS * 1000
-    );
+    intervalId = window.setInterval(() => {
+      void pollStatus();
+    }, STARTUP_REFRESH_STATUS_POLL_INTERVAL_SECONDS * 1000);
 
     return () => {
       isActive = false;
@@ -790,7 +850,7 @@ export function App() {
         window.clearInterval(intervalId);
       }
     };
-  }, []);
+  }, [startupRefreshState?.status]);
 
   const hasPendingDifficulty = pendingKeywordCount > 0;
 
@@ -1114,6 +1174,10 @@ export function App() {
 
   const submitKeywords = useCallback(
     async (kws: string[]): Promise<boolean> => {
+      if (isKeywordMutationBlockedByStartupReauth) {
+        setErrorText("Finish Apple reauthentication before adding or retrying keywords.");
+        return false;
+      }
       try {
         setIsAddingKeywords(true);
         setErrorText("");
@@ -1136,6 +1200,7 @@ export function App() {
         return true;
       } catch (error) {
         if (openAuthModalForPendingAdd(error, kws)) return false;
+        if (openSetupModalForPrimaryAppAccessError(error)) return false;
         setErrorText(toActionableErrorMessage(error, "Failed to add keywords"));
         return false;
       } finally {
@@ -1149,6 +1214,8 @@ export function App() {
       loadApps,
       loadKeywords,
       openAuthModalForPendingAdd,
+      openSetupModalForPrimaryAppAccessError,
+      isKeywordMutationBlockedByStartupReauth,
     ]
   );
 
@@ -1180,6 +1247,10 @@ export function App() {
 
   const onRetryFailedKeywords = useCallback(async () => {
     if (failedKeywordCount <= 0) return;
+    if (isKeywordMutationBlockedByStartupReauth) {
+      setErrorText("Finish Apple reauthentication before adding or retrying keywords.");
+      return;
+    }
     try {
       setIsRetryingFailedKeywords(true);
       setErrorText("");
@@ -1205,23 +1276,44 @@ export function App() {
         );
       }
     } catch (error) {
+      if (openSetupModalForPrimaryAppAccessError(error)) return;
       setErrorText(toActionableErrorMessage(error, "Failed to retry failed keywords"));
     } finally {
       setIsRetryingFailedKeywords(false);
       setLoadingText("");
     }
-  }, [failedKeywordCount, keywordPage, loadKeywords, selectedAppId]);
+  }, [
+    failedKeywordCount,
+    keywordPage,
+    loadKeywords,
+    openSetupModalForPrimaryAppAccessError,
+    selectedAppId,
+    isKeywordMutationBlockedByStartupReauth,
+  ]);
 
   useEffect(() => {
     if (authStatus !== "succeeded") return;
-    if (!pendingAddContext) return;
-    if (autoRetryInFlightRef.current) return;
+    if (!resumeStartupRefreshAfterAuthRef.current) return;
+    resumeStartupRefreshAfterAuthRef.current = false;
+    void restartStartupRefresh();
+  }, [authStatus, restartStartupRefresh]);
 
-    autoRetryInFlightRef.current = true;
-    void submitKeywords(pendingAddContext.keywords).finally(() => {
-      autoRetryInFlightRef.current = false;
-    });
-  }, [authStatus, pendingAddContext, submitKeywords]);
+  useEffect(() => {
+    if (!startupRefreshState) return;
+    if (startupRefreshState.status !== "failed") return;
+    if (!startupRefreshState.requiresReauthentication) return;
+
+    const attemptKey =
+      startupRefreshState.finishedAt ??
+      startupRefreshState.startedAt ??
+      startupRefreshState.lastError ??
+      "startup-refresh-auth-required";
+    if (startupRefreshAuthAttemptKeyRef.current === attemptKey) return;
+
+    startupRefreshAuthAttemptKeyRef.current = attemptKey;
+    resumeStartupRefreshAfterAuthRef.current = true;
+    requestStartupRefreshReauthentication();
+  }, [requestStartupRefreshReauthentication, startupRefreshState]);
 
   const onAddApp = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -1329,6 +1421,7 @@ export function App() {
     setPositionHistoryKeyword(rowKeyword);
     setPositionHistoryPoints([]);
     setPositionHistoryError("");
+    setPositionHistoryHoverPoint(null);
     setPositionHistoryLoading(true);
     try {
       const data = await apiGet<KeywordPositionHistoryPayload>(
@@ -1428,7 +1521,7 @@ export function App() {
     const positions = sorted.map((point) => point.position);
     const bestPosition = Math.min(...positions);
     const worstPosition = Math.max(...positions);
-    const yRange = Math.max(1, worstPosition - bestPosition);
+    const yRange = POSITION_HISTORY_RANK_MAX - POSITION_HISTORY_RANK_MIN;
     const minTimestamp = Date.parse(sorted[0].capturedAt);
     const maxTimestamp = Date.parse(sorted[sorted.length - 1].capturedAt);
     const xRange = Math.max(1, maxTimestamp - minTimestamp);
@@ -1438,9 +1531,13 @@ export function App() {
       const x =
         POSITION_HISTORY_CHART_PADDING.left +
         ((timestamp - minTimestamp) / xRange) * innerWidth;
+      const clampedPosition = Math.max(
+        POSITION_HISTORY_RANK_MIN,
+        Math.min(POSITION_HISTORY_RANK_MAX, point.position)
+      );
       const y =
         POSITION_HISTORY_CHART_PADDING.top +
-        ((point.position - bestPosition) / yRange) * innerHeight;
+        ((clampedPosition - POSITION_HISTORY_RANK_MIN) / yRange) * innerHeight;
       return {
         x,
         y,
@@ -1453,19 +1550,88 @@ export function App() {
       .map((point, index) => `${index === 0 ? "M" : "L"} ${point.x} ${point.y}`)
       .join(" ");
 
+    const yTicks = POSITION_HISTORY_RANK_TICKS.map((rank) => ({
+      rank,
+      y:
+        POSITION_HISTORY_CHART_PADDING.top +
+        ((rank - POSITION_HISTORY_RANK_MIN) / yRange) * innerHeight,
+    }));
+
+    const monthFormatter = new Intl.DateTimeFormat(displayLocale, { month: "short" });
+    const firstMonthStart = Date.UTC(
+      new Date(minTimestamp).getUTCFullYear(),
+      new Date(minTimestamp).getUTCMonth(),
+      1
+    );
+    const lastMonthStart = Date.UTC(
+      new Date(maxTimestamp).getUTCFullYear(),
+      new Date(maxTimestamp).getUTCMonth(),
+      1
+    );
+    const monthTicks: Array<{ label: string; x: number }> = [];
+    for (let cursor = firstMonthStart; cursor <= lastMonthStart; ) {
+      const x =
+        POSITION_HISTORY_CHART_PADDING.left +
+        ((cursor - minTimestamp) / xRange) * innerWidth;
+      monthTicks.push({
+        label: monthFormatter.format(new Date(cursor)),
+        x: Math.min(
+          chartWidth - POSITION_HISTORY_CHART_PADDING.right,
+          Math.max(POSITION_HISTORY_CHART_PADDING.left, x)
+        ),
+      });
+      const nextMonth = new Date(cursor);
+      nextMonth.setUTCMonth(nextMonth.getUTCMonth() + 1);
+      cursor = nextMonth.getTime();
+    }
+
     return {
       chartWidth,
       chartHeight,
       points,
       linePath,
-      firstDateLabel: formatCalendarDate(sorted[0].capturedAt, displayLocale) ?? "-",
-      lastDateLabel:
-        formatCalendarDate(sorted[sorted.length - 1].capturedAt, displayLocale) ??
-        "-",
+      yTicks,
+      monthTicks,
       bestPosition,
       worstPosition,
     };
   }, [displayLocale, positionHistoryPoints]);
+
+  const positionHistoryTooltip = useMemo(() => {
+    if (!positionHistoryChart || !positionHistoryHoverPoint) return null;
+    const dateLabel =
+      formatCalendarDate(positionHistoryHoverPoint.capturedAt, displayLocale) ??
+      positionHistoryHoverPoint.capturedAt;
+    const rankLabel = `Rank ${positionHistoryHoverPoint.position}`;
+    const width = Math.max(
+      110,
+      dateLabel.length * 7 + 16,
+      rankLabel.length * 7 + 16
+    );
+    const height = 40;
+    const safeTop = 4;
+    const safeLeft = 4;
+    const safeRight = positionHistoryChart.chartWidth - width - 4;
+    const safeBottom = positionHistoryChart.chartHeight - height - 4;
+    let x = positionHistoryHoverPoint.x + 12;
+    if (x > safeRight) {
+      x = positionHistoryHoverPoint.x - width - 12;
+    }
+    x = Math.max(safeLeft, Math.min(safeRight, x));
+    let y = positionHistoryHoverPoint.y - height - 10;
+    if (y < safeTop) {
+      y = positionHistoryHoverPoint.y + 10;
+    }
+    y = Math.max(safeTop, Math.min(safeBottom, y));
+    return {
+      x,
+      y,
+      width,
+      height,
+      dateLabel,
+      rankLabel,
+    };
+  }, [displayLocale, positionHistoryChart, positionHistoryHoverPoint]);
 
   const getFilterLabel = (key: FilterMenuKey): string | null => {
     switch (key) {
@@ -1660,18 +1826,75 @@ export function App() {
   const showError = !showLoading && errorText !== "";
   const showSuccess = !showLoading && !showError && successText !== "";
   const addButtonLabel = isCompactLayout ? "Add" : "Add Keywords";
-  const startupRefreshMessage = useMemo(() => {
-    if (!startupRefreshState) return null;
-    if (startupRefreshState.status === "running") {
-      const { eligibleKeywordCount, refreshedKeywordCount } =
-        startupRefreshState.counters;
-      if (eligibleKeywordCount > 0) {
-        return `Refreshing local data in background (${refreshedKeywordCount}/${eligibleKeywordCount} keywords)...`;
-      }
-      return "Refreshing local data in background...";
+  const isStartupRefreshAuthRecoveryAttemptActive =
+    isKeywordMutationBlockedByStartupReauth &&
+    activeAuthContext === "startup-refresh" &&
+    (isStartingAuth ||
+      authStatus === "idle" ||
+      authStatus === "in_progress");
+  const isStartupRefreshResumeInProgress =
+    isKeywordMutationBlockedByStartupReauth &&
+    (isRestartingStartupRefresh || authStatus === "succeeded");
+  const isStartupRefreshAutoRecoveryActive =
+    isStartupRefreshAuthRecoveryAttemptActive ||
+    isStartupRefreshResumeInProgress;
+  const keywordMutationStatusText = isStartupRefreshAuthRecoveryAttemptActive
+    ? "Reauthenticating with Apple..."
+    : isStartupRefreshResumeInProgress
+      ? "Resuming background refresh..."
+    : authCheckLoadingText !== ""
+      ? "Checking Apple session..."
+      : isKeywordMutationBlockedByStartupReauth
+        ? "Apple reauthentication required."
+        : "";
+  const startupRefreshBanner = useMemo(() => {
+    if (keywordMutationStatusText) {
+      return {
+        tone:
+          isKeywordMutationBlockedByStartupReauth &&
+          !isStartupRefreshAutoRecoveryActive
+            ? ("error" as const)
+            : ("muted" as const),
+        action: null,
+        text: keywordMutationStatusText,
+      };
     }
-    return null;
-  }, [startupRefreshState]);
+    if (!startupRefreshState) return null;
+    const { eligibleKeywordCount, refreshedKeywordCount } =
+      startupRefreshState.counters;
+    const progressLabel =
+      eligibleKeywordCount > 0
+        ? `${refreshedKeywordCount}/${eligibleKeywordCount} keywords`
+        : null;
+    if (startupRefreshState.status === "running") {
+      return {
+        tone: "muted" as const,
+        action: null,
+        text: progressLabel
+          ? `Refreshing local data in background (${progressLabel})...`
+          : "Refreshing local data in background...",
+      };
+    }
+    if (startupRefreshState.status !== "failed") return null;
+    const progressSuffix = progressLabel ? ` after ${progressLabel}` : "";
+    if (startupRefreshState.requiresReauthentication) {
+      return {
+        tone: "error" as const,
+        action: null,
+        text: "Apple reauthentication required.",
+      };
+    }
+    return {
+      tone: "error" as const,
+      action: "retry" as const,
+      text: `Background refresh failed${progressSuffix}.`,
+    };
+  }, [
+    isKeywordMutationBlockedByStartupReauth,
+    isStartupRefreshAutoRecoveryActive,
+    keywordMutationStatusText,
+    startupRefreshState,
+  ]);
   const hasRankFiltersApplied =
     showRankingColumns &&
     (minRank !== DEFAULT_MIN_RANK || maxRank !== DEFAULT_MAX_RANK);
@@ -1965,7 +2188,15 @@ export function App() {
                 onChange={(e) => setAddInput(e.target.value)}
               />
             </div>
-            <Button id="add-submit" type="submit" disabled={isAddKeywordsBusy || isColdStart}>
+            <Button
+              id="add-submit"
+              type="submit"
+              disabled={
+                isAddKeywordsBusy ||
+                isColdStart ||
+                isKeywordMutationBlockedByStartupReauth
+              }
+            >
               <span className={`add-submit-label ${isAddKeywordsBusy ? "is-loading" : ""}`}>{addButtonLabel}</span>
               <span className={`button-loading-spinner ${isAddKeywordsBusy ? "visible" : ""}`} aria-hidden="true" />
             </Button>
@@ -1975,7 +2206,11 @@ export function App() {
                 className="retry-failed-button"
                 type="button"
                 variant="ghost"
-                disabled={isRetryingFailedKeywords || isColdStart}
+                disabled={
+                  isRetryingFailedKeywords ||
+                  isColdStart ||
+                  isKeywordMutationBlockedByStartupReauth
+                }
                 onClick={() => {
                   void onRetryFailedKeywords();
                 }}
@@ -1997,11 +2232,33 @@ export function App() {
         </Card>
 
         <Card className="top-toolbar">
-          <p
-            className={`startup-refresh-status ${startupRefreshMessage ? "visible" : ""}`}
+          <div
+            className={`startup-refresh-status ${startupRefreshBanner ? "visible" : ""} ${
+              startupRefreshBanner?.tone === "error" ? "error" : ""
+            }`}
           >
-            {startupRefreshMessage}
-          </p>
+            <p
+              className="startup-refresh-status-copy"
+              title={startupRefreshBanner?.text ?? undefined}
+            >
+              {startupRefreshBanner?.text}
+            </p>
+            {startupRefreshBanner?.action === "retry" ? (
+              <Button
+                id="startup-refresh-retry"
+                className="startup-refresh-action"
+                variant="outline"
+                size="sm"
+                type="button"
+                disabled={isRestartingStartupRefresh}
+                onClick={() => {
+                  void restartStartupRefresh();
+                }}
+              >
+                {isRestartingStartupRefresh ? "Retrying..." : "Retry Refresh"}
+              </Button>
+            ) : null}
+          </div>
           <Button
             id="reset-filters"
             className={hasFilters ? "" : "hidden"}
@@ -2471,7 +2728,10 @@ export function App() {
       {positionHistoryKeyword ? (
         <div
           className="dialog-backdrop"
-          onClick={() => setPositionHistoryKeyword(null)}
+          onClick={() => {
+            setPositionHistoryHoverPoint(null);
+            setPositionHistoryKeyword(null);
+          }}
           role="presentation"
         >
           <section
@@ -2487,7 +2747,10 @@ export function App() {
                 type="button"
                 className="dialog-close"
                 aria-label="Close"
-                onClick={() => setPositionHistoryKeyword(null)}
+                onClick={() => {
+                  setPositionHistoryHoverPoint(null);
+                  setPositionHistoryKeyword(null);
+                }}
               >
                 ×
               </button>
@@ -2515,9 +2778,6 @@ export function App() {
                     <span>
                       Worst rank: <strong>{positionHistoryChart.worstPosition}</strong>
                     </span>
-                    <span>
-                      Points: <strong>{positionHistoryChart.points.length}</strong>
-                    </span>
                   </div>
                   <svg
                     className="position-history-chart"
@@ -2525,16 +2785,51 @@ export function App() {
                     role="img"
                     aria-label={`Position trend for ${positionHistoryKeyword}`}
                   >
-                    <line
-                      x1={POSITION_HISTORY_CHART_PADDING.left}
-                      y1={POSITION_HISTORY_CHART_PADDING.top}
-                      x2={POSITION_HISTORY_CHART_PADDING.left}
-                      y2={
-                        positionHistoryChart.chartHeight -
-                        POSITION_HISTORY_CHART_PADDING.bottom
-                      }
-                      className="position-history-axis"
-                    />
+                    {positionHistoryChart.yTicks.map((tick) => (
+                      <g key={`y-${tick.rank}`}>
+                        <line
+                          x1={POSITION_HISTORY_CHART_PADDING.left}
+                          y1={tick.y}
+                          x2={
+                            positionHistoryChart.chartWidth -
+                            POSITION_HISTORY_CHART_PADDING.right
+                          }
+                          y2={tick.y}
+                          className="position-history-guide-line"
+                        />
+                        <text
+                          x={positionHistoryChart.chartWidth - POSITION_HISTORY_CHART_PADDING.right + 6}
+                          y={tick.y}
+                          className="position-history-tick-label"
+                          textAnchor="start"
+                          dominantBaseline="middle"
+                        >
+                          {tick.rank}
+                        </text>
+                      </g>
+                    ))}
+                    {positionHistoryChart.monthTicks.map((tick, index) => (
+                      <g key={`x-${tick.label}-${index}`}>
+                        <line
+                          x1={tick.x}
+                          y1={POSITION_HISTORY_CHART_PADDING.top}
+                          x2={tick.x}
+                          y2={
+                            positionHistoryChart.chartHeight -
+                            POSITION_HISTORY_CHART_PADDING.bottom
+                          }
+                          className="position-history-guide-line position-history-guide-line-vertical"
+                        />
+                        <text
+                          x={tick.x}
+                          y={positionHistoryChart.chartHeight - POSITION_HISTORY_CHART_PADDING.bottom + 18}
+                          className="position-history-tick-label"
+                          textAnchor="middle"
+                        >
+                          {tick.label}
+                        </text>
+                      </g>
+                    ))}
                     <line
                       x1={POSITION_HISTORY_CHART_PADDING.left}
                       y1={
@@ -2560,19 +2855,47 @@ export function App() {
                         key={`${point.capturedAt}-${point.position}`}
                         cx={point.x}
                         cy={point.y}
-                        r={3.5}
+                        r={4}
                         className="position-history-point"
+                        tabIndex={0}
+                        onMouseEnter={() => setPositionHistoryHoverPoint(point)}
+                        onMouseLeave={() => setPositionHistoryHoverPoint(null)}
+                        onFocus={() => setPositionHistoryHoverPoint(point)}
+                        onBlur={() => setPositionHistoryHoverPoint(null)}
                       >
                         <title>
-                          {`${formatCalendarDate(point.capturedAt, displayLocale) ?? point.capturedAt}: #${point.position}`}
+                          {`${formatCalendarDate(point.capturedAt, displayLocale) ?? point.capturedAt} • Rank ${point.position}`}
                         </title>
                       </circle>
                     ))}
+                    {positionHistoryTooltip ? (
+                      <g className="position-history-tooltip" pointerEvents="none">
+                        <rect
+                          x={positionHistoryTooltip.x}
+                          y={positionHistoryTooltip.y}
+                          width={positionHistoryTooltip.width}
+                          height={positionHistoryTooltip.height}
+                          rx={8}
+                          ry={8}
+                          className="position-history-tooltip-bg"
+                        />
+                        <text
+                          x={positionHistoryTooltip.x + 8}
+                          y={positionHistoryTooltip.y + 16}
+                          className="position-history-tooltip-line"
+                        >
+                          {positionHistoryTooltip.dateLabel}
+                        </text>
+                        <text
+                          x={positionHistoryTooltip.x + 8}
+                          y={positionHistoryTooltip.y + 32}
+                          className="position-history-tooltip-line position-history-tooltip-line-rank"
+                        >
+                          {positionHistoryTooltip.rankLabel}
+                        </text>
+                      </g>
+                    ) : null}
                   </svg>
-                  <div className="position-history-axis-labels">
-                    <span>{positionHistoryChart.firstDateLabel}</span>
-                    <span>{positionHistoryChart.lastDateLabel}</span>
-                  </div>
                 </div>
               ) : null}
             </div>
@@ -2598,16 +2921,51 @@ export function App() {
         isColdStart={isColdStart}
         isOwnedAppId={(appId) => existingOwnedAppIds.has(appId)}
       />
-      <AuthDialog
-        open={authModalOpen}
-        statusLabel={authStatusLabel}
-        statusError={authStatusError}
-        showReauthButton={showReauthButton}
-        canStartReauth={canStartReauth}
-        isStartingAuth={isStartingAuth}
-        onStartReauthentication={() => {
-          void startReauthentication();
+      <AsoPromptDialog
+        open={setupModalOpen}
+        fallbackTitle="Primary App ID Required"
+        fallbackMessage="Enter a Primary App ID so the dashboard can refresh Apple Search Ads keyword data."
+        statusError={setupStatusError}
+        prompt={setupPendingPrompt}
+        isSubmittingPrompt={isSubmittingSetupPrompt}
+        onSubmitPrompt={(response) => {
+          void submitSetupPromptResponse(response);
         }}
+        actionButton={
+          !setupPendingPrompt
+            ? {
+                label: "Retry Setup",
+                busyLabel: "Starting...",
+                disabled: isStartingSetup,
+                onClick: () => {
+                  void startSetup();
+                },
+              }
+            : null
+        }
+      />
+      <AsoPromptDialog
+        open={!setupModalOpen && authModalOpen}
+        fallbackTitle="Apple Reauthentication Required"
+        fallbackMessage={authStatusLabel}
+        statusError={authStatusError}
+        prompt={authPendingPrompt}
+        isSubmittingPrompt={isSubmittingAuthPrompt}
+        onSubmitPrompt={(response) => {
+          void submitAuthPromptResponse(response);
+        }}
+        actionButton={
+          showReauthButton
+            ? {
+                label: "Reauthenticate",
+                busyLabel: "Starting...",
+                disabled: !canStartReauth || isStartingAuth,
+                onClick: () => {
+                  void startReauthentication();
+                },
+              }
+            : null
+        }
       />
     </div>
   );

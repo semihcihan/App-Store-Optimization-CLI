@@ -5,6 +5,7 @@ export type DashboardErrorCode =
   | "AUTH_REQUIRED"
   | "AUTH_IN_PROGRESS"
   | "TTY_REQUIRED"
+  | "PRIMARY_APP_ID_RECONFIGURE_REQUIRED"
   | "AUTHORIZATION_FAILED"
   | "RATE_LIMITED"
   | "REQUEST_TIMEOUT"
@@ -50,9 +51,9 @@ export function mapToDashboardUserSafeError(
     lower.includes("no user owned apps found")
   ) {
     return {
-      errorCode: "AUTHORIZATION_FAILED",
+      errorCode: "PRIMARY_APP_ID_RECONFIGURE_REQUIRED",
       message:
-        "Primary App ID is not accessible for this Apple Ads account. Run 'aso --primary-app-id <id>' with an accessible app ID and retry.",
+        "Current Primary App ID is not accessible for this Apple Ads account. Choose a different Primary App ID and retry.",
     };
   }
 
@@ -102,6 +103,7 @@ export function statusForDashboardErrorCode(errorCode: DashboardErrorCode): numb
   if (errorCode === "INVALID_REQUEST") return 400;
   if (errorCode === "PAYLOAD_TOO_LARGE") return 413;
   if (errorCode === "AUTH_REQUIRED") return 401;
+  if (errorCode === "PRIMARY_APP_ID_RECONFIGURE_REQUIRED") return 403;
   if (errorCode === "AUTHORIZATION_FAILED") return 403;
   if (errorCode === "NOT_FOUND") return 404;
   if (errorCode === "AUTH_IN_PROGRESS") return 409;
@@ -115,6 +117,10 @@ export function isAuthFlowErrorCode(code: string | null): boolean {
     code === "AUTH_IN_PROGRESS" ||
     code === "TTY_REQUIRED"
   );
+}
+
+export function isPrimaryAppIdReconfigureErrorCode(code: string | null): boolean {
+  return code === "PRIMARY_APP_ID_RECONFIGURE_REQUIRED";
 }
 
 export function authFlowErrorMessage(code: string | null): string {
@@ -158,6 +164,12 @@ export function toDashboardActionableErrorMessage(
   }
   if (errorCode === "TTY_REQUIRED") {
     return "Reauthentication requires an interactive terminal. Start dashboard from terminal and retry.";
+  }
+  if (errorCode === "PRIMARY_APP_ID_RECONFIGURE_REQUIRED") {
+    return (
+      message ||
+      "Current Primary App ID is not accessible for this Apple Ads account. Choose a different Primary App ID and retry."
+    );
   }
   if (isPrimaryAppIdAccessError) {
     return message || "Primary App ID is not accessible for this Apple Ads account.";

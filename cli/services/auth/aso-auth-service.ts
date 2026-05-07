@@ -1,5 +1,4 @@
 import axios, { type AxiosRequestConfig, type AxiosResponse } from "axios";
-import inquirer from "inquirer";
 import ora from "ora";
 import type { Ora } from "ora";
 import { logger } from "../../utils/logger";
@@ -19,6 +18,14 @@ import {
   withAppleHttpTraceContext,
 } from "../keywords/apple-http-trace";
 import { ASO_ENV } from "../../shared/aso-env";
+import type {
+  AsoInteractivePrompt,
+  AsoInteractivePromptResponse,
+} from "../../shared/aso-interactive-prompts";
+import {
+  promptWithCliAsoPrompt,
+  type AsoPromptHandler,
+} from "../prompts/aso-prompt-handler";
 
 const APPLE_APP_ADS_URL = "https://app-ads.apple.com/cm/app";
 const APPLE_SEARCH_ADS_URL = "https://app.searchads.apple.com/cm/app";
@@ -70,6 +77,7 @@ type ReAuthenticateOptions = {
   onUserActionRequired?: (reason: ReauthUserActionReason) => void;
   forcePromptCredentials?: boolean;
   resetStoredCredentials?: boolean;
+  promptHandler?: AsoPromptHandler;
 };
 
 interface AppleAuthSessionHeaders {
@@ -704,88 +712,8 @@ function logWithSpinnerPause(
   if (wasSpinning) spinner.start();
 }
 
-async function askForCredentials(): Promise<AppleLoginCredentials> {
-  const answers = await inquirer.prompt([
-    {
-      type: "input",
-      name: "appleId",
-      message: "Apple ID (email):",
-      validate: (value: string) =>
-        value.trim() ? true : "Apple ID is required",
-    },
-    {
-      type: "password",
-      name: "password",
-      message: "Password:",
-      mask: "*",
-      validate: (value: string) =>
-        value.trim() ? true : "Password is required",
-    },
-  ]);
-
-  return { appleId: answers.appleId.trim(), password: answers.password };
-}
-
-async function askWhetherToRememberCredentials(): Promise<boolean> {
-  const { remember } = await inquirer.prompt([
-    {
-      type: "confirm",
-      name: "remember",
-      default: false,
-      message: "Remember Apple credentials in macOS Keychain?",
-    },
-  ]);
-  return remember;
-}
-
-async function askForSixDigitCode(message: string): Promise<string> {
-  const { code } = await inquirer.prompt([
-    {
-      type: "input",
-      name: "code",
-      message,
-      validate: (value: string) =>
-        /^\d{6}$/.test(value.trim()) ? true : "Please enter exactly 6 digits",
-    },
-  ]);
-  return code.trim();
-}
-
-async function askForVerificationCode(
-  message: string,
-  digits: number
-): Promise<string> {
-  const normalizedDigits = Number.isFinite(digits) ? Math.max(1, digits) : 6;
-  const regex = new RegExp(`^\\d{${normalizedDigits}}$`);
-  const { code } = await inquirer.prompt([
-    {
-      type: "input",
-      name: "code",
-      message,
-      validate: (value: string) =>
-        regex.test(value.trim())
-          ? true
-          : `Please enter exactly ${normalizedDigits} digits`,
-    },
-  ]);
-  return code.trim();
-}
-
 function hasInteractiveTerminal(): boolean {
   return process.stdin.isTTY === true && process.stdout.isTTY === true;
-}
-
-async function promptWithSpinnerPause<T>(
-  spinner: Ora | undefined,
-  runPrompt: () => Promise<T>
-): Promise<T> {
-  const wasSpinning = spinner?.isSpinning === true;
-  if (wasSpinning) spinner.stop();
-  try {
-    return await runPrompt();
-  } finally {
-    if (wasSpinning) spinner.start();
-  }
 }
 
 class CookieJar {
@@ -889,11 +817,23 @@ export class AsoAuthEngine {
     private readonly spinner?: Ora,
     private readonly onUserActionRequired?: (
       reason: ReauthUserActionReason
-    ) => void
+    ) => void,
+    private readonly promptUser?: (
+      prompt: AsoInteractivePrompt
+    ) => Promise<AsoInteractivePromptResponse>
   ) {}
 
   private markUserActionRequired(reason: ReauthUserActionReason): void {
     this.onUserActionRequired?.(reason);
+  }
+
+  private async requestPrompt(
+    prompt: AsoInteractivePrompt
+  ): Promise<AsoInteractivePromptResponse> {
+    if (this.promptUser) {
+      return this.promptUser(prompt);
+    }
+    return promptWithCliAsoPrompt(prompt, { spinner: this.spinner });
   }
 
   private withAppleAuthTrace(
@@ -1492,7 +1432,7 @@ export class AsoAuthEngine {
     sessionHeaders: AppleAuthSessionHeaders
   ): Promise<AppleAuthSessionHeaders> {
     this.markUserActionRequired("two_factor");
-    if (!hasInteractiveTerminal()) {
+    if (!this.promptUser && !hasInteractiveTerminal()) {
       throw new Error(
         "Interactive terminal is required to complete Apple two-factor authentication. Run 'aso auth' in a terminal and retry."
       );
@@ -1617,17 +1557,20 @@ export class AsoAuthEngine {
       if (methodChoices.length === 1) {
         method = methodChoices[0].value;
       } else {
-        const promptResult = await promptWithSpinnerPause(this.spinner, () =>
-          inquirer.prompt([
-            {
-              type: "list",
-              name: "method",
-              message: "Choose 2FA verification method:",
-              choices: methodChoices,
-            },
-          ])
-        );
-        method = promptResult.method as "trusteddevice" | "phone";
+        const promptResult = await this.requestPrompt({
+          kind: "two_factor_method",
+          title: "Choose Verification Method",
+          message: "Choose 2FA verification method:",
+          choices: methodChoices.map((choice) => ({
+            label: choice.name,
+            value: choice.value,
+          })),
+        });
+        if (promptResult.kind !== "two_factor_method") {
+          throw new Error("Unexpected 2FA method prompt response.");
+        }
+        method =
+          promptResult.value === "phone" ? "phone" : "trusteddevice";
       }
     }
 
@@ -1635,23 +1578,23 @@ export class AsoAuthEngine {
     let codePromptMessage = `Enter ${codeLength}-digit trusted-device code:`;
     if (method === "phone") {
       if (!selectedPhone) {
-        const phonePromptResult = await promptWithSpinnerPause(this.spinner, () =>
-          inquirer.prompt([
-            {
-              type: "list",
-              name: "selectedPhone",
-              message: "Send verification code to:",
-              choices: phoneNumbers.map((phone) => ({
-                name: phone.numberWithDialCode,
-                value: phone,
-              })),
-            },
-          ])
-        );
-        selectedPhone = phonePromptResult.selectedPhone as Pick<
-          AppleTrustedPhoneNumber,
-          "id" | "numberWithDialCode"
-        >;
+        const phonePromptResult = await this.requestPrompt({
+          kind: "trusted_phone",
+          title: "Choose Verification Number",
+          message: "Send verification code to:",
+          choices: phoneNumbers.map((phone) => ({
+            label: phone.numberWithDialCode,
+            value: String(phone.id),
+          })),
+        });
+        if (phonePromptResult.kind !== "trusted_phone") {
+          throw new Error("Unexpected trusted phone prompt response.");
+        }
+        const selectedPhoneId = Number(phonePromptResult.value);
+        selectedPhone = phoneNumbers.find((phone) => phone.id === selectedPhoneId);
+        if (!selectedPhone) {
+          throw new Error("Selected verification phone is no longer available.");
+        }
       }
 
       const phoneId = selectedPhone.id as number;
@@ -1693,10 +1636,19 @@ export class AsoAuthEngine {
       codePromptMessage = `Enter ${codeLength}-digit code sent to ${selectedPhone.numberWithDialCode}:`;
     }
     let verifyResponse: AxiosResponse | undefined;
+    let codePromptError: string | undefined;
     while (true) {
-      const code = await promptWithSpinnerPause(this.spinner, () =>
-        askForVerificationCode(codePromptMessage, codeLength)
-      );
+      const codeResponse = await this.requestPrompt({
+        kind: "verification_code",
+        title: "Enter Verification Code",
+        message: codePromptMessage,
+        digits: codeLength,
+        errorMessage: codePromptError,
+      });
+      if (codeResponse.kind !== "verification_code") {
+        throw new Error("Unexpected verification code prompt response.");
+      }
+      const code = codeResponse.code.trim();
       const verifyBody =
         method === "phone"
           ? {
@@ -1735,6 +1687,7 @@ export class AsoAuthEngine {
             verifyResponse.data
           )}`
         );
+        codePromptError = verifyErrorMessage;
         logWithSpinnerPause(
           this.spinner,
           "warn",
@@ -1742,6 +1695,8 @@ export class AsoAuthEngine {
         );
         continue;
       }
+
+      codePromptError = undefined;
 
       logger.debug(
         `[aso-auth] 2FA verify error payload: ${summarizeAppleErrorPayload(
@@ -1990,6 +1945,14 @@ export class AsoAuthService {
     const spinner = ora("Authenticating with Apple Search Ads...").start();
     try {
       const authMode = ASO_ENV.authMode;
+      const promptUser = async (
+        prompt: AsoInteractivePrompt
+      ): Promise<AsoInteractivePromptResponse> => {
+        if (options?.promptHandler) {
+          return options.promptHandler.prompt(prompt);
+        }
+        return promptWithCliAsoPrompt(prompt, { spinner });
+      };
       const authenticateWith = async (
         credentials: AppleLoginCredentials
       ): Promise<string> => {
@@ -2000,7 +1963,8 @@ export class AsoAuthService {
           client,
           mode,
           spinner,
-          options?.onUserActionRequired
+          options?.onUserActionRequired,
+          promptUser
         );
         await engine.ensureAuthenticated(credentials);
 
@@ -2049,20 +2013,36 @@ export class AsoAuthService {
         shouldRememberCredentials: boolean;
       }> => {
         options?.onUserActionRequired?.("credentials");
-        if (!hasInteractiveTerminal()) {
+        if (!options?.promptHandler && !hasInteractiveTerminal()) {
           throw new Error(
             "Interactive terminal is required to enter Apple credentials. Run 'aso auth' in a terminal and retry."
           );
         }
-        const promptedCredentials = await promptWithSpinnerPause(spinner, () =>
-          askForCredentials()
-        );
+        const promptedCredentials = await promptUser({
+          kind: "apple_credentials",
+          title: "Apple Sign In",
+          message: "Enter your Apple ID and password to continue.",
+        });
+        if (promptedCredentials.kind !== "apple_credentials") {
+          throw new Error("Unexpected Apple credentials prompt response.");
+        }
         options?.onUserActionRequired?.("remember_credentials");
-        const shouldRememberCredentials = await promptWithSpinnerPause(
-          spinner,
-          () => askWhetherToRememberCredentials()
-        );
-        return { credentials: promptedCredentials, shouldRememberCredentials };
+        const rememberCredentialsResponse = await promptUser({
+          kind: "remember_credentials",
+          title: "Save Credentials",
+          message: "Remember Apple credentials in macOS Keychain?",
+          defaultValue: false,
+        });
+        if (rememberCredentialsResponse.kind !== "remember_credentials") {
+          throw new Error("Unexpected remember credentials prompt response.");
+        }
+        return {
+          credentials: {
+            appleId: promptedCredentials.appleId.trim(),
+            password: promptedCredentials.password,
+          },
+          shouldRememberCredentials: rememberCredentialsResponse.remember,
+        };
       };
 
       if (options?.resetStoredCredentials) {

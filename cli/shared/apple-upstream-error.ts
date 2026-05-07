@@ -1,14 +1,11 @@
 import axios from "axios";
 import { getErrorBugsnagMetadata } from "../services/telemetry/bugsnag-metadata";
+import {
+  isKnownTransientStatusCode,
+  isTransientTransportFailure,
+} from "./aso-transient-error";
 
-const RETRYABLE_STATUS_CODES = new Set([429, 500, 502, 503, 504]);
 const RETRYABLE_MESSAGE_SNIPPETS = [
-  "network",
-  "timeout",
-  "timed out",
-  "fetch failed",
-  "socket",
-  "connect",
   "rate limit",
   "too many requests",
 ];
@@ -101,7 +98,8 @@ function normalizeReasonCode(rawCode: string | undefined, fallback: string): str
 }
 
 function inferRetryable(statusCode: number | undefined, message: string): boolean {
-  if (statusCode != null && RETRYABLE_STATUS_CODES.has(statusCode)) return true;
+  if (isKnownTransientStatusCode(statusCode)) return true;
+  if (isTransientTransportFailure({ message })) return true;
   const lower = message.toLowerCase();
   return RETRYABLE_MESSAGE_SNIPPETS.some((snippet) => lower.includes(snippet));
 }

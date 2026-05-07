@@ -4,7 +4,7 @@ import {
 } from "./aso-popularity-service";
 import { asoAuthService } from "../auth/aso-auth-service";
 import { requestPopularitiesWithKwsRetry } from "./aso-apple-popularity-client";
-import { getSavedAsoAdamId } from "./aso-adam-id-service";
+import { getConfiguredAsoAdamId } from "./aso-adam-id-service";
 
 jest.mock("../auth/aso-auth-service", () => ({
   asoAuthService: {
@@ -18,7 +18,7 @@ jest.mock("./aso-apple-popularity-client", () => ({
 }));
 
 jest.mock("./aso-adam-id-service", () => ({
-  getSavedAsoAdamId: jest.fn(),
+  getConfiguredAsoAdamId: jest.fn(),
 }));
 
 const mockRequestPopularitiesWithKwsRetry = jest.mocked(
@@ -29,7 +29,7 @@ describe("AsoPopularityService", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     jest.mocked(asoAuthService.getCookieHeader).mockReturnValue("cookie=value");
-    jest.mocked(getSavedAsoAdamId).mockReturnValue("1234567890");
+    jest.mocked(getConfiguredAsoAdamId).mockReturnValue("1234567890");
   });
 
   describe("fetchKeywordPopularities", () => {
@@ -79,7 +79,8 @@ describe("AsoPopularityService", () => {
       expect(mockRequestPopularitiesWithKwsRetry).toHaveBeenCalledWith(
         ["keyword", "another"],
         "cookie=value",
-        expect.any(String)
+        expect.any(String),
+        undefined
       );
       expect(asoAuthService.getCookieHeader).toHaveBeenCalledWith(
         "https://app-ads.apple.com/cm/api/v2/keywords/popularities"
@@ -122,7 +123,7 @@ describe("AsoPopularityService", () => {
     });
 
     it("throws when adam id is missing", async () => {
-      jest.mocked(getSavedAsoAdamId).mockReturnValue(null);
+      jest.mocked(getConfiguredAsoAdamId).mockReturnValue(null);
 
       await expect(
         asoPopularityService.fetchKeywordPopularities(["test"])
@@ -158,7 +159,8 @@ describe("AsoPopularityService", () => {
       expect(mockRequestPopularitiesWithKwsRetry).toHaveBeenCalledWith(
         ["x"],
         "new-cookie",
-        expect.any(String)
+        expect.any(String),
+        undefined
       );
     });
 
@@ -339,6 +341,20 @@ describe("AsoPopularityService", () => {
         keyword: "bad",
         stage: "popularity",
       });
+      expect(mockRequestPopularitiesWithKwsRetry).toHaveBeenNthCalledWith(
+        2,
+        ["good"],
+        "cookie=value",
+        expect.any(String),
+        { maxAttempts: 1 }
+      );
+      expect(mockRequestPopularitiesWithKwsRetry).toHaveBeenNthCalledWith(
+        3,
+        ["bad"],
+        "cookie=value",
+        expect.any(String),
+        { maxAttempts: 1 }
+      );
     });
   });
 });
