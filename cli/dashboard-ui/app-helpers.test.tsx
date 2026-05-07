@@ -304,9 +304,9 @@ describe("app-helpers", () => {
     expect(getBrowserLocale()).toBe("tr-TR");
 
     Date.now = () => Date.parse("2026-03-12T12:00:00.000Z");
-    expect(formatDate("2026-03-12T11:50:00.000Z", "en-US")).toContain("min ago");
-    expect(formatDate("2026-03-12T09:00:00.000Z", "en-US")).toContain("hr ago");
-    expect(formatDate("2026-03-10T12:00:00.000Z", "en-US")).toContain("d ago");
+    expect(formatDate("2026-03-12T11:50:00.000Z", "en-US")).toMatch(/\bmin\.?\s+ago\b/);
+    expect(formatDate("2026-03-12T09:00:00.000Z", "en-US")).toMatch(/\bhr\.?\s+ago\b/);
+    expect(formatDate("2026-03-10T12:00:00.000Z", "en-US")).toMatch(/\b\d+\s+day?s?\.?\s+ago\b/);
     expect(formatDate("bad-date", "en-US")).toBe("-");
     expect(formatDate(undefined, "en-US")).toBe("-");
 
