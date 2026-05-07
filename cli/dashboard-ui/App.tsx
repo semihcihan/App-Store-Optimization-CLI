@@ -1794,13 +1794,10 @@ export function App() {
         text: "Apple reauthentication required.",
       };
     }
-    const detail = startupRefreshState.lastError?.trim();
     return {
       tone: "error" as const,
       action: "retry" as const,
-      text: detail
-        ? `Background refresh failed${progressSuffix}. ${detail}`
-        : `Background refresh failed${progressSuffix}.`,
+      text: `Background refresh failed${progressSuffix}.`,
     };
   }, [
     isKeywordMutationBlockedByStartupReauth,

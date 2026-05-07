@@ -1288,6 +1288,60 @@ describe("dashboard auth modal UI flow", () => {
     ).toBeInTheDocument();
   });
 
+  it("shows concise startup refresh failure text without backend reason details", async () => {
+    const fetchMock = jest.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = (init?.method ?? "GET").toUpperCase();
+
+      if (method === "GET" && url === "/api/apps") {
+        return jsonResponse({ status: 200, body: { success: true, data: [] } });
+      }
+      if (method === "GET" && url.startsWith("/api/aso/keywords?")) {
+        return jsonResponse({
+          status: 200,
+          body: { success: true, data: emptyKeywordPagedPayload() },
+        });
+      }
+      if (method === "GET" && url === "/api/aso/refresh-status") {
+        return jsonResponse({
+          status: 200,
+          body: {
+            success: true,
+            data: {
+              status: "failed",
+              startedAt: "2026-03-07T00:00:00.000Z",
+              finishedAt: "2026-03-07T00:00:10.000Z",
+              lastError:
+                "All keywords failed (17): up:INSUFFICIENT_DOCS(503), videoleap:INSUFFICIENT_DOCS(503)",
+              requiresReauthentication: false,
+              counters: {
+                eligibleKeywordCount: 517,
+                refreshedKeywordCount: 500,
+                failedKeywordCount: 17,
+              },
+            },
+          },
+        });
+      }
+
+      throw new Error(`Unhandled fetch: ${method} ${url}`);
+    });
+    global.fetch = fetchMock as typeof fetch;
+
+    render(<App />);
+
+    expect(
+      await screen.findByText("Background refresh failed after 500/517 keywords.")
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/INSUFFICIENT_DOCS/)).not.toBeInTheDocument();
+    expect(
+      screen.queryByText(/All keywords failed \(17\)/)
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Retry Refresh" })
+    ).toBeInTheDocument();
+  });
+
   it("restarts startup refresh reauthentication after a later auth-required failure", async () => {
     let refreshStatusCount = 0;
     let refreshStartCount = 0;

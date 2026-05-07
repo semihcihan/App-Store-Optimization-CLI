@@ -509,6 +509,9 @@ body {
   gap: 10px;
   padding: 0;
   min-height: 34px;
+  width: 100%;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .startup-refresh-status {
@@ -519,6 +522,7 @@ body {
   align-items: center;
   gap: 8px;
   min-width: 0;
+  overflow: hidden;
 }
 
 .startup-refresh-status.visible {
@@ -529,6 +533,7 @@ body {
   margin: 0;
   flex: 1 1 auto;
   min-width: 0;
+  max-width: 100%;
   font-size: 0.78rem;
   color: var(--muted-foreground);
   white-space: nowrap;
@@ -2079,17 +2084,26 @@ body::before {
   padding: 0;
   justify-content: flex-end;
   gap: 8px;
+  width: 100%;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .startup-refresh-status {
   margin-right: auto;
   flex: 1 1 auto;
   max-width: none;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .startup-refresh-status-copy {
   font-size: 11px;
   color: #7d7d7d;
+  max-width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .table-card {
