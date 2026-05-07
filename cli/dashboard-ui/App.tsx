@@ -108,6 +108,12 @@ type KeywordPositionHistoryPayload = {
   keyword: string;
   points: KeywordHistoryPoint[];
 };
+type PositionHistoryHoverPoint = {
+  x: number;
+  y: number;
+  capturedAt: string;
+  position: number;
+};
 
 type FilterMenuKey = "popularity" | "difficulty" | "brand" | "favorite" | "rank";
 type KeywordActionMenuState = {
@@ -178,11 +184,14 @@ const SIDEBAR_SELECTION_CONTROL_SELECTOR = ".app-id-copy-target, .app-id-copy-ic
 const KEYWORDS_PAGE_SIZE = 100;
 const POSITION_HISTORY_CHART_WIDTH = 760;
 const POSITION_HISTORY_CHART_HEIGHT = 250;
+const POSITION_HISTORY_RANK_MIN = 1;
+const POSITION_HISTORY_RANK_MAX = 200;
+const POSITION_HISTORY_RANK_TICKS = [25, 50, 75, 100, 125, 150, 175, 200];
 const POSITION_HISTORY_CHART_PADDING = {
-  top: 16,
-  right: 16,
-  bottom: 32,
-  left: 40,
+  top: 14,
+  right: 44,
+  bottom: 34,
+  left: 18,
 };
 
 type StartupRefreshStatus = "idle" | "running" | "completed" | "failed";
@@ -337,6 +346,8 @@ export function App() {
   >([]);
   const [positionHistoryLoading, setPositionHistoryLoading] = useState(false);
   const [positionHistoryError, setPositionHistoryError] = useState("");
+  const [positionHistoryHoverPoint, setPositionHistoryHoverPoint] =
+    useState<PositionHistoryHoverPoint | null>(null);
   const [startupRefreshState, setStartupRefreshState] =
     useState<StartupRefreshStatusPayload | null>(null);
   const [displayLocale] = useState(() => getBrowserLocale());
@@ -791,6 +802,11 @@ export function App() {
     };
     document.addEventListener("keydown", onEscape);
     return () => document.removeEventListener("keydown", onEscape);
+  }, [positionHistoryKeyword]);
+
+  useEffect(() => {
+    if (positionHistoryKeyword) return;
+    setPositionHistoryHoverPoint(null);
   }, [positionHistoryKeyword]);
 
   useEffect(() => {
@@ -1405,6 +1421,7 @@ export function App() {
     setPositionHistoryKeyword(rowKeyword);
     setPositionHistoryPoints([]);
     setPositionHistoryError("");
+    setPositionHistoryHoverPoint(null);
     setPositionHistoryLoading(true);
     try {
       const data = await apiGet<KeywordPositionHistoryPayload>(
@@ -1504,7 +1521,7 @@ export function App() {
     const positions = sorted.map((point) => point.position);
     const bestPosition = Math.min(...positions);
     const worstPosition = Math.max(...positions);
-    const yRange = Math.max(1, worstPosition - bestPosition);
+    const yRange = POSITION_HISTORY_RANK_MAX - POSITION_HISTORY_RANK_MIN;
     const minTimestamp = Date.parse(sorted[0].capturedAt);
     const maxTimestamp = Date.parse(sorted[sorted.length - 1].capturedAt);
     const xRange = Math.max(1, maxTimestamp - minTimestamp);
@@ -1514,9 +1531,13 @@ export function App() {
       const x =
         POSITION_HISTORY_CHART_PADDING.left +
         ((timestamp - minTimestamp) / xRange) * innerWidth;
+      const clampedPosition = Math.max(
+        POSITION_HISTORY_RANK_MIN,
+        Math.min(POSITION_HISTORY_RANK_MAX, point.position)
+      );
       const y =
         POSITION_HISTORY_CHART_PADDING.top +
-        ((point.position - bestPosition) / yRange) * innerHeight;
+        ((clampedPosition - POSITION_HISTORY_RANK_MIN) / yRange) * innerHeight;
       return {
         x,
         y,
@@ -1529,19 +1550,88 @@ export function App() {
       .map((point, index) => `${index === 0 ? "M" : "L"} ${point.x} ${point.y}`)
       .join(" ");
 
+    const yTicks = POSITION_HISTORY_RANK_TICKS.map((rank) => ({
+      rank,
+      y:
+        POSITION_HISTORY_CHART_PADDING.top +
+        ((rank - POSITION_HISTORY_RANK_MIN) / yRange) * innerHeight,
+    }));
+
+    const monthFormatter = new Intl.DateTimeFormat(displayLocale, { month: "short" });
+    const firstMonthStart = Date.UTC(
+      new Date(minTimestamp).getUTCFullYear(),
+      new Date(minTimestamp).getUTCMonth(),
+      1
+    );
+    const lastMonthStart = Date.UTC(
+      new Date(maxTimestamp).getUTCFullYear(),
+      new Date(maxTimestamp).getUTCMonth(),
+      1
+    );
+    const monthTicks: Array<{ label: string; x: number }> = [];
+    for (let cursor = firstMonthStart; cursor <= lastMonthStart; ) {
+      const x =
+        POSITION_HISTORY_CHART_PADDING.left +
+        ((cursor - minTimestamp) / xRange) * innerWidth;
+      monthTicks.push({
+        label: monthFormatter.format(new Date(cursor)),
+        x: Math.min(
+          chartWidth - POSITION_HISTORY_CHART_PADDING.right,
+          Math.max(POSITION_HISTORY_CHART_PADDING.left, x)
+        ),
+      });
+      const nextMonth = new Date(cursor);
+      nextMonth.setUTCMonth(nextMonth.getUTCMonth() + 1);
+      cursor = nextMonth.getTime();
+    }
+
     return {
       chartWidth,
       chartHeight,
       points,
       linePath,
-      firstDateLabel: formatCalendarDate(sorted[0].capturedAt, displayLocale) ?? "-",
-      lastDateLabel:
-        formatCalendarDate(sorted[sorted.length - 1].capturedAt, displayLocale) ??
-        "-",
+      yTicks,
+      monthTicks,
       bestPosition,
       worstPosition,
     };
   }, [displayLocale, positionHistoryPoints]);
+
+  const positionHistoryTooltip = useMemo(() => {
+    if (!positionHistoryChart || !positionHistoryHoverPoint) return null;
+    const dateLabel =
+      formatCalendarDate(positionHistoryHoverPoint.capturedAt, displayLocale) ??
+      positionHistoryHoverPoint.capturedAt;
+    const rankLabel = `Rank ${positionHistoryHoverPoint.position}`;
+    const width = Math.max(
+      110,
+      dateLabel.length * 7 + 16,
+      rankLabel.length * 7 + 16
+    );
+    const height = 40;
+    const safeTop = 4;
+    const safeLeft = 4;
+    const safeRight = positionHistoryChart.chartWidth - width - 4;
+    const safeBottom = positionHistoryChart.chartHeight - height - 4;
+    let x = positionHistoryHoverPoint.x + 12;
+    if (x > safeRight) {
+      x = positionHistoryHoverPoint.x - width - 12;
+    }
+    x = Math.max(safeLeft, Math.min(safeRight, x));
+    let y = positionHistoryHoverPoint.y - height - 10;
+    if (y < safeTop) {
+      y = positionHistoryHoverPoint.y + 10;
+    }
+    y = Math.max(safeTop, Math.min(safeBottom, y));
+    return {
+      x,
+      y,
+      width,
+      height,
+      dateLabel,
+      rankLabel,
+    };
+  }, [displayLocale, positionHistoryChart, positionHistoryHoverPoint]);
 
   const getFilterLabel = (key: FilterMenuKey): string | null => {
     switch (key) {
@@ -2638,7 +2728,10 @@ export function App() {
       {positionHistoryKeyword ? (
         <div
           className="dialog-backdrop"
-          onClick={() => setPositionHistoryKeyword(null)}
+          onClick={() => {
+            setPositionHistoryHoverPoint(null);
+            setPositionHistoryKeyword(null);
+          }}
           role="presentation"
         >
           <section
@@ -2654,7 +2747,10 @@ export function App() {
                 type="button"
                 className="dialog-close"
                 aria-label="Close"
-                onClick={() => setPositionHistoryKeyword(null)}
+                onClick={() => {
+                  setPositionHistoryHoverPoint(null);
+                  setPositionHistoryKeyword(null);
+                }}
               >
                 ×
               </button>
@@ -2682,9 +2778,6 @@ export function App() {
                     <span>
                       Worst rank: <strong>{positionHistoryChart.worstPosition}</strong>
                     </span>
-                    <span>
-                      Points: <strong>{positionHistoryChart.points.length}</strong>
-                    </span>
                   </div>
                   <svg
                     className="position-history-chart"
@@ -2692,16 +2785,51 @@ export function App() {
                     role="img"
                     aria-label={`Position trend for ${positionHistoryKeyword}`}
                   >
-                    <line
-                      x1={POSITION_HISTORY_CHART_PADDING.left}
-                      y1={POSITION_HISTORY_CHART_PADDING.top}
-                      x2={POSITION_HISTORY_CHART_PADDING.left}
-                      y2={
-                        positionHistoryChart.chartHeight -
-                        POSITION_HISTORY_CHART_PADDING.bottom
-                      }
-                      className="position-history-axis"
-                    />
+                    {positionHistoryChart.yTicks.map((tick) => (
+                      <g key={`y-${tick.rank}`}>
+                        <line
+                          x1={POSITION_HISTORY_CHART_PADDING.left}
+                          y1={tick.y}
+                          x2={
+                            positionHistoryChart.chartWidth -
+                            POSITION_HISTORY_CHART_PADDING.right
+                          }
+                          y2={tick.y}
+                          className="position-history-guide-line"
+                        />
+                        <text
+                          x={positionHistoryChart.chartWidth - POSITION_HISTORY_CHART_PADDING.right + 6}
+                          y={tick.y}
+                          className="position-history-tick-label"
+                          textAnchor="start"
+                          dominantBaseline="middle"
+                        >
+                          {tick.rank}
+                        </text>
+                      </g>
+                    ))}
+                    {positionHistoryChart.monthTicks.map((tick, index) => (
+                      <g key={`x-${tick.label}-${index}`}>
+                        <line
+                          x1={tick.x}
+                          y1={POSITION_HISTORY_CHART_PADDING.top}
+                          x2={tick.x}
+                          y2={
+                            positionHistoryChart.chartHeight -
+                            POSITION_HISTORY_CHART_PADDING.bottom
+                          }
+                          className="position-history-guide-line position-history-guide-line-vertical"
+                        />
+                        <text
+                          x={tick.x}
+                          y={positionHistoryChart.chartHeight - POSITION_HISTORY_CHART_PADDING.bottom + 18}
+                          className="position-history-tick-label"
+                          textAnchor="middle"
+                        >
+                          {tick.label}
+                        </text>
+                      </g>
+                    ))}
                     <line
                       x1={POSITION_HISTORY_CHART_PADDING.left}
                       y1={
@@ -2727,19 +2855,47 @@ export function App() {
                         key={`${point.capturedAt}-${point.position}`}
                         cx={point.x}
                         cy={point.y}
-                        r={3.5}
+                        r={4}
                         className="position-history-point"
+                        tabIndex={0}
+                        onMouseEnter={() => setPositionHistoryHoverPoint(point)}
+                        onMouseLeave={() => setPositionHistoryHoverPoint(null)}
+                        onFocus={() => setPositionHistoryHoverPoint(point)}
+                        onBlur={() => setPositionHistoryHoverPoint(null)}
                       >
                         <title>
-                          {`${formatCalendarDate(point.capturedAt, displayLocale) ?? point.capturedAt}: #${point.position}`}
+                          {`${formatCalendarDate(point.capturedAt, displayLocale) ?? point.capturedAt} • Rank ${point.position}`}
                         </title>
                       </circle>
                     ))}
+                    {positionHistoryTooltip ? (
+                      <g className="position-history-tooltip" pointerEvents="none">
+                        <rect
+                          x={positionHistoryTooltip.x}
+                          y={positionHistoryTooltip.y}
+                          width={positionHistoryTooltip.width}
+                          height={positionHistoryTooltip.height}
+                          rx={8}
+                          ry={8}
+                          className="position-history-tooltip-bg"
+                        />
+                        <text
+                          x={positionHistoryTooltip.x + 8}
+                          y={positionHistoryTooltip.y + 16}
+                          className="position-history-tooltip-line"
+                        >
+                          {positionHistoryTooltip.dateLabel}
+                        </text>
+                        <text
+                          x={positionHistoryTooltip.x + 8}
+                          y={positionHistoryTooltip.y + 32}
+                          className="position-history-tooltip-line position-history-tooltip-line-rank"
+                        >
+                          {positionHistoryTooltip.rankLabel}
+                        </text>
+                      </g>
+                    ) : null}
                   </svg>
-                  <div className="position-history-axis-labels">
-                    <span>{positionHistoryChart.firstDateLabel}</span>
-                    <span>{positionHistoryChart.lastDateLabel}</span>
-                  </div>
                 </div>
               ) : null}
             </div>

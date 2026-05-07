@@ -385,22 +385,25 @@ export const formatDate = (value?: string, locale?: string): string => {
   const diffMs = Date.now() - updatedAt.getTime();
   if (diffMs < 0) return absoluteDate;
 
-  const numberFormatter = new Intl.NumberFormat(locale);
+  const relativeFormatter = new Intl.RelativeTimeFormat(locale, {
+    numeric: "always",
+    style: "short",
+  });
   const minuteMs = 60 * 1000;
   const hourMs = 60 * minuteMs;
   const dayMs = 24 * hourMs;
 
   if (diffMs < hourMs) {
     const minutes = Math.max(1, Math.floor(diffMs / minuteMs));
-    return `${numberFormatter.format(minutes)} min ago`;
+    return relativeFormatter.format(-minutes, "minute");
   }
   if (diffMs < dayMs) {
     const hours = Math.floor(diffMs / hourMs);
-    return `${numberFormatter.format(hours)} hr ago`;
+    return relativeFormatter.format(-hours, "hour");
   }
   if (diffMs <= 7 * dayMs) {
     const days = Math.floor(diffMs / dayMs);
-    return `${numberFormatter.format(days)} d ago`;
+    return relativeFormatter.format(-days, "day");
   }
 
   return absoluteDate;

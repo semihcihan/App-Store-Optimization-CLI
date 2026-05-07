@@ -1474,14 +1474,21 @@ tbody tr.selected:hover td {
   width: 100%;
   max-width: 100%;
   height: auto;
-  border: 2px solid color-mix(in oklab, var(--border) 88%, transparent);
-  border-radius: 10px;
   background: color-mix(in oklab, var(--card) 92%, transparent);
 }
 
 .position-history-axis {
   stroke: color-mix(in oklab, var(--border) 90%, transparent);
   stroke-width: 1;
+}
+
+.position-history-guide-line {
+  stroke: color-mix(in oklab, var(--border) 78%, transparent);
+  stroke-width: 1;
+}
+
+.position-history-guide-line-vertical {
+  stroke-dasharray: 3 4;
 }
 
 .position-history-line {
@@ -1494,14 +1501,29 @@ tbody tr.selected:hover td {
 
 .position-history-point {
   fill: color-mix(in oklab, var(--primary) 78%, white);
+  stroke: color-mix(in oklab, var(--card) 90%, transparent);
+  stroke-width: 1.5;
 }
 
-.position-history-axis-labels {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  color: var(--muted-foreground);
-  font-size: 0.78rem;
+.position-history-tick-label {
+  fill: var(--muted-foreground);
+  font-size: 0.72rem;
+  letter-spacing: 0.01em;
+}
+
+.position-history-tooltip-bg {
+  fill: color-mix(in oklab, var(--card) 95%, black);
+  stroke: color-mix(in oklab, var(--border) 85%, transparent);
+  stroke-width: 1;
+}
+
+.position-history-tooltip-line {
+  fill: color-mix(in oklab, var(--foreground) 94%, white);
+  font-size: 0.72rem;
+}
+
+.position-history-tooltip-line-rank {
+  font-weight: 600;
 }
 
 .hidden {
@@ -1698,10 +1720,9 @@ tbody tr.selected:hover td {
   --border: rgba(255, 255, 255, 0.1);
   --input: rgba(255, 255, 255, 0.12);
   --divider: rgba(255, 255, 255, 0.06);
-  --row-odd: #0b0b0f;
-  --row-even: #121219;
-  --row-hover: #1a1a26;
-  --row-selected: #242438;
+  --row-odd: #15181d;
+  --row-hover: #162336;
+  --row-selected: #1e3048;
   --ring: rgba(112, 172, 231, 0.34);
   --sidebar: var(--bg-1);
   --sidebar-foreground: #a0a0a0;
@@ -2286,7 +2307,7 @@ tbody tr:nth-child(odd) td {
 }
 
 tbody tr:nth-child(even) td {
-  background: var(--row-even);
+  background: transparent;
 }
 
 tbody tr:hover td,
