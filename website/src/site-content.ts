@@ -37,9 +37,4 @@ export const faqEntries = [
     answer:
       "Yes. You can use MCP via aso-mcp or build your own automation using aso keywords output modes inside custom apps and scripts.",
   },
-  {
-    question: "Where can I find troubleshooting and release updates?",
-    answer:
-      "See the repository setup and troubleshooting guide plus the GitHub releases page for release notes.",
-  },
 ];

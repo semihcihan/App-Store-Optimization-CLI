@@ -296,27 +296,7 @@ const structuredData = {
           {faqEntries.map(({ question, answer }) => (
             <article class="faq-item">
               <h3>{question}</h3>
-              <p>
-                {question === "Where can I find troubleshooting and release updates?" ? (
-                  <>
-                    See{" "}
-                    <a
-                      href={`${repoUrl}#apple-search-ads-setup`}
-                      target="_blank"
-                      rel="noreferrer"
-                    >
-                      setup and troubleshooting
-                    </a>{" "}
-                    and{" "}
-                    <a href={`${repoUrl}/releases`} target="_blank" rel="noreferrer">
-                      release notes
-                    </a>
-                    .
-                  </>
-                ) : (
-                  answer
-                )}
-              </p>
+              <p>{answer}</p>
             </article>
           ))}
         </div>
