@@ -409,7 +409,7 @@ describe("dashboard app interactions", () => {
 
     const keywordCell = await screen.findByText("meditation");
     const row = keywordCell.closest("tr") as HTMLElement;
-    const rankCell = within(row).getAllByRole("cell")[6];
+    const rankCell = within(row).getAllByRole("cell")[3];
     const rankTrigger = within(rankCell).getByRole("button", { name: "4" });
     fireEvent.click(rankTrigger);
 
