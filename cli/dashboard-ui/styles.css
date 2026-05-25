@@ -2187,8 +2187,8 @@ th {
   color: #787878;
   font-weight: 600;
   font-size: 10px;
-  letter-spacing: 0.09em;
-  text-transform: uppercase;
+  letter-spacing: 0.01em;
+  text-transform: none;
   background: var(--bg-1);
   border-bottom: 2px solid var(--divider);
 }

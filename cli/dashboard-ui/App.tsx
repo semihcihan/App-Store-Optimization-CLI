@@ -2399,36 +2399,6 @@ export function App() {
                       {renderFilterDropdown("difficulty", "Difficulty")}
                     </div>
                   </th>
-                  <th
-                    className="col-middle"
-                    data-sort-key="brand"
-                  >
-                    <div className="column-filter-header">
-                      <span className="sort-label">
-                        <span>Brand</span>
-                      </span>
-                      {renderFilterDropdown("brand", "Brand")}
-                    </div>
-                  </th>
-                  <th
-                    className="col-middle"
-                    data-sort-key="favorite"
-                  >
-                    <div className="column-filter-header">
-                      <span className="sort-label">
-                        <span>Favorite</span>
-                      </span>
-                      {renderFilterDropdown("favorite", "Favorite")}
-                    </div>
-                  </th>
-                  <th
-                    className={`num col-middle sortable ${sortBy === "appCount" ? "active" : ""}`}
-                    data-sort-key="appCount"
-                    aria-sort={sortBy === "appCount" ? (sortDir === "asc" ? "ascending" : "descending") : "none"}
-                    onClick={() => onSortHeader("appCount")}
-                  >
-                    {renderSortLabel("appCount")}
-                  </th>
                   {showRankingColumns ? (
                     <>
                       <th
@@ -2461,6 +2431,36 @@ export function App() {
                       </th>
                     </>
                   ) : null}
+                  <th
+                    className="col-middle"
+                    data-sort-key="brand"
+                  >
+                    <div className="column-filter-header">
+                      <span className="sort-label">
+                        <span>Brand</span>
+                      </span>
+                      {renderFilterDropdown("brand", "Brand")}
+                    </div>
+                  </th>
+                  <th
+                    className="col-middle"
+                    data-sort-key="favorite"
+                  >
+                    <div className="column-filter-header">
+                      <span className="sort-label">
+                        <span>Favorite</span>
+                      </span>
+                      {renderFilterDropdown("favorite", "Favorite")}
+                    </div>
+                  </th>
+                  <th
+                    className={`num col-middle sortable ${sortBy === "appCount" ? "active" : ""}`}
+                    data-sort-key="appCount"
+                    aria-sort={sortBy === "appCount" ? (sortDir === "asc" ? "ascending" : "descending") : "none"}
+                    onClick={() => onSortHeader("appCount")}
+                  >
+                    {renderSortLabel("appCount")}
+                  </th>
                   <th
                     className={`sortable ${sortBy === "updatedAt" ? "active" : ""}`}
                     data-sort-key="updatedAt"
@@ -2508,25 +2508,6 @@ export function App() {
                             ? "Calculating..."
                             : Math.round(row.difficultyScore)}
                       </td>
-                      <td className="col-middle">
-                        {row.isBrandKeyword ? "✓" : "-"}
-                      </td>
-                      <td className="col-middle favorite-column">
-                        <button
-                          type="button"
-                          className={`favorite-heart-button ${row.isFavorite ? "is-favorite" : ""}`}
-                          aria-label={`${row.isFavorite ? "Unfavorite" : "Favorite"} keyword ${row.keyword}`}
-                          aria-pressed={row.isFavorite}
-                          disabled={favoriteMutationKeywords.has(row.keyword)}
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            void onToggleKeywordFavorite(row.keyword, !row.isFavorite);
-                          }}
-                        >
-                          <HeartIcon filled={row.isFavorite} />
-                        </button>
-                      </td>
-                      <td className="num col-middle">{row.appCount ?? "-"}</td>
                       {showRankingColumns ? (
                         <>
                           <td className="num col-middle">
@@ -2569,6 +2550,25 @@ export function App() {
                           </td>
                         </>
                       ) : null}
+                      <td className="col-middle">
+                        {row.isBrandKeyword ? "✓" : "-"}
+                      </td>
+                      <td className="col-middle favorite-column">
+                        <button
+                          type="button"
+                          className={`favorite-heart-button ${row.isFavorite ? "is-favorite" : ""}`}
+                          aria-label={`${row.isFavorite ? "Unfavorite" : "Favorite"} keyword ${row.keyword}`}
+                          aria-pressed={row.isFavorite}
+                          disabled={favoriteMutationKeywords.has(row.keyword)}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            void onToggleKeywordFavorite(row.keyword, !row.isFavorite);
+                          }}
+                        >
+                          <HeartIcon filled={row.isFavorite} />
+                        </button>
+                      </td>
+                      <td className="num col-middle">{row.appCount ?? "-"}</td>
                       <td className="updated-value">
                         {formatDate(row.updatedAt, displayLocale)}
                       </td>
