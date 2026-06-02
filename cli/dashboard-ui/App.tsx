@@ -2540,6 +2540,14 @@ export function App() {
                     </>
                   ) : null}
                   <th
+                    className={`num col-middle sortable ${sortBy === "appCount" ? "active" : ""}`}
+                    data-sort-key="appCount"
+                    aria-sort={sortBy === "appCount" ? (sortDir === "asc" ? "ascending" : "descending") : "none"}
+                    onClick={() => onSortHeader("appCount")}
+                  >
+                    {renderSortLabel("appCount")}
+                  </th>
+                  <th
                     className="col-middle"
                     data-sort-key="brand"
                   >
@@ -2560,14 +2568,6 @@ export function App() {
                       </span>
                       {renderFilterDropdown("favorite", "Favorite")}
                     </div>
-                  </th>
-                  <th
-                    className={`num col-middle sortable ${sortBy === "appCount" ? "active" : ""}`}
-                    data-sort-key="appCount"
-                    aria-sort={sortBy === "appCount" ? (sortDir === "asc" ? "ascending" : "descending") : "none"}
-                    onClick={() => onSortHeader("appCount")}
-                  >
-                    {renderSortLabel("appCount")}
                   </th>
                   <th
                     className={`sortable ${sortBy === "updatedAt" ? "active" : ""}`}
@@ -2658,6 +2658,7 @@ export function App() {
                           </td>
                         </>
                       ) : null}
+                      <td className="num col-middle">{row.appCount ?? "-"}</td>
                       <td className="col-middle">
                         {row.isBrandKeyword ? "✓" : "-"}
                       </td>
@@ -2676,7 +2677,6 @@ export function App() {
                           <HeartIcon filled={row.isFavorite} />
                         </button>
                       </td>
-                      <td className="num col-middle">{row.appCount ?? "-"}</td>
                       <td className="updated-value">
                         {formatDate(row.updatedAt, displayLocale)}
                       </td>

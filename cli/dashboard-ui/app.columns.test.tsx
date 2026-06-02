@@ -340,6 +340,19 @@ describe("dashboard keyword columns", () => {
     expect(screen.queryByRole("columnheader", { name: "Change" })).not.toBeInTheDocument();
     expect(screen.getByRole("columnheader", { name: /Brand/i })).toBeInTheDocument();
     expect(screen.getByRole("columnheader", { name: "Updated" })).toBeInTheDocument();
+    expect(
+      Array.from(document.querySelectorAll("thead th")).map((header) =>
+        header.getAttribute("data-sort-key")
+      )
+    ).toEqual([
+      "keyword",
+      "popularity",
+      "difficulty",
+      "appCount",
+      "brand",
+      "favorite",
+      "updatedAt",
+    ]);
   });
 
   it("shows rank, change, and updated columns for owned apps", async () => {
@@ -373,6 +386,21 @@ describe("dashboard keyword columns", () => {
     expect(screen.getByRole("columnheader", { name: "Change" })).toBeInTheDocument();
     expect(screen.getByRole("columnheader", { name: /Brand/i })).toBeInTheDocument();
     expect(screen.getByRole("columnheader", { name: "Updated" })).toBeInTheDocument();
+    expect(
+      Array.from(document.querySelectorAll("thead th")).map((header) =>
+        header.getAttribute("data-sort-key")
+      )
+    ).toEqual([
+      "keyword",
+      "popularity",
+      "difficulty",
+      "rank",
+      "change",
+      "appCount",
+      "brand",
+      "favorite",
+      "updatedAt",
+    ]);
   });
 
   it("uses global persisted sort when dashboard opens", async () => {
