@@ -29,6 +29,7 @@ export type PendingAddContext = {
 
 type AuthFlowContext =
   | { kind: "add-keywords" }
+  | { kind: "retry-failed" }
   | { kind: "startup-refresh" }
   | null;
 
@@ -196,6 +197,21 @@ export function useAuthFlow(params: UseAuthFlowParams) {
     []
   );
 
+  const openAuthModalForRetryFailed = useCallback((error: unknown): boolean => {
+    const errorCode = getDashboardApiErrorCode(error);
+    if (!isAuthFlowErrorCode(errorCode)) return false;
+    setAuthFlowContext({ kind: "retry-failed" });
+    setPendingAddContextState(null);
+    if (errorCode === "AUTH_IN_PROGRESS") {
+      setAuthStatus("in_progress");
+      setAuthStatusError("");
+    } else {
+      setAuthStatus("idle");
+      setAuthStatusError("");
+    }
+    return true;
+  }, []);
+
   const requestStartupRefreshReauthentication = useCallback(() => {
     setAuthFlowContext((current) => current ?? { kind: "startup-refresh" });
     if (!authCanPrompt || isStartingAuth || isSubmittingAuthPrompt) return;
@@ -236,12 +252,13 @@ export function useAuthFlow(params: UseAuthFlowParams) {
   }, [applyAuthState, authStatus, isStartingAuth]);
 
   useEffect(() => {
-    if (!pendingAddContext) return;
+    if (!pendingAddContext && authFlowContext?.kind !== "retry-failed") return;
     if (authStatus !== "idle") return;
     if (!authCanPrompt) return;
     if (isStartingAuth || isSubmittingAuthPrompt) return;
     void startReauthentication();
   }, [
+    authFlowContext,
     pendingAddContext,
     authStatus,
     authCanPrompt,
@@ -295,6 +312,7 @@ export function useAuthFlow(params: UseAuthFlowParams) {
     pendingAddContext,
     setPendingAddContext,
     openAuthModalForPendingAdd,
+    openAuthModalForRetryFailed,
     requestStartupRefreshReauthentication,
     startReauthentication,
     submitAuthPromptResponse,

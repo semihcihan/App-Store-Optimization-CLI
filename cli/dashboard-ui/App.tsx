@@ -454,6 +454,7 @@ export function App() {
     authPendingPrompt,
     setPendingAddContext,
     openAuthModalForPendingAdd,
+    openAuthModalForRetryFailed,
     requestStartupRefreshReauthentication,
     startReauthentication,
     submitAuthPromptResponse,
@@ -1381,6 +1382,7 @@ export function App() {
         );
       }
     } catch (error) {
+      if (openAuthModalForRetryFailed(error)) return;
       if (openSetupModalForPrimaryAppAccessError(error)) return;
       setErrorText(toActionableErrorMessage(error, "Failed to retry failed keywords"));
     } finally {
@@ -1391,6 +1393,7 @@ export function App() {
     failedKeywordCount,
     keywordPage,
     loadKeywords,
+    openAuthModalForRetryFailed,
     openSetupModalForPrimaryAppAccessError,
     selectedAppId,
     isKeywordMutationBlockedByStartupReauth,

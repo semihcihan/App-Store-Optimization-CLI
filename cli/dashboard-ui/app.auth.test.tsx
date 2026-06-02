@@ -381,6 +381,111 @@ describe("dashboard auth modal UI flow", () => {
     });
   });
 
+  it("auto-starts reauthentication after retry-failed returns AUTH_REQUIRED", async () => {
+    let retryFailedCount = 0;
+    let authStartCount = 0;
+    const authPromptState = {
+      status: "in_progress",
+      updatedAt: "2026-03-07T00:00:01.000Z",
+      lastError: null,
+      requiresTerminalAction: false,
+      canPrompt: true,
+      pendingPrompt: {
+        kind: "apple_credentials",
+        title: "Apple Sign In",
+        message: "Sign in to Apple Search Ads.",
+        defaultAppleId: "",
+      },
+    };
+    const fetchMock = jest.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = (init?.method ?? "GET").toUpperCase();
+
+      if (method === "GET" && url === "/api/apps") {
+        return jsonResponse({ status: 200, body: { success: true, data: [] } });
+      }
+      if (method === "GET" && url.startsWith("/api/aso/keywords?")) {
+        return jsonResponse({
+          status: 200,
+          body: {
+            success: true,
+            data: {
+              ...emptyKeywordPagedPayload(),
+              failedCount: 1,
+            },
+          },
+        });
+      }
+      if (method === "GET" && url === "/api/aso/refresh-status") {
+        return jsonResponse({
+          status: 200,
+          body: {
+            success: true,
+            data: {
+              status: "idle",
+              startedAt: null,
+              finishedAt: null,
+              lastError: null,
+              requiresReauthentication: false,
+              counters: {
+                eligibleKeywordCount: 0,
+                refreshedKeywordCount: 0,
+                failedKeywordCount: 0,
+              },
+            },
+          },
+        });
+      }
+      if (method === "POST" && url === "/api/aso/keywords/retry-failed") {
+        retryFailedCount += 1;
+        return jsonResponse({
+          status: 401,
+          body: {
+            success: false,
+            errorCode: "AUTH_REQUIRED",
+            error: "Auth required",
+          },
+        });
+      }
+      if (method === "POST" && url === "/api/aso/auth/start") {
+        authStartCount += 1;
+        return jsonResponse({
+          status: 202,
+          body: {
+            success: true,
+            data: authPromptState,
+          },
+        });
+      }
+      if (method === "GET" && url === "/api/aso/auth/status") {
+        return jsonResponse({
+          status: 200,
+          body: {
+            success: true,
+            data: authPromptState,
+          },
+        });
+      }
+
+      throw new Error(`Unhandled fetch: ${method} ${url}`);
+    });
+    global.fetch = fetchMock as typeof fetch;
+
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Retry Failed (1)" }));
+
+    await waitFor(() => expect(authStartCount).toBe(1));
+    expect(retryFailedCount).toBe(1);
+    expect(
+      await screen.findByRole("dialog", { name: "Apple Sign In" })
+    ).toBeInTheDocument();
+    expect(screen.getByText("Sign in to Apple Search Ads.")).toBeInTheDocument();
+    expect(
+      screen.queryByText("Apple Search Ads session expired. Use Reauthenticate and retry.")
+    ).not.toBeInTheDocument();
+  });
+
   it("shows browser auth prompts when reauthentication needs user input", async () => {
     let resolveAuthStart: (value: Response) => void = () => {};
     const authStartPromise = new Promise<Response>((resolve) => {

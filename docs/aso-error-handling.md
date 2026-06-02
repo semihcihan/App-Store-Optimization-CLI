@@ -34,13 +34,15 @@ Define failure boundaries, retry rules, and recovery behavior across CLI, dashbo
 - App-doc hydration now falls back to iTunes Lookup for IDs that App Store lookup leaves missing/incomplete, reducing false `INSUFFICIENT_DOCS` failures caused by lookup payload gaps.
 - Startup refresh manager retries each unit once for transient non-auth failures; it does not retry exhausted `All keywords failed (...)` batch failures, and auth-required failures are terminal for the current run and stop remaining batches.
 - Startup refresh auth failures are exposed as structured refresh-status state so the dashboard can prompt for reauthentication instead of silently stopping.
-- Startup refresh auth failures reuse the same dashboard reauthentication UX as add-keyword: one automatic auth-start attempt, then shared browser prompt / retry handling if user input is needed.
+- Dashboard keyword mutation auth failures reuse the same dashboard reauthentication UX: add-keyword, retry-failed, and startup refresh each get one automatic auth-start attempt, then shared browser prompt / retry handling if user input is needed.
 - `keywordPipelineService` isolates terminal failures per keyword and stores normalized failure metadata in `aso_keyword_failures` via `keywordWriteRepository` (single write owner).
 
 ## Recovery Behavior
 - Dashboard add-keyword:
   - If auth is invalid in stage 1, return `AUTH_REQUIRED` (no interactive prompt in request path).
   - If the configured Primary App ID is inaccessible for the current Apple Ads account, return `PRIMARY_APP_ID_RECONFIGURE_REQUIRED` so the dashboard can reopen the shared Primary App ID setup flow.
+- Dashboard retry-failed:
+  - If auth is invalid, return `AUTH_REQUIRED` (no interactive prompt in request path); the browser starts the shared reauthentication flow and the user retries explicitly after auth succeeds.
 - Dashboard startup-refresh auth recovery:
   - While refresh status reports `requiresReauthentication=true`, keyword mutations (`Add Keywords`, `Retry Failed`) are disabled until reauthentication succeeds.
 - If stage-2 enrichment fails, stage-1 writes remain; caller can retry later.

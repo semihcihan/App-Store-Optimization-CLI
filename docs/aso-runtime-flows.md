@@ -105,9 +105,10 @@ Runtime flow contracts across CLI commands, local dashboard API, and ASO service
 ## Flow B2: Dashboard Retry Failed Keywords (`POST /api/aso/keywords/retry-failed`)
 1. Resolve failed keywords for selected `appId` + `country`.
 2. Rerun the same keyword pipeline in non-interactive auth mode.
-3. Return `{ retriedCount, succeededCount, failedCount }`.
-4. Clear failed status for keywords that succeeded.
-5. Dashboard UI shows the retry action only when current keyword rows include failed entries.
+3. If auth is invalid, return `AUTH_REQUIRED` or `AUTH_IN_PROGRESS`; the dashboard enters the shared reauthentication flow and the user retries the mutation explicitly after auth succeeds.
+4. Return `{ retriedCount, succeededCount, failedCount }`.
+5. Clear failed status for keywords that succeeded.
+6. Dashboard UI shows the retry action only when current keyword rows include failed entries.
 
 ## Flow B3: Dashboard Keyword Favorites (`POST /api/aso/keywords/favorite`)
 1. UI toggles the row heart control in the dedicated `Favorite` column.
@@ -123,7 +124,7 @@ Runtime flow contracts across CLI commands, local dashboard API, and ASO service
 5. On success, the value is persisted through the same `resolveAsoAdamId` / `saveAsoAdamId` path used by CLI, becomes active for the current dashboard process immediately, and startup refresh begins.
 
 ## Flow C: Dashboard Reauthentication
-1. Add-keyword flow returns `AUTH_REQUIRED` or `AUTH_IN_PROGRESS` when auth state blocks stage 1.
+1. Add-keyword and retry-failed flows return `AUTH_REQUIRED` or `AUTH_IN_PROGRESS` when auth state blocks stage 1.
 2. Startup-refresh auth-required failures also enter this same flow automatically once, instead of waiting for a separate explicit auth action.
 3. Client calls `POST /api/aso/auth/start`.
 4. Server runs single-flight `asoAuthService.reAuthenticate()` with a dashboard prompt handler instead of a terminal-only prompt path.
