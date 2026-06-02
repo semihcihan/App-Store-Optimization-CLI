@@ -1,3 +1,5 @@
+import { createPortal } from "react-dom";
+
 type AppActionMenuProps = {
   x: number;
   y: number;
@@ -5,7 +7,7 @@ type AppActionMenuProps = {
 };
 
 export function AppActionMenu(props: AppActionMenuProps) {
-  return (
+  const menu = (
     <div
       className="keyword-action-menu app-action-menu"
       style={{ left: `${props.x}px`, top: `${props.y}px` }}
@@ -22,4 +24,5 @@ export function AppActionMenu(props: AppActionMenuProps) {
       </button>
     </div>
   );
+  return createPortal(menu, document.body);
 }

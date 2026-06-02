@@ -422,7 +422,6 @@ describe("dashboard app interactions", () => {
 
   it("opens top apps dialog and supports context delete", async () => {
     let deletedBody: any = null;
-    const confirmSpy = jest.spyOn(window, "confirm").mockReturnValue(true);
     const fetchMock = buildFetchMock({
       initialApps: [
         { id: DEFAULT_RESEARCH_APP_ID, name: "Research" },
@@ -482,7 +481,21 @@ describe("dashboard app interactions", () => {
       clientX: 50,
       clientY: 50,
     });
-    fireEvent.click(await screen.findByRole("menuitem", { name: "Delete" }));
+    const deleteMenuItem = await screen.findByRole("menuitem", { name: "Delete" });
+    expect(deleteMenuItem.closest(".keyword-action-menu")).toHaveStyle({
+      left: "50px",
+      top: "50px",
+    });
+    fireEvent.click(deleteMenuItem);
+
+    const confirmDialog = await screen.findByRole("dialog", {
+      name: "Delete keywords?",
+    });
+    expect(confirmDialog).toHaveStyle({
+      left: "50px",
+      top: "50px",
+    });
+    fireEvent.click(within(confirmDialog).getByRole("button", { name: "Delete" }));
 
     await waitFor(() =>
       expect(deletedBody).toEqual({
@@ -491,13 +504,10 @@ describe("dashboard app interactions", () => {
         country: "US",
       })
     );
-    expect(confirmSpy).toHaveBeenCalled();
-    confirmSpy.mockRestore();
   });
 
   it("deletes an app from sidebar using right-click action", async () => {
     let deleteAppBody: any = null;
-    const confirmSpy = jest.spyOn(window, "confirm").mockReturnValue(true);
     const fetchMock = buildFetchMock({
       initialApps: [
         { id: DEFAULT_RESEARCH_APP_ID, name: "Research" },
@@ -522,13 +532,25 @@ describe("dashboard app interactions", () => {
       clientX: 72,
       clientY: 90,
     });
-    fireEvent.click(await screen.findByRole("menuitem", { name: "Delete" }));
+    const deleteMenuItem = await screen.findByRole("menuitem", { name: "Delete" });
+    expect(deleteMenuItem.closest(".app-action-menu")).toHaveStyle({
+      left: "72px",
+      top: "90px",
+    });
+    fireEvent.click(deleteMenuItem);
+
+    const confirmDialog = await screen.findByRole("dialog", {
+      name: "Delete app?",
+    });
+    expect(confirmDialog).toHaveStyle({
+      left: "72px",
+      top: "90px",
+    });
+    fireEvent.click(within(confirmDialog).getByRole("button", { name: "Delete" }));
 
     await waitFor(() => expect(deleteAppBody).toEqual({ appId: "111" }));
-    expect(confirmSpy).toHaveBeenCalledWith('Delete "Owned App"?');
     await screen.findByText('Deleted "Owned App".');
     expect(screen.queryByText("Owned App")).toBeNull();
-    confirmSpy.mockRestore();
   });
 
   it("collapses and expands the research section", async () => {

@@ -935,6 +935,42 @@ th.sortable.active {
   gap: 4px;
 }
 
+.context-confirm-menu {
+  position: fixed;
+  width: min(300px, calc(100vw - 16px));
+  padding: 10px;
+  border: 2px solid var(--border);
+  border-radius: 10px;
+  background: var(--card);
+  box-shadow: 0 10px 24px
+    color-mix(in oklab, var(--foreground) 14%, transparent);
+  z-index: 17;
+  display: grid;
+  gap: 8px;
+}
+
+.context-confirm-title,
+.context-confirm-message {
+  margin: 0;
+}
+
+.context-confirm-title {
+  font-weight: 800;
+  font-size: 0.85rem;
+}
+
+.context-confirm-message {
+  color: var(--muted-foreground);
+  font-size: 0.78rem;
+  line-height: 1.35;
+}
+
+.context-confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
 .keyword-action-item {
   border: 0;
   border-radius: 8px;
@@ -2243,7 +2279,8 @@ th.sortable.active,
 }
 
 .filter-dropdown-menu,
-.keyword-action-menu {
+.keyword-action-menu,
+.context-confirm-menu {
   border: 2px solid var(--border);
   border-radius: var(--radius-md);
   background: var(--bg-1);

@@ -35,6 +35,7 @@ import { AsoPromptDialog } from "./components/aso-prompt-dialog";
 import { KeywordActionMenu } from "./components/keyword-action-menu";
 import { AddAppDialog } from "./components/add-app-dialog";
 import { AppActionMenu } from "./components/app-action-menu";
+import { ContextDeleteConfirm } from "./components/context-delete-confirm";
 import {
   DASHBOARD_FILTER_DEFAULTS,
   DASHBOARD_FILTER_OPTIONS,
@@ -127,6 +128,22 @@ type AppActionMenuState = {
   appId: string;
   appName: string;
 };
+type DeleteConfirmMenuState =
+  | {
+      kind: "keywords";
+      x: number;
+      y: number;
+      appId: string;
+      appName: string;
+      keywords: string[];
+    }
+  | {
+      kind: "app";
+      x: number;
+      y: number;
+      appId: string;
+      appName: string;
+    };
 
 type Row = {
   keyword: string;
@@ -193,6 +210,29 @@ const POSITION_HISTORY_CHART_PADDING = {
   bottom: 34,
   left: 18,
 };
+const FLOATING_MENU_PADDING = 8;
+const APP_ACTION_MENU_SIZE = { width: 170, height: 58 };
+const KEYWORD_ACTION_MENU_SIZE = { width: 190, height: 96 };
+const DELETE_CONFIRM_MENU_SIZE = { width: 300, height: 156 };
+
+function clampFloatingPosition(x: number, y: number, width: number, height: number) {
+  const maxX = Math.max(
+    FLOATING_MENU_PADDING,
+    window.innerWidth - width - FLOATING_MENU_PADDING
+  );
+  const maxY = Math.max(
+    FLOATING_MENU_PADDING,
+    window.innerHeight - height - FLOATING_MENU_PADDING
+  );
+  return {
+    x: Math.min(Math.max(x, FLOATING_MENU_PADDING), maxX),
+    y: Math.min(Math.max(y, FLOATING_MENU_PADDING), maxY),
+  };
+}
+
+function formatKeywordDeleteLabel(keywords: string[]) {
+  return keywords.length === 1 ? `"${keywords[0]}"` : `${keywords.length} keywords`;
+}
 
 type StartupRefreshStatus = "idle" | "running" | "completed" | "failed";
 
@@ -315,6 +355,7 @@ export function App() {
   const [openFilterMenu, setOpenFilterMenu] = useState<FilterMenuKey | null>(null);
   const [keywordActionMenu, setKeywordActionMenu] = useState<KeywordActionMenuState | null>(null);
   const [appActionMenu, setAppActionMenu] = useState<AppActionMenuState | null>(null);
+  const [deleteConfirmMenu, setDeleteConfirmMenu] = useState<DeleteConfirmMenuState | null>(null);
   const [researchSectionCollapsed, setResearchSectionCollapsed] = useState(false);
 
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -787,6 +828,25 @@ export function App() {
   }, [appActionMenu]);
 
   useEffect(() => {
+    if (!deleteConfirmMenu) return;
+    const onPointerDown = (event: MouseEvent) => {
+      const target = event.target;
+      if (!(target instanceof Element)) return;
+      if (target.closest(".context-confirm-menu")) return;
+      setDeleteConfirmMenu(null);
+    };
+    const onEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setDeleteConfirmMenu(null);
+    };
+    document.addEventListener("mousedown", onPointerDown);
+    document.addEventListener("keydown", onEscape);
+    return () => {
+      document.removeEventListener("mousedown", onPointerDown);
+      document.removeEventListener("keydown", onEscape);
+    };
+  }, [deleteConfirmMenu]);
+
+  useEffect(() => {
     if (!topAppsKeyword) return;
     const onEscape = (event: KeyboardEvent) => {
       if (event.key === "Escape") setTopAppsKeyword(null);
@@ -867,6 +927,7 @@ export function App() {
     if (selectedAppId === appId) return;
     setAppActionMenu(null);
     setKeywordPage(1);
+    setDeleteConfirmMenu(null);
     setSelectedAppId(appId);
     setSelectedKeywords(new Set());
     setSelectionAnchor(null);
@@ -895,33 +956,43 @@ export function App() {
   ) => {
     setAppActionMenu(null);
     setKeywordActionMenu(null);
+    setDeleteConfirmMenu(null);
     onSelectKeywordRow(rowKeyword, rowIndex, event);
   };
 
-  const onContextDelete = async (selected: string[]) => {
-    const label = selected.length === 1 ? `\"${selected[0]}\"` : `${selected.length} keywords`;
-    if (!window.confirm(`Delete ${label} from ${selectedAppName}?`)) return;
+  const deleteKeywordsFromApp = useCallback(
+    async (appId: string, selected: string[]) => {
+      try {
+        setErrorText("");
+        setSuccessText("");
+        setLoadingText(`Deleting ${selected.length} keyword${selected.length === 1 ? "" : "s"}...`);
+        await apiWrite("DELETE", "/api/aso/keywords", {
+          appId,
+          keywords: selected,
+          country: DEFAULT_ASO_COUNTRY,
+        });
+        setSelectedKeywords(new Set());
+        setSelectionAnchor(null);
+        setSuccessText(`Deleted ${selected.length} keyword${selected.length === 1 ? "" : "s"}.`);
+        await loadApps();
+        await loadKeywords(selectedAppIdRef.current, keywordPage);
+      } catch (error) {
+        setErrorText(toActionableErrorMessage(error, "Failed to delete keywords"));
+      } finally {
+        setLoadingText("");
+      }
+    },
+    [keywordPage, loadApps, loadKeywords, setSelectionAnchor]
+  );
 
-    try {
-      setErrorText("");
-      setSuccessText("");
-      setLoadingText(`Deleting ${selected.length} keyword${selected.length === 1 ? "" : "s"}...`);
-      await apiWrite("DELETE", "/api/aso/keywords", {
-        appId: selectedAppId,
-        keywords: selected,
-        country: DEFAULT_ASO_COUNTRY,
-      });
-      setSelectedKeywords(new Set());
-      setSelectionAnchor(null);
-      setSuccessText(`Deleted ${selected.length} keyword${selected.length === 1 ? "" : "s"}.`);
-      await loadApps();
-      await loadKeywords(selectedAppId, keywordPage);
-    } catch (error) {
-      setErrorText(toActionableErrorMessage(error, "Failed to delete keywords"));
-    } finally {
-      setLoadingText("");
-    }
-  };
+  const onContextDelete = useCallback(
+    async (selected: string[]) => {
+      const label = formatKeywordDeleteLabel(selected);
+      if (!window.confirm(`Delete ${label} from ${selectedAppName}?`)) return;
+      await deleteKeywordsFromApp(selectedAppId, selected);
+    },
+    [deleteKeywordsFromApp, selectedAppId, selectedAppName]
+  );
 
   const onToggleKeywordFavorite = useCallback(
     async (rowKeyword: string, nextIsFavorite: boolean) => {
@@ -959,10 +1030,8 @@ export function App() {
     [keywordPage, loadKeywords, selectedAppId]
   );
 
-  const onDeleteSidebarApp = useCallback(
+  const deleteSidebarApp = useCallback(
     async (appId: string, appName: string) => {
-      if (!window.confirm(`Delete "${appName}"?`)) return;
-
       try {
         setErrorText("");
         setSuccessText("");
@@ -1000,16 +1069,16 @@ export function App() {
       event.preventDefault();
       event.stopPropagation();
 
-      const menuWidth = 170;
-      const menuHeight = 58;
-      const padding = 8;
-      const maxX = Math.max(padding, window.innerWidth - menuWidth - padding);
-      const maxY = Math.max(padding, window.innerHeight - menuHeight - padding);
-      const x = Math.min(Math.max(event.clientX, padding), maxX);
-      const y = Math.min(Math.max(event.clientY, padding), maxY);
+      const { x, y } = clampFloatingPosition(
+        event.clientX,
+        event.clientY,
+        APP_ACTION_MENU_SIZE.width,
+        APP_ACTION_MENU_SIZE.height
+      );
 
       setOpenFilterMenu(null);
       setKeywordActionMenu(null);
+      setDeleteConfirmMenu(null);
       setAppActionMenu({
         x,
         y,
@@ -1139,14 +1208,14 @@ export function App() {
       setSelectionAnchor(rowKeyword);
       setOpenFilterMenu(null);
       setAppActionMenu(null);
+      setDeleteConfirmMenu(null);
 
-      const menuWidth = 190;
-      const menuHeight = 96;
-      const padding = 8;
-      const maxX = Math.max(padding, window.innerWidth - menuWidth - padding);
-      const maxY = Math.max(padding, window.innerHeight - menuHeight - padding);
-      const x = Math.min(Math.max(event.clientX, padding), maxX);
-      const y = Math.min(Math.max(event.clientY, padding), maxY);
+      const { x, y } = clampFloatingPosition(
+        event.clientX,
+        event.clientY,
+        KEYWORD_ACTION_MENU_SIZE.width,
+        KEYWORD_ACTION_MENU_SIZE.height
+      );
       setKeywordActionMenu({ x, y, keywords: selected });
     },
     [getContextSelection]
@@ -1161,16 +1230,52 @@ export function App() {
         await onContextCopy(selected);
         return;
       }
-      await onContextDelete(selected);
+      const { x, y } = clampFloatingPosition(
+        keywordActionMenu.x,
+        keywordActionMenu.y,
+        DELETE_CONFIRM_MENU_SIZE.width,
+        DELETE_CONFIRM_MENU_SIZE.height
+      );
+      setDeleteConfirmMenu({
+        kind: "keywords",
+        x,
+        y,
+        appId: selectedAppId,
+        appName: selectedAppName,
+        keywords: selected,
+      });
     },
-    [keywordActionMenu, onContextCopy, onContextDelete]
+    [keywordActionMenu, onContextCopy, selectedAppId, selectedAppName]
   );
 
-  const onAppContextDelete = useCallback(async () => {
+  const onAppContextDelete = useCallback(() => {
     if (!appActionMenu) return;
-    const { appId, appName } = appActionMenu;
-    await onDeleteSidebarApp(appId, appName);
-  }, [appActionMenu, onDeleteSidebarApp]);
+    const { x, y } = clampFloatingPosition(
+      appActionMenu.x,
+      appActionMenu.y,
+      DELETE_CONFIRM_MENU_SIZE.width,
+      DELETE_CONFIRM_MENU_SIZE.height
+    );
+    setAppActionMenu(null);
+    setDeleteConfirmMenu({
+      kind: "app",
+      x,
+      y,
+      appId: appActionMenu.appId,
+      appName: appActionMenu.appName,
+    });
+  }, [appActionMenu]);
+
+  const onConfirmContextDelete = useCallback(() => {
+    if (!deleteConfirmMenu) return;
+    const pendingDelete = deleteConfirmMenu;
+    setDeleteConfirmMenu(null);
+    if (pendingDelete.kind === "keywords") {
+      void deleteKeywordsFromApp(pendingDelete.appId, pendingDelete.keywords);
+      return;
+    }
+    void deleteSidebarApp(pendingDelete.appId, pendingDelete.appName);
+  }, [deleteConfirmMenu, deleteKeywordsFromApp, deleteSidebarApp]);
 
   const submitKeywords = useCallback(
     async (kws: string[]): Promise<boolean> => {
@@ -2602,8 +2707,26 @@ export function App() {
           x={appActionMenu.x}
           y={appActionMenu.y}
           onDelete={() => {
-            void onAppContextDelete();
+            onAppContextDelete();
           }}
+        />
+      ) : null}
+      {deleteConfirmMenu ? (
+        <ContextDeleteConfirm
+          x={deleteConfirmMenu.x}
+          y={deleteConfirmMenu.y}
+          title={
+            deleteConfirmMenu.kind === "app" ? "Delete app?" : "Delete keywords?"
+          }
+          message={
+            deleteConfirmMenu.kind === "app"
+              ? `Delete "${deleteConfirmMenu.appName}"?`
+              : `Delete ${formatKeywordDeleteLabel(
+                  deleteConfirmMenu.keywords
+                )} from ${deleteConfirmMenu.appName}?`
+          }
+          onCancel={() => setDeleteConfirmMenu(null)}
+          onConfirm={onConfirmContextDelete}
         />
       ) : null}
       {topAppsKeyword ? (
