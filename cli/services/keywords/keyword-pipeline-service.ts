@@ -69,6 +69,14 @@ function validateKeywordCount(keywords: string[]): void {
   }
 }
 
+function chunkKeywords(keywords: string[]): string[][] {
+  const chunks: string[][] = [];
+  for (let index = 0; index < keywords.length; index += ASO_MAX_KEYWORDS) {
+    chunks.push(keywords.slice(index, index + ASO_MAX_KEYWORDS));
+  }
+  return chunks;
+}
+
 function stripTimestamps(item: AsoKeywordItem): AsoKeywordItem {
   const { createdAt, updatedAt, ...rest } = item;
   return rest;
@@ -155,10 +163,7 @@ type MissClassification = {
   orderRefreshKeywords: string[];
 };
 
-function classifyMisses(
-  country: string,
-  misses: string[]
-): MissClassification {
+function classifyMisses(country: string, misses: string[]): MissClassification {
   const pendingItems: PendingKeywordPopularityItem[] = [];
   const popularityFetchKeywords: string[] = [];
   const orderRefreshKeywords: string[] = [];
@@ -259,7 +264,9 @@ export class KeywordPipelineService {
     if (items.length === 0) return null;
     const normalizedKeyword = normalizeKeyword(keyword);
     return (
-      items.find((item) => normalizeKeyword(item.keyword) === normalizedKeyword) ??
+      items.find(
+        (item) => normalizeKeyword(item.keyword) === normalizedKeyword
+      ) ??
       items[0] ??
       null
     );
@@ -363,16 +370,17 @@ export class KeywordPipelineService {
       }
     };
 
-    await Promise.all(
-      Array.from({ length: workerCount }, () => runWorker())
-    );
+    await Promise.all(Array.from({ length: workerCount }, () => runWorker()));
   }
 
-  private buildEnrichmentResult(
-    outcomes: EnrichmentOutcome[]
-  ): { items: AsoKeywordItem[]; failedKeywords: FailedKeyword[] } {
+  private buildEnrichmentResult(outcomes: EnrichmentOutcome[]): {
+    items: AsoKeywordItem[];
+    failedKeywords: FailedKeyword[];
+  } {
     return {
-      items: outcomes.flatMap((outcome) => (outcome?.item ? [outcome.item] : [])),
+      items: outcomes.flatMap((outcome) =>
+        outcome?.item ? [outcome.item] : []
+      ),
       failedKeywords: outcomes.flatMap((outcome) =>
         outcome?.failedKeyword ? [outcome.failedKeyword] : []
       ),
@@ -454,7 +462,10 @@ export class KeywordPipelineService {
       });
       failedKeywords.push(...popularityResult.failedKeywords);
       if (fetchedPopularityItems.length > 0) {
-        keywordWriteRepository.upsertPopularityOnly(country, fetchedPopularityItems);
+        keywordWriteRepository.upsertPopularityOnly(
+          country,
+          fetchedPopularityItems
+        );
       }
       const popularityFailureSummary = summarizeFailedPopularityKeywords(
         popularityResult.failedKeywords
@@ -484,7 +495,8 @@ export class KeywordPipelineService {
     );
     const pendingItems = lookupData.misses
       .map(
-        (keyword) => reusedByKeyword.get(keyword) ?? fetchedByKeyword.get(keyword)
+        (keyword) =>
+          reusedByKeyword.get(keyword) ?? fetchedByKeyword.get(keyword)
       )
       .filter((item): item is PendingKeywordPopularityItem => item != null);
     const existingByKeyword = new Map(
@@ -493,25 +505,27 @@ export class KeywordPipelineService {
         keyword,
       ])
     );
-    const orderRefreshKeywords = classified.orderRefreshKeywords.filter((keyword) => {
-      const existing = existingByKeyword.get(keyword);
-      if (
-        existing &&
-        Number.isFinite(existing.popularity) &&
-        isBelowMinPopularity(existing.popularity, filters)
-      ) {
-        filteredOut.push({
-          keyword: existing.keyword,
-          reason: "low_popularity",
-          popularity: existing.popularity,
-          difficulty: existing.difficultyScore ?? undefined,
-          minDifficultyScore: existing.minDifficultyScore,
-          isBrandKeyword: existing.isBrandKeyword,
-        });
-        return false;
+    const orderRefreshKeywords = classified.orderRefreshKeywords.filter(
+      (keyword) => {
+        const existing = existingByKeyword.get(keyword);
+        if (
+          existing &&
+          Number.isFinite(existing.popularity) &&
+          isBelowMinPopularity(existing.popularity, filters)
+        ) {
+          filteredOut.push({
+            keyword: existing.keyword,
+            reason: "low_popularity",
+            popularity: existing.popularity,
+            difficulty: existing.difficultyScore ?? undefined,
+            minDifficultyScore: existing.minDifficultyScore,
+            isBrandKeyword: existing.isBrandKeyword,
+          });
+          return false;
+        }
+        return true;
       }
-      return true;
-    });
+    );
 
     keywordWriteRepository.persistFailures(country, failedKeywords);
 
@@ -598,14 +612,12 @@ export class KeywordPipelineService {
       const existing = existingByNormalized.get(keyword);
       if (!isCompleteStoredAsoKeyword(existing)) continue;
 
-      let updatedOrder:
-        | {
-            keyword: string;
-            normalizedKeyword: string;
-            appCount: number;
-            orderedAppIds: string[];
-          }
-        | null = null;
+      let updatedOrder: {
+        keyword: string;
+        normalizedKeyword: string;
+        appCount: number;
+        orderedAppIds: string[];
+      } | null = null;
       try {
         updatedOrder = await refreshAsoKeywordOrderLocal(country, keyword);
       } catch (error) {
@@ -716,7 +728,10 @@ export class KeywordPipelineService {
       ...stageFilteredOut,
       ...highDifficultyFilteredOut,
     ]);
-    const failedKeywords = [...popularityFailures, ...enrichedResult.failedKeywords];
+    const failedKeywords = [
+      ...popularityFailures,
+      ...enrichedResult.failedKeywords,
+    ];
     keywordWriteRepository.persistFailures(country, failedKeywords);
     keywordWriteRepository.clearFailures(
       country,
@@ -729,7 +744,11 @@ export class KeywordPipelineService {
         )}`
       );
     }
-    if (items.length === 0 && failedKeywords.length > 0 && filteredOut.length === 0) {
+    if (
+      items.length === 0 &&
+      failedKeywords.length > 0 &&
+      filteredOut.length === 0
+    ) {
       throw new Error(
         `All keywords failed (${failedKeywords.length}): ${summarizeFailedKeywords(
           failedKeywords
@@ -743,7 +762,10 @@ export class KeywordPipelineService {
     };
   }
 
-  async retryFailed(appId: string, country: string): Promise<{
+  async retryFailed(
+    appId: string,
+    country: string
+  ): Promise<{
     retriedCount: number;
     succeededCount: number;
     failedCount: number;
@@ -760,27 +782,36 @@ export class KeywordPipelineService {
       };
     }
 
-    const stageResult = await this.runPopularityStage(country, keywordsToRetry, {
-      allowInteractiveAuthRecovery: false,
-    });
-    const [enrichedResult, orderRefreshedItems] = await Promise.all([
-      this.enrichAndPersist(country, stageResult.pendingItems),
-      this.refreshOrder(country, stageResult.orderRefreshKeywords),
-    ]);
-    const succeededKeywords = [
-      ...stageResult.hits.map((item) => item.keyword),
-      ...orderRefreshedItems.map((item) => item.keyword),
-      ...enrichedResult.items.map((item) => item.keyword),
-    ];
-    if (succeededKeywords.length > 0) {
-      keywordWriteRepository.clearFailures(country, succeededKeywords);
+    let succeededCount = 0;
+    let failedCount = 0;
+
+    for (const keywordBatch of chunkKeywords(keywordsToRetry)) {
+      const stageResult = await this.runPopularityStage(country, keywordBatch, {
+        allowInteractiveAuthRecovery: false,
+      });
+      const [enrichedResult, orderRefreshedItems] = await Promise.all([
+        this.enrichAndPersist(country, stageResult.pendingItems),
+        this.refreshOrder(country, stageResult.orderRefreshKeywords),
+      ]);
+      const succeededKeywords = Array.from(
+        new Set([
+          ...stageResult.hits.map((item) => item.keyword),
+          ...orderRefreshedItems.map((item) => item.keyword),
+          ...enrichedResult.items.map((item) => item.keyword),
+        ])
+      );
+      if (succeededKeywords.length > 0) {
+        keywordWriteRepository.clearFailures(country, succeededKeywords);
+      }
+      succeededCount += succeededKeywords.length;
+      failedCount +=
+        stageResult.failedKeywords.length +
+        enrichedResult.failedKeywords.length;
     }
-    const failedCount =
-      stageResult.failedKeywords.length + enrichedResult.failedKeywords.length;
 
     return {
       retriedCount: keywordsToRetry.length,
-      succeededCount: succeededKeywords.length,
+      succeededCount,
       failedCount,
     };
   }

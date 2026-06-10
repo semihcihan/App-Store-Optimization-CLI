@@ -104,9 +104,9 @@ Runtime flow contracts across CLI commands, local dashboard API, and ASO service
 
 ## Flow B2: Dashboard Retry Failed Keywords (`POST /api/aso/keywords/retry-failed`)
 1. Resolve failed keywords for selected `appId` + `country`.
-2. Rerun the same keyword pipeline in non-interactive auth mode.
+2. Rerun the same keyword pipeline in non-interactive auth mode, chunked into max `100` keyword batches.
 3. If auth is invalid, return `AUTH_REQUIRED` or `AUTH_IN_PROGRESS`; the dashboard enters the shared reauthentication flow and the user retries the mutation explicitly after auth succeeds.
-4. Return `{ retriedCount, succeededCount, failedCount }`.
+4. Return aggregate `{ retriedCount, succeededCount, failedCount }`.
 5. Clear failed status for keywords that succeeded.
 6. Dashboard UI shows the retry action only when current keyword rows include failed entries.
 

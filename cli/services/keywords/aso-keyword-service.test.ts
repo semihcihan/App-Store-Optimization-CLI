@@ -3,8 +3,15 @@ import * as os from "os";
 import * as path from "path";
 import { jest } from "@jest/globals";
 import { getKeyword, upsertKeywords } from "../../db/aso-keywords";
-import { listKeywordFailures } from "../../db/aso-keyword-failures";
-import { createAppKeyword, listByApp } from "../../db/app-keywords";
+import {
+  listKeywordFailures,
+  upsertKeywordFailures,
+} from "../../db/aso-keyword-failures";
+import {
+  createAppKeyword,
+  createAppKeywords,
+  listByApp,
+} from "../../db/app-keywords";
 import { closeDbForTests } from "../../db/store";
 import {
   refreshAsoKeywordOrderLocal,
@@ -12,13 +19,14 @@ import {
   enrichAsoKeywordsLocal,
 } from "./aso-local-cache-service";
 import { asoPopularityService } from "./aso-popularity-service";
-import {
-  keywordPipelineService,
-} from "./keyword-pipeline-service";
+import { keywordPipelineService } from "./keyword-pipeline-service";
 
 jest.mock("./aso-local-cache-service", () => ({
   lookupAsoCacheLocal: jest.fn(async () => ({ hits: [], misses: [] })),
-  enrichAsoKeywordsLocal: jest.fn(async () => ({ items: [], failedKeywords: [] })),
+  enrichAsoKeywordsLocal: jest.fn(async () => ({
+    items: [],
+    failedKeywords: [],
+  })),
   refreshAsoKeywordOrderLocal: jest.fn(),
 }));
 
@@ -57,7 +65,9 @@ function cleanDbFiles(): void {
 }
 
 describe("keyword-pipeline-service", () => {
-  const mockRefreshAsoKeywordOrderLocal = jest.mocked(refreshAsoKeywordOrderLocal);
+  const mockRefreshAsoKeywordOrderLocal = jest.mocked(
+    refreshAsoKeywordOrderLocal
+  );
   const mockLookupAsoCacheLocal = jest.mocked(lookupAsoCacheLocal);
   const mockEnrichAsoKeywordsLocal = jest.mocked(enrichAsoKeywordsLocal);
   const mockFetchKeywordPopularitiesWithFailures = jest.mocked(
@@ -113,10 +123,15 @@ describe("keyword-pipeline-service", () => {
       orderedAppIds: ["app-2", "app-1"],
     });
 
-    const refreshed = await keywordPipelineService.refreshOrder("US", ["ranked"]);
+    const refreshed = await keywordPipelineService.refreshOrder("US", [
+      "ranked",
+    ]);
 
     expect(refreshed).toHaveLength(1);
-    expect(getKeyword("US", "ranked")?.orderedAppIds).toEqual(["app-2", "app-1"]);
+    expect(getKeyword("US", "ranked")?.orderedAppIds).toEqual([
+      "app-2",
+      "app-1",
+    ]);
     expect(listByApp("app-1", "US")[0]?.previousPosition).toBe(1);
     expect(listByApp("app-2", "US")[0]?.previousPosition).toBe(2);
   });
@@ -364,6 +379,92 @@ describe("keyword-pipeline-service", () => {
     expect(listKeywordFailures("US")).toHaveLength(0);
   });
 
+  it("retries app failures in max-size batches", async () => {
+    const keywords = Array.from(
+      { length: 101 },
+      (_value, index) => `failed-${index}`
+    );
+    createAppKeywords("research", keywords, "US");
+    upsertKeywordFailures(
+      "US",
+      keywords.map((keyword) => ({
+        keyword,
+        stage: "popularity",
+        reasonCode: "TOO_MANY_REQUESTS",
+        message: "429 TOO_MANY_REQUESTS",
+        statusCode: 429,
+        retryable: true,
+        attempts: 1,
+      }))
+    );
+    mockLookupAsoCacheLocal.mockImplementation(
+      async (_country, requestedKeywords) => ({
+        hits: [],
+        misses: requestedKeywords,
+      })
+    );
+    mockFetchKeywordPopularitiesWithFailures.mockImplementation(
+      async (requestedKeywords) => ({
+        popularities: Object.fromEntries(
+          requestedKeywords.map((keyword) => [keyword, 55])
+        ),
+        failedKeywords: [],
+      })
+    );
+    mockEnrichAsoKeywordsLocal.mockImplementation(async (country, items) => {
+      const item = items[0];
+      return {
+        items: [
+          {
+            keyword: item.keyword,
+            normalizedKeyword: item.keyword,
+            country,
+            popularity: item.popularity,
+            difficultyScore: 15,
+            minDifficultyScore: 10,
+            isBrandKeyword: false,
+            appCount: 90,
+            keywordMatch: "titleAllWords",
+            orderedAppIds: [],
+            orderExpiresAt: "2099-01-01T00:00:00.000Z",
+            popularityExpiresAt: "2099-01-01T00:00:00.000Z",
+          },
+        ],
+        failedKeywords: [],
+      };
+    });
+
+    const retryResult = await keywordPipelineService.retryFailed(
+      "research",
+      "US"
+    );
+
+    expect(retryResult).toEqual({
+      retriedCount: 101,
+      succeededCount: 101,
+      failedCount: 0,
+    });
+    expect(mockFetchKeywordPopularitiesWithFailures).toHaveBeenCalledTimes(2);
+    const fetchedBatches =
+      mockFetchKeywordPopularitiesWithFailures.mock.calls.map(
+        ([requestedKeywords, options]) => ({
+          requestedKeywords,
+          options,
+        })
+      );
+    expect(
+      fetchedBatches.map((batch) => batch.requestedKeywords.length)
+    ).toEqual([100, 1]);
+    expect(fetchedBatches.map((batch) => batch.options)).toEqual([
+      { allowInteractiveAuthRecovery: false },
+      { allowInteractiveAuthRecovery: false },
+    ]);
+    expect(
+      new Set(fetchedBatches.flatMap((batch) => batch.requestedKeywords))
+    ).toEqual(new Set(keywords));
+    expect(listKeywordFailures("US")).toHaveLength(0);
+  });
+
   it("persists each enriched keyword as soon as that keyword finishes", async () => {
     const firstDone = createDeferred<void>();
     const secondDone = createDeferred<void>();
@@ -531,7 +632,9 @@ describe("keyword-pipeline-service", () => {
     failureDone.resolve();
     await new Promise((resolve) => setImmediate(resolve));
     const failuresAfterFirst = listKeywordFailures("US");
-    expect(failuresAfterFirst.map((entry) => entry.keyword)).toContain("fail-first");
+    expect(failuresAfterFirst.map((entry) => entry.keyword)).toContain(
+      "fail-first"
+    );
     expect(runSettled).toBe(false);
 
     successDone.resolve();
