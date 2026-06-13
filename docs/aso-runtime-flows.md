@@ -22,7 +22,7 @@ Runtime flow contracts across CLI commands, local dashboard API, and ASO service
 - `aso reset-credentials`: clear saved ASO keychain credentials and local cookies.
 - Any `aso` process start emits PostHog `cli_started` telemetry using a persisted user id at `~/.aso/config.json` (`userId`), then flushes telemetry on normal/error exits.
 - MCP `aso_evaluate_keywords`: accept explicit keywords (max 100), run `aso keywords "<comma-separated-keywords>" --stdout`, return evaluated keyword results.
-- Dashboard API mutations: app add (single-item POST; UI may batch multiple selections), app delete, keyword add/delete, keyword favorite toggle, auth start/respond, setup start/respond.
+- Dashboard API mutations: app add (single-item POST; UI may batch multiple selections), app delete, keyword add/delete, keyword favorite toggle, auth start/respond, setup start/respond, refresh start/stop, dashboard settings update.
 
 ## Boundary Ownership
 - Domain policy (`cli/domain/keywords/*`, `cli/domain/errors/*`) is shared across CLI/server/UI for country guardrails, keyword normalization, limits, and dashboard-safe error/message mapping.
@@ -135,8 +135,11 @@ Runtime flow contracts across CLI commands, local dashboard API, and ASO service
 9. While reauth is auto-starting for an add-keyword auth handoff, the dashboard may briefly show `Checking Apple session...`, then clears the add-keyword loading state once auth takes over so the user can retry manually after authentication.
 
 ## Flow D: Startup Background Refresh
-1. Start once at dashboard boot after Primary App ID is already configured, or immediately after dashboard setup completes.
-2. Select keywords associated with owned or research apps and finite popularity where at least one is true:
+1. Dashboard refresh settings are persisted in local ASO config:
+   - `refreshMode="startup"` starts refresh after dashboard boot/setup.
+   - `refreshMode="manual"` skips the automatic trigger; manual refresh uses the same execution path.
+   - `includeResearchAppsInKeywordRefresh` controls whether research-associated keywords are eligible for popularity/difficulty refresh. Owned-app associations are always eligible.
+2. Select eligible keywords with finite popularity where at least one is true:
    - popularity TTL is stale
    - difficulty has never been computed
    - order TTL is stale (owned-associated keywords only; research-only keywords do not use order staleness as a refresh trigger)
@@ -145,9 +148,10 @@ Runtime flow contracts across CLI commands, local dashboard API, and ASO service
    - Exhausted `All keywords failed (...)` batch failures are not retried at startup-manager level.
    - Auth-required failures skip retry and stop remaining startup batches for that run.
 4. Publish refresh status via `GET /api/aso/refresh-status`, including whether the failure requires Search Ads reauthentication.
-5. If auth is required, the dashboard auto-starts the same reauthentication flow used by add-keyword once; silent session reuse stays invisible, while browser prompt steps/failure states surface through the shared auth modal.
-6. Allow explicit restart via `POST /api/aso/refresh/start`; the UI uses this after reauthentication or manual retry.
-7. While startup refresh is paused on `requiresReauthentication=true`, dashboard keyword mutations (`Add Keywords`, `Retry Failed`) stay disabled until reauthentication succeeds.
+5. Allow explicit refresh via `POST /api/aso/refresh/start`; this is the shared trigger for manual refresh and retry/resume.
+6. Allow stop requests via `POST /api/aso/refresh/stop`; the manager stops at the next batch boundary and marks the run stopped.
+7. If auth is required, the dashboard auto-starts the same reauthentication flow used by add-keyword once; silent session reuse stays invisible, while browser prompt steps/failure states surface through the shared auth modal.
+8. While refresh is paused on `requiresReauthentication=true`, dashboard keyword mutations (`Add Keywords`, `Retry Failed`) stay disabled until reauthentication succeeds.
 
 ## Flow E: App Doc Hydration
 - `GET /api/apps` (owned app list):
@@ -188,6 +192,7 @@ Runtime flow contracts across CLI commands, local dashboard API, and ASO service
 - In dashboard research workspace, `Rank` and `Change` columns remain hidden; `Updated` stays visible.
 - Dashboard keyword sort is global (`localStorage`) across apps. On startup, restore the last valid sort; fallback to `Updated` descending (newest first) when missing/invalid or when the selected sort column is unavailable in the current workspace.
 - Dashboard filters (`minPopularity`, `maxDifficulty`, `brand`, `favorite`, `minRank`, `maxRank`) persist via `localStorage` across browser refresh and dashboard restarts; keyword text search always resets on startup.
+- Dashboard refresh settings persist in local ASO config and are exposed via `GET /api/dashboard/settings` and `PATCH /api/dashboard/settings`.
 - Dashboard keyword table shortcuts: `Cmd/Ctrl+A` selects all visible keywords, `Cmd/Ctrl+C` copies selected visible keywords as comma-separated text, `Cmd/Ctrl+V` pastes clipboard text into the add-keywords input when focus is outside editable fields, and `Delete`/`Backspace` opens the delete confirmation for selected visible keywords when focus is outside editable fields.
 - Sidebar app rows treat click targets consistently: clicking row text/icon content selects the app, while explicit app-ID copy controls keep copy behavior and do not trigger app switching.
 - Sidebar app rows support right-click app actions; delete is available for owned apps and non-default research apps only.

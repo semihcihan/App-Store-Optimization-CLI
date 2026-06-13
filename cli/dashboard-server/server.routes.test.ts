@@ -3,6 +3,7 @@ import { jest } from "@jest/globals";
 import {
   deleteOwnedAppById,
   getOwnedAppById,
+  listOwnedAppIdsByKind,
   listOwnedApps,
   upsertOwnedApps,
   upsertOwnedAppSnapshots,
@@ -36,9 +37,12 @@ import { createServerRequestHandler } from "./server";
 import { DEFAULT_RESEARCH_APP_ID } from "../shared/aso-research";
 import { logger } from "../utils/logger";
 
+let mockAsoConfig: Record<string, unknown> = {};
+
 jest.mock("../db/owned-apps", () => ({
   deleteOwnedAppById: jest.fn(() => 0),
   getOwnedAppById: jest.fn(() => null),
+  listOwnedAppIdsByKind: jest.fn(() => []),
   listOwnedApps: jest.fn(() => []),
   upsertOwnedApps: jest.fn(),
   upsertOwnedAppSnapshots: jest.fn(),
@@ -114,6 +118,13 @@ jest.mock("../services/keywords/aso-popularity-service", () => ({
 
 jest.mock("../services/telemetry/error-reporter", () => ({
   reportBugsnagError: jest.fn(),
+}));
+
+jest.mock("../services/runtime/aso-config-service", () => ({
+  readAsoConfig: jest.fn(() => ({ ...mockAsoConfig })),
+  writeAsoConfig: jest.fn((config: Record<string, unknown>) => {
+    mockAsoConfig = { ...config };
+  }),
 }));
 
 jest.mock("../services/keywords/aso-local-cache-service", () => ({
@@ -235,6 +246,7 @@ describe("dashboard server routes", () => {
   const mockGetDb = jest.mocked(getDb);
   const mockGetOwnedAppById = jest.mocked(getOwnedAppById);
   const mockDeleteOwnedAppById = jest.mocked(deleteOwnedAppById);
+  const mockListOwnedAppIdsByKind = jest.mocked(listOwnedAppIdsByKind);
   const mockListOwnedApps = jest.mocked(listOwnedApps);
   const mockUpsertOwnedApps = jest.mocked(upsertOwnedApps);
   const mockUpsertOwnedAppSnapshots = jest.mocked(upsertOwnedAppSnapshots);
@@ -264,6 +276,7 @@ describe("dashboard server routes", () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    mockAsoConfig = {};
     mockGetDb.mockReturnValue({
       prepare: jest.fn(() => ({
         get: jest.fn(() => undefined),
@@ -272,6 +285,7 @@ describe("dashboard server routes", () => {
     } as any);
     mockGetOwnedAppById.mockReturnValue(null);
     mockDeleteOwnedAppById.mockReturnValue(0);
+    mockListOwnedAppIdsByKind.mockReturnValue([]);
     mockListOwnedApps.mockReturnValue([]);
     mockGetAppLastKeywordAddedAtMap.mockReturnValue(new Map());
     mockListKeywords.mockReturnValue([]);
@@ -354,6 +368,59 @@ describe("dashboard server routes", () => {
         status: expect.any(String),
       })
     );
+  });
+
+  it("stops startup refresh on demand", async () => {
+    const response = await request({
+      method: "POST",
+      path: "/api/aso/refresh/stop",
+    });
+
+    expect(response.statusCode).toBe(202);
+    expect(response.json?.success).toBe(true);
+    expect(response.json?.data).toEqual(
+      expect.objectContaining({
+        status: expect.any(String),
+      })
+    );
+  });
+
+  it("returns default dashboard settings", async () => {
+    const response = await request({
+      method: "GET",
+      path: "/api/dashboard/settings",
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json?.success).toBe(true);
+    expect(response.json?.data).toEqual({
+      includeResearchAppsInKeywordRefresh: true,
+      refreshMode: "startup",
+    });
+  });
+
+  it("updates dashboard settings", async () => {
+    const response = await request({
+      method: "PATCH",
+      path: "/api/dashboard/settings",
+      body: {
+        includeResearchAppsInKeywordRefresh: false,
+        refreshMode: "manual",
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json?.success).toBe(true);
+    expect(response.json?.data).toEqual({
+      includeResearchAppsInKeywordRefresh: false,
+      refreshMode: "manual",
+    });
+    expect(mockAsoConfig).toEqual({
+      dashboardSettings: {
+        includeResearchAppsInKeywordRefresh: false,
+        refreshMode: "manual",
+      },
+    });
   });
 
   it("returns apps sorted and ensures default research app", async () => {

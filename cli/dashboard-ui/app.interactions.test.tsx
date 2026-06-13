@@ -76,12 +76,22 @@ function buildFetchMock(params: {
   topAppsByKeyword?: Record<string, unknown>;
   historyByKeyword?: Record<string, { points: unknown[] }>;
   appSearchByTerm?: Record<string, { appDocs: unknown[] }>;
+  dashboardSettings?: {
+    includeResearchAppsInKeywordRefresh: boolean;
+    refreshMode: "startup" | "manual";
+  };
+  onPatchDashboardSettings?: (payload: any) => void;
   onPostApps?: (payload: any) => void;
   onDeleteApps?: (payload: any) => void;
   onDeleteKeywords?: (payload: any) => void;
   onRetryFailed?: (payload: any) => void;
 }) {
   let appsCallCount = 0;
+  let dashboardSettings =
+    params.dashboardSettings ?? {
+      includeResearchAppsInKeywordRefresh: true,
+      refreshMode: "startup" as const,
+    };
   return jest.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
     const method = (init?.method ?? "GET").toUpperCase();
@@ -163,6 +173,25 @@ function buildFetchMock(params: {
             appListRefreshSucceeded: false,
           },
         },
+      });
+    }
+
+    if (method === "GET" && url === "/api/dashboard/settings") {
+      return jsonResponse(200, {
+        success: true,
+        data: dashboardSettings,
+      });
+    }
+
+    if (method === "PATCH" && url === "/api/dashboard/settings") {
+      params.onPatchDashboardSettings?.(body);
+      dashboardSettings = {
+        ...dashboardSettings,
+        ...body,
+      };
+      return jsonResponse(200, {
+        success: true,
+        data: dashboardSettings,
       });
     }
 
@@ -551,6 +580,43 @@ describe("dashboard app interactions", () => {
     await waitFor(() => expect(deleteAppBody).toEqual({ appId: "111" }));
     await screen.findByText('Deleted "Owned App".');
     expect(screen.queryByText("Owned App")).toBeNull();
+  });
+
+  it("opens settings and auto-saves refresh settings", async () => {
+    const patchCalls: any[] = [];
+    const fetchMock = buildFetchMock({
+      initialApps: [{ id: DEFAULT_RESEARCH_APP_ID, name: "Research" }],
+      keywordsByAppId: {
+        [DEFAULT_RESEARCH_APP_ID]: [],
+      },
+      onPatchDashboardSettings: (payload) => {
+        patchCalls.push(payload);
+      },
+    });
+    global.fetch = fetchMock as typeof fetch;
+
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Open settings" }));
+    const dialog = await screen.findByRole("dialog", { name: "Settings" });
+    const researchSwitch = within(dialog).getByRole("switch", {
+      name: "Include research apps on keyword refresh",
+    });
+
+    expect(researchSwitch).toHaveAttribute("aria-checked", "true");
+    fireEvent.click(researchSwitch);
+
+    await waitFor(() =>
+      expect(patchCalls).toContainEqual({
+        includeResearchAppsInKeywordRefresh: false,
+      })
+    );
+    expect(researchSwitch).toHaveAttribute("aria-checked", "false");
+
+    fireEvent.click(within(dialog).getByRole("button", { name: "Manual only" }));
+    await waitFor(() =>
+      expect(patchCalls).toContainEqual({ refreshMode: "manual" })
+    );
   });
 
   it("collapses and expands the research section", async () => {

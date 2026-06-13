@@ -72,7 +72,7 @@ const isSensitiveField = buildSensitiveKeyMatcher({
 
 type DashboardApiTrace = {
   timestamp: string;
-  method: "GET" | "POST" | "DELETE";
+  method: "GET" | "POST" | "PATCH" | "DELETE";
   path: string;
   durationMs: number;
   request: {
@@ -147,7 +147,7 @@ function getTelemetryDashboardApiTraces(): DashboardApiTrace[] {
 }
 
 function toDashboardApiOperation(
-  method: "GET" | "POST" | "DELETE",
+  method: "GET" | "POST" | "PATCH" | "DELETE",
   path: string
 ): string {
   const operationPath = path.split("?")[0] || path;
@@ -183,7 +183,7 @@ export function toActionableErrorMessage(
 }
 
 export async function apiRequest<T>(
-  method: "GET" | "POST" | "DELETE",
+  method: "GET" | "POST" | "PATCH" | "DELETE",
   path: string,
   body?: unknown
 ): Promise<T> {
@@ -270,7 +270,7 @@ export async function apiGet<T>(path: string): Promise<T> {
 }
 
 export async function apiWrite<T>(
-  method: "POST" | "DELETE",
+  method: "POST" | "PATCH" | "DELETE",
   path: string,
   body: unknown
 ): Promise<T> {

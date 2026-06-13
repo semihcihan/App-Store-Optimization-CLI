@@ -46,7 +46,13 @@ async function waitForManagerToFinish(
 ): Promise<void> {
   for (let i = 0; i < 50; i++) {
     const state = manager.getState();
-    if (state.status === "completed" || state.status === "failed") return;
+    if (
+      state.status === "completed" ||
+      state.status === "failed" ||
+      state.status === "stopped"
+    ) {
+      return;
+    }
     await Promise.resolve();
   }
 }
@@ -195,6 +201,58 @@ describe("startup-refresh-manager", () => {
     expect(state.requiresReauthentication).toBe(false);
     expect(enrichCalls).toHaveLength(3);
     expect(errors).toHaveLength(0);
+  });
+
+  it("stops refresh at the next batch boundary", async () => {
+    const enrichCalls: KeywordRefreshItem[][] = [];
+    let releaseBatch = () => {};
+    const batchGate = new Promise<void>((resolve) => {
+      releaseBatch = resolve;
+    });
+
+    let manager!: ReturnType<typeof createStartupRefreshManager>;
+    manager = createStartupRefreshManager({
+      country: "US",
+      listKeywords: () => [
+        buildKeyword({
+          keyword: "k1",
+          normalizedKeyword: "k1",
+          orderExpiresAt: "2026-03-06T00:00:00.000Z",
+        }),
+        buildKeyword({
+          keyword: "k2",
+          normalizedKeyword: "k2",
+          orderExpiresAt: "2026-03-06T00:00:00.000Z",
+        }),
+      ],
+      listAppKeywords: () => [
+        buildAssociation({ keyword: "k1", appId: "app-1" }),
+        buildAssociation({ keyword: "k2", appId: "app-1" }),
+      ],
+      listAssociatedAppIds: () => new Set(["app-1"]),
+      listOrderRelevantAppIds: () => new Set(["app-1"]),
+      enrichKeywords: async (_country, items) => {
+        enrichCalls.push(items);
+        await batchGate;
+      },
+      isForegroundBusy: () => false,
+      nowMs: () => Date.parse("2026-03-07T00:00:00.000Z"),
+      sleep: async () => {},
+      keywordBatchSize: 1,
+    });
+
+    manager.start();
+    await Promise.resolve();
+    manager.stop();
+    releaseBatch();
+    await waitForManagerToFinish(manager);
+
+    const state = manager.getState();
+    expect(state.status).toBe("stopped");
+    expect(state.stopRequested).toBe(false);
+    expect(state.counters.eligibleKeywordCount).toBe(2);
+    expect(state.counters.refreshedKeywordCount).toBe(1);
+    expect(enrichCalls).toHaveLength(1);
   });
 
   it("marks batch failed when retry also fails", async () => {

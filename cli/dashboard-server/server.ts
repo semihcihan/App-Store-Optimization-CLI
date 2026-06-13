@@ -35,6 +35,11 @@ import {
   type StartupRefreshState,
 } from "./startup-refresh-manager";
 import {
+  readDashboardSettings,
+  updateDashboardSettings,
+  type DashboardSettings,
+} from "./dashboard-settings";
+import {
   createAsoRouteHandlers,
 } from "./routes/aso-routes";
 import { sendApiError, sendJson, parseJsonBody } from "./http-utils";
@@ -135,11 +140,14 @@ const startupRefreshManager = createStartupRefreshManager({
   country: DEFAULT_ASO_COUNTRY,
   listKeywords,
   listAppKeywords: listAllAppKeywords,
-  listAssociatedAppIds: () =>
-    new Set([
-      ...listOwnedAppIdsByKind("owned"),
-      ...listOwnedAppIdsByKind("research"),
-    ]),
+  listAssociatedAppIds: () => {
+    const settings = readDashboardSettings();
+    const appIds = listOwnedAppIdsByKind("owned");
+    if (settings.includeResearchAppsInKeywordRefresh) {
+      appIds.push(...listOwnedAppIdsByKind("research"));
+    }
+    return new Set(appIds);
+  },
   listOrderRelevantAppIds: () => new Set(listOwnedAppIdsByKind("owned")),
   enrichKeywords: (country, items) =>
     keywordPipelineService.refreshStartup(country, items),
@@ -161,6 +169,17 @@ function startStartupRefresh(): void {
   startupRefreshManager.start();
 }
 
+function stopStartupRefresh(): void {
+  startupRefreshManager.stop();
+}
+
+function startConfiguredKeywordRefresh(): void {
+  const settings = readDashboardSettings();
+  if (settings.refreshMode === "startup") {
+    startStartupRefresh();
+  }
+}
+
 const dashboardAuthStateManager = createDashboardAuthStateManager({
   reAuthenticate: (options) => asoAuthService.reAuthenticate(options),
   onError: (error) => {
@@ -180,7 +199,7 @@ const dashboardSetupStateManager = createDashboardSetupStateManager({
       promptHandler: options?.promptHandler,
     }),
   onResolved: () => {
-    startStartupRefresh();
+    startConfiguredKeywordRefresh();
   },
   onError: (error) => {
     reportDashboardError(error, {
@@ -303,6 +322,65 @@ function handleApiAsoRefreshStatusGet(res: http.ServerResponse): void {
 function handleApiAsoRefreshStartPost(res: http.ServerResponse): void {
   startStartupRefresh();
   sendJson(res, 202, { success: true, data: getStartupRefreshState() });
+}
+
+function handleApiAsoRefreshStopPost(res: http.ServerResponse): void {
+  stopStartupRefresh();
+  sendJson(res, 202, { success: true, data: getStartupRefreshState() });
+}
+
+function handleApiDashboardSettingsGet(res: http.ServerResponse): void {
+  sendJson(res, 200, { success: true, data: readDashboardSettings() });
+}
+
+async function handleApiDashboardSettingsPatch(
+  req: http.IncomingMessage,
+  res: http.ServerResponse
+): Promise<void> {
+  const body = await parseJsonBody(req, res);
+  if (!body) return;
+  if (typeof body !== "object" || Array.isArray(body)) {
+    sendApiError(
+      res,
+      400,
+      "INVALID_REQUEST",
+      "Settings payload must be an object."
+    );
+    return;
+  }
+
+  const payload = body as Partial<Record<keyof DashboardSettings, unknown>>;
+  const patch: Partial<DashboardSettings> = {};
+
+  if ("includeResearchAppsInKeywordRefresh" in payload) {
+    if (typeof payload.includeResearchAppsInKeywordRefresh !== "boolean") {
+      sendApiError(
+        res,
+        400,
+        "INVALID_REQUEST",
+        "includeResearchAppsInKeywordRefresh must be a boolean."
+      );
+      return;
+    }
+    patch.includeResearchAppsInKeywordRefresh =
+      payload.includeResearchAppsInKeywordRefresh;
+  }
+
+  if ("refreshMode" in payload) {
+    if (payload.refreshMode !== "startup" && payload.refreshMode !== "manual") {
+      sendApiError(
+        res,
+        400,
+        "INVALID_REQUEST",
+        "refreshMode must be startup or manual."
+      );
+      return;
+    }
+    patch.refreshMode = payload.refreshMode;
+  }
+
+  const settings = updateDashboardSettings(patch);
+  sendJson(res, 200, { success: true, data: settings });
 }
 
 function handleApiAsoAuthStartPost(res: http.ServerResponse): void {
@@ -522,9 +600,28 @@ export function createServerRequestHandler(): http.RequestListener {
         return;
       }
 
+      if (req.method === "GET" && pathname === "/api/dashboard/settings") {
+        handleApiDashboardSettingsGet(res);
+        return;
+      }
+
+      if (req.method === "PATCH" && pathname === "/api/dashboard/settings") {
+        await runAsForegroundMutation(() =>
+          handleApiDashboardSettingsPatch(req, res)
+        );
+        return;
+      }
+
       if (req.method === "POST" && pathname === "/api/aso/refresh/start") {
         runAsForegroundMutationSync(() => {
           handleApiAsoRefreshStartPost(res);
+        });
+        return;
+      }
+
+      if (req.method === "POST" && pathname === "/api/aso/refresh/stop") {
+        runAsForegroundMutationSync(() => {
+          handleApiAsoRefreshStopPost(res);
         });
         return;
       }
@@ -698,7 +795,7 @@ export function startDashboard(openBrowser: boolean = true): Promise<never> {
       const url = `http://127.0.0.1:${activePort}`;
       logger.info(`ASO Dashboard: ${url}`);
       if (getConfiguredAsoAdamId()) {
-        startupRefreshManager.start();
+        startConfiguredKeywordRefresh();
       } else {
         dashboardSetupStateManager.start();
       }

@@ -234,7 +234,12 @@ function formatKeywordDeleteLabel(keywords: string[]) {
   return keywords.length === 1 ? `"${keywords[0]}"` : `${keywords.length} keywords`;
 }
 
-type StartupRefreshStatus = "idle" | "running" | "completed" | "failed";
+type StartupRefreshStatus =
+  | "idle"
+  | "running"
+  | "completed"
+  | "failed"
+  | "stopped";
 
 type StartupRefreshStatusPayload = {
   status: StartupRefreshStatus;
@@ -242,11 +247,22 @@ type StartupRefreshStatusPayload = {
   finishedAt: string | null;
   lastError: string | null;
   requiresReauthentication: boolean;
+  stopRequested?: boolean;
   counters: {
     eligibleKeywordCount: number;
     refreshedKeywordCount: number;
     failedKeywordCount: number;
   };
+};
+
+type DashboardSettings = {
+  includeResearchAppsInKeywordRefresh: boolean;
+  refreshMode: "startup" | "manual";
+};
+
+const DEFAULT_DASHBOARD_SETTINGS: DashboardSettings = {
+  includeResearchAppsInKeywordRefresh: true,
+  refreshMode: "startup",
 };
 
 type AddedAppPayload = {
@@ -320,6 +336,24 @@ function OpenInNewTabIcon() {
   );
 }
 
+function SettingsIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">
+      <path
+        d="M4 7h10M18 7h2M4 12h2M10 12h10M4 17h8M16 17h4"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+      />
+      <path
+        d="M16 5.2a1.8 1.8 0 1 1 0 3.6 1.8 1.8 0 0 1 0-3.6ZM8 10.2a1.8 1.8 0 1 1 0 3.6 1.8 1.8 0 0 1 0-3.6ZM14 15.2a1.8 1.8 0 1 1 0 3.6 1.8 1.8 0 0 1 0-3.6Z"
+        stroke="currentColor"
+        strokeWidth="1.8"
+      />
+    </svg>
+  );
+}
+
 function isSidebarSelectionControlTarget(target: EventTarget | null): boolean {
   if (target instanceof Element) {
     return target.closest(SIDEBAR_SELECTION_CONTROL_SELECTOR) !== null;
@@ -358,7 +392,6 @@ export function App() {
   const [deleteConfirmMenu, setDeleteConfirmMenu] = useState<DeleteConfirmMenuState | null>(null);
   const [researchSectionCollapsed, setResearchSectionCollapsed] = useState(false);
 
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [isCompactLayout, setIsCompactLayout] = useState(() => {
     if (typeof window === "undefined") return false;
     return window.matchMedia(MOBILE_BREAKPOINT).matches;
@@ -369,6 +402,15 @@ export function App() {
   const [isRetryingFailedKeywords, setIsRetryingFailedKeywords] = useState(false);
   const [isRestartingStartupRefresh, setIsRestartingStartupRefresh] =
     useState(false);
+  const [isStoppingStartupRefresh, setIsStoppingStartupRefresh] =
+    useState(false);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [dashboardSettings, setDashboardSettings] = useState<DashboardSettings>(
+    DEFAULT_DASHBOARD_SETTINGS
+  );
+  const [isLoadingDashboardSettings, setIsLoadingDashboardSettings] =
+    useState(false);
+  const [dashboardSettingsError, setDashboardSettingsError] = useState("");
   const [loadingText, setLoadingText] = useState("");
   const [errorText, setErrorText] = useState("");
   const [successText, setSuccessText] = useState("");
@@ -537,6 +579,65 @@ export function App() {
       setIsRestartingStartupRefresh(false);
     }
   }, []);
+
+  const stopStartupRefresh = useCallback(async (): Promise<void> => {
+    try {
+      setIsStoppingStartupRefresh(true);
+      const data = await apiWrite<StartupRefreshStatusPayload>(
+        "POST",
+        "/api/aso/refresh/stop",
+        {}
+      );
+      setStartupRefreshState(data);
+    } catch (error) {
+      setErrorText(
+        toActionableErrorMessage(error, "Failed to stop background refresh")
+      );
+    } finally {
+      setIsStoppingStartupRefresh(false);
+    }
+  }, []);
+
+  const loadDashboardSettings = useCallback(async (): Promise<void> => {
+    try {
+      setIsLoadingDashboardSettings(true);
+      setDashboardSettingsError("");
+      const data = await apiGet<DashboardSettings>("/api/dashboard/settings");
+      setDashboardSettings(data);
+    } catch (error) {
+      setDashboardSettingsError(
+        toActionableErrorMessage(error, "Failed to load settings")
+      );
+    } finally {
+      setIsLoadingDashboardSettings(false);
+    }
+  }, []);
+
+  const openDashboardSettings = useCallback(() => {
+    setIsSettingsOpen(true);
+    void loadDashboardSettings();
+  }, [loadDashboardSettings]);
+
+  const updateDashboardSettings = useCallback(
+    async (patch: Partial<DashboardSettings>): Promise<void> => {
+      setDashboardSettings((prev) => ({ ...prev, ...patch }));
+      try {
+        setDashboardSettingsError("");
+        const data = await apiWrite<DashboardSettings>(
+          "PATCH",
+          "/api/dashboard/settings",
+          patch
+        );
+        setDashboardSettings(data);
+      } catch (error) {
+        setDashboardSettingsError(
+          toActionableErrorMessage(error, "Failed to save settings")
+        );
+        void loadDashboardSettings();
+      }
+    },
+    [loadDashboardSettings]
+  );
 
   const buildKeywordQueryKey = useCallback((appId: string) => {
     const normalizedKeywordFilter = keywordFilter.trim().toLowerCase();
@@ -748,12 +849,6 @@ export function App() {
   }, [startupRefreshState, loadApps]);
 
   useEffect(() => {
-    if (isCompactLayout && sidebarCollapsed) {
-      setSidebarCollapsed(false);
-    }
-  }, [isCompactLayout, sidebarCollapsed]);
-
-  useEffect(() => {
     if (!errorText || loadingText !== "") return;
     const timeout = window.setTimeout(() => setErrorText(""), STATUS_MESSAGE_TIMEOUT_MS);
     return () => window.clearTimeout(timeout);
@@ -869,6 +964,15 @@ export function App() {
     if (positionHistoryKeyword) return;
     setPositionHistoryHoverPoint(null);
   }, [positionHistoryKeyword]);
+
+  useEffect(() => {
+    if (!isSettingsOpen) return;
+    const onEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setIsSettingsOpen(false);
+    };
+    document.addEventListener("keydown", onEscape);
+    return () => document.removeEventListener("keydown", onEscape);
+  }, [isSettingsOpen]);
 
   useEffect(() => {
     const shouldPoll =
@@ -2016,8 +2120,12 @@ export function App() {
   const keywordCountLabelValue = keywordTotalCount;
   const showKeywordPagination = keywordTotalPages > 1;
   const keywordPageLabel = Math.min(keywordPage, keywordTotalPages);
+  const isRefreshRunning = startupRefreshState?.status === "running";
+  const isRefreshStopPending =
+    isRefreshRunning &&
+    (isStoppingStartupRefresh || startupRefreshState?.stopRequested === true);
   return (
-    <div id="app-shell" className={`app-shell ${sidebarCollapsed ? "sidebar-collapsed" : ""}`}>
+    <div id="app-shell" className="app-shell">
       <aside className="sidebar ui-card" aria-label="Apps">
         <div className="sidebar-header">
           <div className="sidebar-header-top">
@@ -2026,15 +2134,15 @@ export function App() {
               <h1>ASO Dashboard</h1>
             </div>
             <Button
-              id="toggle-sidebar"
-              className={isCompactLayout ? "hidden" : ""}
+              id="dashboard-settings-toggle"
               variant="outline"
               size="sm"
               type="button"
-              aria-label="Toggle sidebar"
-              onClick={() => setSidebarCollapsed((prev) => !prev)}
+              aria-label="Open settings"
+              title="Settings"
+              onClick={openDashboardSettings}
             >
-              {sidebarCollapsed ? "»" : "«"}
+              <SettingsIcon />
             </Button>
           </div>
           <p className="sidebar-subtitle"></p>
@@ -3024,6 +3132,133 @@ export function App() {
                   </svg>
                 </div>
               ) : null}
+            </div>
+          </section>
+        </div>
+      ) : null}
+      {isSettingsOpen ? (
+        <div
+          className="dialog-backdrop settings-dialog-backdrop"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) setIsSettingsOpen(false);
+          }}
+          role="presentation"
+        >
+          <section
+            className="dialog-card ui-card settings-dialog-card"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="settings-dialog-title"
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <header className="dialog-header">
+              <h2 id="settings-dialog-title">Settings</h2>
+              <button
+                type="button"
+                className="dialog-close"
+                aria-label="Close settings"
+                onClick={() => setIsSettingsOpen(false)}
+              >
+                x
+              </button>
+            </header>
+            <div className="dialog-content settings-dialog-content">
+              {dashboardSettingsError ? (
+                <p className="dialog-message error">{dashboardSettingsError}</p>
+              ) : null}
+              <div className="settings-row">
+                <span className="settings-label">
+                  Include research apps on keyword refresh
+                </span>
+                <button
+                  type="button"
+                  className={`settings-switch ${
+                    dashboardSettings.includeResearchAppsInKeywordRefresh
+                      ? "on"
+                      : ""
+                  }`}
+                  role="switch"
+                  aria-label="Include research apps on keyword refresh"
+                  aria-checked={
+                    dashboardSettings.includeResearchAppsInKeywordRefresh
+                  }
+                  disabled={isLoadingDashboardSettings}
+                  onClick={() => {
+                    void updateDashboardSettings({
+                      includeResearchAppsInKeywordRefresh:
+                        !dashboardSettings.includeResearchAppsInKeywordRefresh,
+                    });
+                  }}
+                >
+                  <span className="settings-switch-knob" />
+                </button>
+              </div>
+              <div className="settings-row settings-row-mode">
+                <span className="settings-label">Refresh Mode</span>
+                <div
+                  className="settings-segmented"
+                  role="group"
+                  aria-label="Refresh Mode"
+                >
+                  <button
+                    type="button"
+                    className={
+                      dashboardSettings.refreshMode === "startup"
+                        ? "active"
+                        : ""
+                    }
+                    disabled={isLoadingDashboardSettings}
+                    onClick={() => {
+                      if (dashboardSettings.refreshMode === "startup") return;
+                      void updateDashboardSettings({ refreshMode: "startup" });
+                    }}
+                  >
+                    Startup
+                  </button>
+                  <button
+                    type="button"
+                    className={
+                      dashboardSettings.refreshMode === "manual"
+                        ? "active"
+                        : ""
+                    }
+                    disabled={isLoadingDashboardSettings}
+                    onClick={() => {
+                      if (dashboardSettings.refreshMode === "manual") return;
+                      void updateDashboardSettings({ refreshMode: "manual" });
+                    }}
+                  >
+                    Manual only
+                  </button>
+                </div>
+              </div>
+              <div className="settings-actions">
+                <Button
+                  id="settings-refresh-action"
+                  type="button"
+                  variant={isRefreshRunning ? "outline" : "primary"}
+                  disabled={
+                    isRestartingStartupRefresh ||
+                    isRefreshStopPending ||
+                    isKeywordMutationBlockedByStartupReauth
+                  }
+                  onClick={() => {
+                    if (isRefreshRunning) {
+                      void stopStartupRefresh();
+                    } else {
+                      void restartStartupRefresh();
+                    }
+                  }}
+                >
+                  {isRefreshRunning
+                    ? isRefreshStopPending
+                      ? "Stopping..."
+                      : "Stop Refresh"
+                    : isRestartingStartupRefresh
+                      ? "Starting..."
+                      : "Refresh Now"}
+                </Button>
+              </div>
             </div>
           </section>
         </div>

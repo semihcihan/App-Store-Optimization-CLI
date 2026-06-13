@@ -10,7 +10,12 @@ import {
   isStoredKeywordPopularityFresh,
 } from "../shared/aso-keyword-validity";
 
-export type StartupRefreshStatus = "idle" | "running" | "completed" | "failed";
+export type StartupRefreshStatus =
+  | "idle"
+  | "running"
+  | "completed"
+  | "failed"
+  | "stopped";
 
 export type StartupRefreshCounters = {
   eligibleKeywordCount: number;
@@ -24,6 +29,7 @@ export type StartupRefreshState = {
   finishedAt: string | null;
   lastError: string | null;
   requiresReauthentication: boolean;
+  stopRequested: boolean;
   counters: StartupRefreshCounters;
 };
 
@@ -56,6 +62,7 @@ type StartupRefreshDeps = {
 
 export type StartupRefreshManager = {
   start: () => void;
+  stop: () => void;
   getState: () => StartupRefreshState;
 };
 
@@ -131,6 +138,7 @@ function initialState(): StartupRefreshState {
     finishedAt: null,
     lastError: null,
     requiresReauthentication: false,
+    stopRequested: false,
     counters: initialCounters(),
   };
 }
@@ -192,6 +200,7 @@ export function createStartupRefreshManager(
 
   let state: StartupRefreshState = initialState();
   let runPromise: Promise<void> | null = null;
+  let stopRequested = false;
 
   const setFailure = (error: unknown, metadata: Record<string, unknown>) => {
     const isAuthReauthRequired =
@@ -218,9 +227,12 @@ export function createStartupRefreshManager(
 
     const batches = chunkItems(items, keywordBatchSize);
     for (const batch of batches) {
+      if (stopRequested) break;
       while (deps.isForegroundBusy()) {
+        if (stopRequested) break;
         await sleep(FOREGROUND_PAUSE_MS);
       }
+      if (stopRequested) break;
       try {
         await withOneRetry(async () => {
           await deps.enrichKeywords(deps.country, batch);
@@ -258,15 +270,22 @@ export function createStartupRefreshManager(
       finishedAt: null,
       lastError: null,
       requiresReauthentication: false,
+      stopRequested: false,
       counters: initialCounters(),
     };
+    stopRequested = false;
 
     await refreshKeywordsInBatches();
 
     state = {
       ...state,
-      status: state.lastError ? "failed" : "completed",
+      status: stopRequested
+        ? "stopped"
+        : state.lastError
+          ? "failed"
+          : "completed",
       finishedAt: new Date(nowMs()).toISOString(),
+      stopRequested: false,
     };
   };
 
@@ -280,11 +299,21 @@ export function createStartupRefreshManager(
             ...state,
             status: "failed",
             finishedAt: new Date(nowMs()).toISOString(),
+            stopRequested: false,
           };
         })
         .finally(() => {
+          stopRequested = false;
           runPromise = null;
         });
+    },
+    stop: () => {
+      if (!runPromise) return;
+      stopRequested = true;
+      state = {
+        ...state,
+        stopRequested: true,
+      };
     },
     getState: () => ({
       ...state,
