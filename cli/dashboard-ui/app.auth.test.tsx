@@ -473,7 +473,11 @@ describe("dashboard auth modal UI flow", () => {
 
     render(<App />);
 
-    fireEvent.click(await screen.findByRole("button", { name: "Retry Failed (1)" }));
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: "Refresh failed keywords (1)",
+      })
+    );
 
     await waitFor(() => expect(authStartCount).toBe(1));
     expect(retryFailedCount).toBe(1);
@@ -1228,7 +1232,9 @@ describe("dashboard auth modal UI flow", () => {
       )
     ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Add Keywords" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Retry Failed (2)" })).toBeDisabled();
+    expect(
+      screen.getByRole("button", { name: "Refresh failed keywords (2)" })
+    ).toBeDisabled();
 
     const input = screen.getByPlaceholderText("Add keywords (comma-separated)");
     fireEvent.change(input, { target: { value: "term" } });

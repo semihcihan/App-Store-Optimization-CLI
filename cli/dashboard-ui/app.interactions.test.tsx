@@ -80,7 +80,9 @@ function buildFetchMock(params: {
     includeResearchAppsInKeywordRefresh: boolean;
     refreshMode: "startup" | "manual";
   };
+  refreshStartData?: Record<string, unknown>;
   onPatchDashboardSettings?: (payload: any) => void;
+  onPostRefreshStart?: () => void;
   onPostApps?: (payload: any) => void;
   onDeleteApps?: (payload: any) => void;
   onDeleteKeywords?: (payload: any) => void;
@@ -165,6 +167,7 @@ function buildFetchMock(params: {
           startedAt: null,
           finishedAt: null,
           lastError: null,
+          requiresReauthentication: false,
           counters: {
             eligibleKeywordCount: 0,
             refreshedKeywordCount: 0,
@@ -173,6 +176,27 @@ function buildFetchMock(params: {
             appListRefreshSucceeded: false,
           },
         },
+      });
+    }
+
+    if (method === "POST" && url === "/api/aso/refresh/start") {
+      params.onPostRefreshStart?.();
+      return jsonResponse(202, {
+        success: true,
+        data:
+          params.refreshStartData ??
+          {
+            status: "running",
+            startedAt: "2026-06-13T12:00:00.000Z",
+            finishedAt: null,
+            lastError: null,
+            requiresReauthentication: false,
+            counters: {
+              eligibleKeywordCount: 1,
+              refreshedKeywordCount: 0,
+              failedKeywordCount: 0,
+            },
+          },
       });
     }
 
@@ -359,7 +383,9 @@ describe("dashboard app interactions", () => {
     expect(failedRow).not.toBeNull();
     const cells = within(failedRow as HTMLElement).getAllByRole("cell");
     expect(cells[2]).toHaveTextContent("-");
-    fireEvent.click(screen.getByRole("button", { name: "Retry Failed (1)" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Refresh failed keywords (1)" })
+    );
 
     await waitFor(() =>
       expect(retryBody).toEqual({ appId: "111", country: "US" })
@@ -395,7 +421,9 @@ describe("dashboard app interactions", () => {
     render(<App />);
 
     await screen.findByText("healthy-term");
-    expect(screen.queryByRole("button", { name: /Retry Failed/i })).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: /Refresh failed keywords/i })
+    ).toBeNull();
   });
 
   it("opens position history dialog from rank/change cells", async () => {
@@ -617,6 +645,48 @@ describe("dashboard app interactions", () => {
     await waitFor(() =>
       expect(patchCalls).toContainEqual({ refreshMode: "manual" })
     );
+  });
+
+  it("shows refreshed feedback when manual refresh completes immediately", async () => {
+    let refreshStartCount = 0;
+    const fetchMock = buildFetchMock({
+      initialApps: [{ id: DEFAULT_RESEARCH_APP_ID, name: "Research" }],
+      keywordsByAppId: {
+        [DEFAULT_RESEARCH_APP_ID]: [],
+      },
+      dashboardSettings: {
+        includeResearchAppsInKeywordRefresh: true,
+        refreshMode: "manual",
+      },
+      onPostRefreshStart: () => {
+        refreshStartCount += 1;
+      },
+      refreshStartData: {
+        status: "completed",
+        startedAt: "2026-06-13T12:00:00.000Z",
+        finishedAt: "2026-06-13T12:00:00.050Z",
+        lastError: null,
+        requiresReauthentication: false,
+        counters: {
+          eligibleKeywordCount: 1,
+          refreshedKeywordCount: 1,
+          failedKeywordCount: 0,
+        },
+      },
+    });
+    global.fetch = fetchMock as typeof fetch;
+
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Open settings" }));
+    const dialog = await screen.findByRole("dialog", { name: "Settings" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Refresh Now" }));
+
+    await waitFor(() => expect(refreshStartCount).toBe(1));
+    expect(await screen.findByText("Refreshed.")).toBeInTheDocument();
+    expect(
+      within(dialog).getByRole("button", { name: "Refreshed" })
+    ).toBeInTheDocument();
   });
 
   it("collapses and expands the research section", async () => {

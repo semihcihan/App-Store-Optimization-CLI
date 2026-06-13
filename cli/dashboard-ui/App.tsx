@@ -404,6 +404,9 @@ export function App() {
     useState(false);
   const [isStoppingStartupRefresh, setIsStoppingStartupRefresh] =
     useState(false);
+  const [manualRefreshFeedback, setManualRefreshFeedback] = useState<
+    "refreshed" | null
+  >(null);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [dashboardSettings, setDashboardSettings] = useState<DashboardSettings>(
     DEFAULT_DASHBOARD_SETTINGS
@@ -442,6 +445,7 @@ export function App() {
   const startupAppSyncAtRef = useRef<string | null>(null);
   const resumeStartupRefreshAfterAuthRef = useRef(false);
   const startupRefreshAuthAttemptKeyRef = useRef<string | null>(null);
+  const manualRefreshFeedbackPendingRef = useRef(false);
 
   const appById = useMemo(
     () => new Map(apps.map((app) => [app.id, app])),
@@ -556,13 +560,35 @@ export function App() {
   const isKeywordMutationBlockedByStartupReauth =
     startupRefreshState?.requiresReauthentication === true;
 
+  const resolveManualRefreshFeedback = useCallback(
+    (refreshState: StartupRefreshStatusPayload): void => {
+      if (!manualRefreshFeedbackPendingRef.current) return;
+      if (refreshState.status === "completed") {
+        manualRefreshFeedbackPendingRef.current = false;
+        setManualRefreshFeedback("refreshed");
+        return;
+      }
+      if (refreshState.status === "failed" || refreshState.status === "stopped") {
+        manualRefreshFeedbackPendingRef.current = false;
+      }
+    },
+    []
+  );
+
   const loadApps = useCallback(async (): Promise<AppItem[]> => {
     const list = await apiGet<AppItem[]>(`/api/apps`);
     setApps(list);
     return list;
   }, []);
 
-  const restartStartupRefresh = useCallback(async (): Promise<void> => {
+  const restartStartupRefresh = useCallback(async (options?: {
+    showCompletionFeedback?: boolean;
+  }): Promise<void> => {
+    const showCompletionFeedback = options?.showCompletionFeedback === true;
+    if (showCompletionFeedback) {
+      manualRefreshFeedbackPendingRef.current = true;
+      setManualRefreshFeedback(null);
+    }
     try {
       setIsRestartingStartupRefresh(true);
       const data = await apiWrite<StartupRefreshStatusPayload>(
@@ -571,14 +597,20 @@ export function App() {
         {}
       );
       setStartupRefreshState(data);
+      if (showCompletionFeedback) {
+        resolveManualRefreshFeedback(data);
+      }
     } catch (error) {
+      if (showCompletionFeedback) {
+        manualRefreshFeedbackPendingRef.current = false;
+      }
       setErrorText(
         toActionableErrorMessage(error, "Failed to restart background refresh")
       );
     } finally {
       setIsRestartingStartupRefresh(false);
     }
-  }, []);
+  }, [resolveManualRefreshFeedback]);
 
   const stopStartupRefresh = useCallback(async (): Promise<void> => {
     try {
@@ -849,6 +881,15 @@ export function App() {
   }, [startupRefreshState, loadApps]);
 
   useEffect(() => {
+    if (!startupRefreshState) return;
+    if (startupRefreshState.status === "running") {
+      setManualRefreshFeedback(null);
+      return;
+    }
+    resolveManualRefreshFeedback(startupRefreshState);
+  }, [resolveManualRefreshFeedback, startupRefreshState]);
+
+  useEffect(() => {
     if (!errorText || loadingText !== "") return;
     const timeout = window.setTimeout(() => setErrorText(""), STATUS_MESSAGE_TIMEOUT_MS);
     return () => window.clearTimeout(timeout);
@@ -859,6 +900,15 @@ export function App() {
     const timeout = window.setTimeout(() => setSuccessText(""), STATUS_MESSAGE_TIMEOUT_MS);
     return () => window.clearTimeout(timeout);
   }, [successText, loadingText]);
+
+  useEffect(() => {
+    if (!manualRefreshFeedback) return;
+    const timeout = window.setTimeout(
+      () => setManualRefreshFeedback(null),
+      STATUS_MESSAGE_TIMEOUT_MS
+    );
+    return () => window.clearTimeout(timeout);
+  }, [manualRefreshFeedback]);
 
   useEffect(() => {
     if (!copiedAppId) return;
@@ -2038,6 +2088,9 @@ export function App() {
   const showError = !showLoading && errorText !== "";
   const showSuccess = !showLoading && !showError && successText !== "";
   const addButtonLabel = isCompactLayout ? "Add" : "Add Keywords";
+  const retryFailedButtonLabel = isRetryingFailedKeywords
+    ? "Refreshing failed keywords..."
+    : `Refresh failed keywords (${failedKeywordCount})`;
   const isStartupRefreshAuthRecoveryAttemptActive =
     isKeywordMutationBlockedByStartupReauth &&
     activeAuthContext === "startup-refresh" &&
@@ -2069,6 +2122,13 @@ export function App() {
             : ("muted" as const),
         action: null,
         text: keywordMutationStatusText,
+      };
+    }
+    if (manualRefreshFeedback === "refreshed") {
+      return {
+        tone: "muted" as const,
+        action: null,
+        text: "Refreshed.",
       };
     }
     if (!startupRefreshState) return null;
@@ -2105,6 +2165,7 @@ export function App() {
     isKeywordMutationBlockedByStartupReauth,
     isStartupRefreshAutoRecoveryActive,
     keywordMutationStatusText,
+    manualRefreshFeedback,
     startupRefreshState,
   ]);
   const hasRankFiltersApplied =
@@ -2422,6 +2483,8 @@ export function App() {
                 className="retry-failed-button"
                 type="button"
                 variant="ghost"
+                title={retryFailedButtonLabel}
+                aria-label={retryFailedButtonLabel}
                 disabled={
                   isRetryingFailedKeywords ||
                   isColdStart ||
@@ -2431,9 +2494,7 @@ export function App() {
                   void onRetryFailedKeywords();
                 }}
               >
-                {isRetryingFailedKeywords
-                  ? "Retrying Failed..."
-                  : `Retry Failed (${failedKeywordCount})`}
+                {retryFailedButtonLabel}
               </Button>
             ) : null}
             <StatusBanners
@@ -2468,7 +2529,7 @@ export function App() {
                 type="button"
                 disabled={isRestartingStartupRefresh}
                 onClick={() => {
-                  void restartStartupRefresh();
+                  void restartStartupRefresh({ showCompletionFeedback: true });
                 }}
               >
                 {isRestartingStartupRefresh ? "Retrying..." : "Retry Refresh"}
@@ -3246,7 +3307,7 @@ export function App() {
                     if (isRefreshRunning) {
                       void stopStartupRefresh();
                     } else {
-                      void restartStartupRefresh();
+                      void restartStartupRefresh({ showCompletionFeedback: true });
                     }
                   }}
                 >
@@ -3256,6 +3317,8 @@ export function App() {
                       : "Stop Refresh"
                     : isRestartingStartupRefresh
                       ? "Starting..."
+                      : manualRefreshFeedback === "refreshed"
+                        ? "Refreshed"
                       : "Refresh Now"}
                 </Button>
               </div>
