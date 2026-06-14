@@ -585,9 +585,23 @@ export function App() {
     showCompletionFeedback?: boolean;
   }): Promise<void> => {
     const showCompletionFeedback = options?.showCompletionFeedback === true;
+    const previousRefreshState = startupRefreshState;
     if (showCompletionFeedback) {
       manualRefreshFeedbackPendingRef.current = true;
       setManualRefreshFeedback(null);
+      setStartupRefreshState({
+        status: "running",
+        startedAt: new Date().toISOString(),
+        finishedAt: null,
+        lastError: null,
+        requiresReauthentication: false,
+        stopRequested: false,
+        counters: {
+          eligibleKeywordCount: 0,
+          refreshedKeywordCount: 0,
+          failedKeywordCount: 0,
+        },
+      });
     }
     try {
       setIsRestartingStartupRefresh(true);
@@ -603,6 +617,7 @@ export function App() {
     } catch (error) {
       if (showCompletionFeedback) {
         manualRefreshFeedbackPendingRef.current = false;
+        setStartupRefreshState(previousRefreshState);
       }
       setErrorText(
         toActionableErrorMessage(error, "Failed to restart background refresh")
@@ -610,7 +625,7 @@ export function App() {
     } finally {
       setIsRestartingStartupRefresh(false);
     }
-  }, [resolveManualRefreshFeedback]);
+  }, [resolveManualRefreshFeedback, startupRefreshState]);
 
   const stopStartupRefresh = useCallback(async (): Promise<void> => {
     try {
@@ -1040,6 +1055,7 @@ export function App() {
           "/api/aso/refresh-status"
         );
         if (!isActive) return;
+        if (isRestartingStartupRefresh && data.status === "idle") return;
         setStartupRefreshState(data);
         if (
           intervalId != null &&
@@ -1065,7 +1081,7 @@ export function App() {
         window.clearInterval(intervalId);
       }
     };
-  }, [startupRefreshState?.status]);
+  }, [isRestartingStartupRefresh, startupRefreshState?.status]);
 
   const hasPendingDifficulty = pendingKeywordCount > 0;
 
@@ -2089,8 +2105,21 @@ export function App() {
   const showSuccess = !showLoading && !showError && successText !== "";
   const addButtonLabel = isCompactLayout ? "Add" : "Add Keywords";
   const retryFailedButtonLabel = isRetryingFailedKeywords
-    ? "Refreshing failed keywords..."
+    ? "Refreshing failed keywords"
     : `Refresh failed keywords (${failedKeywordCount})`;
+  const isRefreshRunning = startupRefreshState?.status === "running";
+  const isRefreshStopPending =
+    isRefreshRunning &&
+    (isStoppingStartupRefresh || startupRefreshState?.stopRequested === true);
+  const settingsRefreshStatusLabel = isRestartingStartupRefresh
+    ? "Refreshing"
+    : isRefreshStopPending
+      ? "Stopping refresh"
+      : manualRefreshFeedback === "refreshed"
+        ? "Refreshed"
+        : isRefreshRunning
+          ? "Refreshing"
+          : "";
   const isStartupRefreshAuthRecoveryAttemptActive =
     isKeywordMutationBlockedByStartupReauth &&
     activeAuthContext === "startup-refresh" &&
@@ -2181,10 +2210,6 @@ export function App() {
   const keywordCountLabelValue = keywordTotalCount;
   const showKeywordPagination = keywordTotalPages > 1;
   const keywordPageLabel = Math.min(keywordPage, keywordTotalPages);
-  const isRefreshRunning = startupRefreshState?.status === "running";
-  const isRefreshStopPending =
-    isRefreshRunning &&
-    (isStoppingStartupRefresh || startupRefreshState?.stopRequested === true);
   return (
     <div id="app-shell" className="app-shell">
       <aside className="sidebar ui-card" aria-label="Apps">
@@ -2483,8 +2508,6 @@ export function App() {
                 className="retry-failed-button"
                 type="button"
                 variant="ghost"
-                title={retryFailedButtonLabel}
-                aria-label={retryFailedButtonLabel}
                 disabled={
                   isRetryingFailedKeywords ||
                   isColdStart ||
@@ -3294,33 +3317,42 @@ export function App() {
                 </div>
               </div>
               <div className="settings-actions">
-                <Button
-                  id="settings-refresh-action"
-                  type="button"
-                  variant={isRefreshRunning ? "outline" : "primary"}
-                  disabled={
-                    isRestartingStartupRefresh ||
-                    isRefreshStopPending ||
-                    isKeywordMutationBlockedByStartupReauth
-                  }
-                  onClick={() => {
-                    if (isRefreshRunning) {
+                {settingsRefreshStatusLabel ? (
+                  <span
+                    id="settings-refresh-status"
+                    className="settings-refresh-status"
+                    role="status"
+                  >
+                    {settingsRefreshStatusLabel}
+                  </span>
+                ) : null}
+                {isRefreshRunning &&
+                !isRestartingStartupRefresh &&
+                !isRefreshStopPending ? (
+                  <Button
+                    id="settings-refresh-action"
+                    type="button"
+                    variant="outline"
+                    disabled={isKeywordMutationBlockedByStartupReauth}
+                    onClick={() => {
                       void stopStartupRefresh();
-                    } else {
+                    }}
+                  >
+                    Stop Refresh
+                  </Button>
+                ) : !settingsRefreshStatusLabel ? (
+                  <Button
+                    id="settings-refresh-action"
+                    type="button"
+                    variant="primary"
+                    disabled={isKeywordMutationBlockedByStartupReauth}
+                    onClick={() => {
                       void restartStartupRefresh({ showCompletionFeedback: true });
-                    }
-                  }}
-                >
-                  {isRefreshRunning
-                    ? isRefreshStopPending
-                      ? "Stopping..."
-                      : "Stop Refresh"
-                    : isRestartingStartupRefresh
-                      ? "Starting..."
-                      : manualRefreshFeedback === "refreshed"
-                        ? "Refreshed"
-                      : "Refresh Now"}
-                </Button>
+                    }}
+                  >
+                    Refresh Now
+                  </Button>
+                ) : null}
               </div>
             </div>
           </section>

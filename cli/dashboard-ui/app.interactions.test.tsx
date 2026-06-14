@@ -81,6 +81,7 @@ function buildFetchMock(params: {
     refreshMode: "startup" | "manual";
   };
   refreshStartData?: Record<string, unknown>;
+  refreshStartResponse?: Promise<Response>;
   onPatchDashboardSettings?: (payload: any) => void;
   onPostRefreshStart?: () => void;
   onPostApps?: (payload: any) => void;
@@ -181,6 +182,9 @@ function buildFetchMock(params: {
 
     if (method === "POST" && url === "/api/aso/refresh/start") {
       params.onPostRefreshStart?.();
+      if (params.refreshStartResponse) {
+        return params.refreshStartResponse;
+      }
       return jsonResponse(202, {
         success: true,
         data:
@@ -684,9 +688,62 @@ describe("dashboard app interactions", () => {
 
     await waitFor(() => expect(refreshStartCount).toBe(1));
     expect(await screen.findByText("Refreshed.")).toBeInTheDocument();
+    expect(within(dialog).getByText("Refreshed")).toBeInTheDocument();
     expect(
-      within(dialog).getByRole("button", { name: "Refreshed" })
+      within(dialog).queryByRole("button", { name: "Refreshed" })
+    ).toBeNull();
+  });
+
+  it("shows refreshing as a label while manual refresh start is pending", async () => {
+    let resolveRefreshStart!: (response: Response) => void;
+    const refreshStartResponse = new Promise<Response>((resolve) => {
+      resolveRefreshStart = resolve;
+    });
+    const fetchMock = buildFetchMock({
+      initialApps: [{ id: DEFAULT_RESEARCH_APP_ID, name: "Research" }],
+      keywordsByAppId: {
+        [DEFAULT_RESEARCH_APP_ID]: [],
+      },
+      dashboardSettings: {
+        includeResearchAppsInKeywordRefresh: true,
+        refreshMode: "manual",
+      },
+      refreshStartResponse,
+    });
+    global.fetch = fetchMock as typeof fetch;
+
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Open settings" }));
+    const dialog = await screen.findByRole("dialog", { name: "Settings" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Refresh Now" }));
+
+    expect(await within(dialog).findByText("Refreshing")).toBeInTheDocument();
+    expect(
+      within(dialog).queryByRole("button", { name: /Starting/i })
+    ).toBeNull();
+    expect(
+      await screen.findByText("Refreshing local data in background...")
     ).toBeInTheDocument();
+
+    resolveRefreshStart(
+      jsonResponse(202, {
+        success: true,
+        data: {
+          status: "completed",
+          startedAt: "2026-06-13T12:00:00.000Z",
+          finishedAt: "2026-06-13T12:00:00.050Z",
+          lastError: null,
+          requiresReauthentication: false,
+          counters: {
+            eligibleKeywordCount: 1,
+            refreshedKeywordCount: 1,
+            failedKeywordCount: 0,
+          },
+        },
+      })
+    );
+    expect(await screen.findByText("Refreshed.")).toBeInTheDocument();
   });
 
   it("collapses and expands the research section", async () => {
