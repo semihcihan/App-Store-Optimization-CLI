@@ -149,7 +149,7 @@ Runtime flow contracts across CLI commands, local dashboard API, and ASO service
    - Auth-required failures skip retry and stop remaining startup batches for that run.
 4. Publish refresh status via `GET /api/aso/refresh-status`, including whether the failure requires Search Ads reauthentication.
 5. Allow explicit refresh via `POST /api/aso/refresh/start`; this is the shared trigger for manual refresh and retry/resume.
-6. Allow stop requests via `POST /api/aso/refresh/stop`; the manager stops at the next batch boundary and marks the run stopped.
+6. Allow stop requests via `POST /api/aso/refresh/stop`; the manager stops at the next batch boundary and marks the run stopped unless an in-flight batch fails with auth-required state, which remains failed for reauthentication recovery.
 7. If auth is required, the dashboard auto-starts the same reauthentication flow used by add-keyword once; silent session reuse stays invisible, while browser prompt steps/failure states surface through the shared auth modal.
 8. While refresh is paused on `requiresReauthentication=true`, dashboard keyword mutations (`Add Keywords`, `Retry Failed`) stay disabled until reauthentication succeeds.
 

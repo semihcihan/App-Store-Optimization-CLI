@@ -255,6 +255,50 @@ describe("startup-refresh-manager", () => {
     expect(enrichCalls).toHaveLength(1);
   });
 
+  it("keeps auth-required failures failed when stop is requested", async () => {
+    const authError = new Error(
+      "Apple Search Ads session expired. Reauthentication is required."
+    );
+    let rejectBatch!: (error: Error) => void;
+    const batchGate = new Promise<void>((_resolve, reject) => {
+      rejectBatch = reject;
+    });
+
+    const manager = createStartupRefreshManager({
+      country: "US",
+      listKeywords: () => [
+        buildKeyword({
+          keyword: "k1",
+          normalizedKeyword: "k1",
+          orderExpiresAt: "2026-03-06T00:00:00.000Z",
+        }),
+      ],
+      listAppKeywords: () => [buildAssociation({ keyword: "k1", appId: "app-1" })],
+      listAssociatedAppIds: () => new Set(["app-1"]),
+      listOrderRelevantAppIds: () => new Set(["app-1"]),
+      enrichKeywords: async () => {
+        await batchGate;
+      },
+      isForegroundBusy: () => false,
+      isAuthReauthRequiredError: (error) => error === authError,
+      nowMs: () => Date.parse("2026-03-07T00:00:00.000Z"),
+      sleep: async () => {},
+      keywordBatchSize: 1,
+    });
+
+    manager.start();
+    await Promise.resolve();
+    manager.stop();
+    rejectBatch(authError);
+    await waitForManagerToFinish(manager);
+
+    const state = manager.getState();
+    expect(state.status).toBe("failed");
+    expect(state.requiresReauthentication).toBe(true);
+    expect(state.stopRequested).toBe(false);
+    expect(state.counters.failedKeywordCount).toBe(1);
+  });
+
   it("marks batch failed when retry also fails", async () => {
     const errors: unknown[] = [];
 

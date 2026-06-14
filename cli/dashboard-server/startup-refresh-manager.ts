@@ -277,13 +277,16 @@ export function createStartupRefreshManager(
 
     await refreshKeywordsInBatches();
 
+    const finalStatus: StartupRefreshStatus =
+      state.requiresReauthentication || (!stopRequested && state.lastError)
+        ? "failed"
+        : stopRequested
+          ? "stopped"
+          : "completed";
+
     state = {
       ...state,
-      status: stopRequested
-        ? "stopped"
-        : state.lastError
-          ? "failed"
-          : "completed",
+      status: finalStatus,
       finishedAt: new Date(nowMs()).toISOString(),
       stopRequested: false,
     };
