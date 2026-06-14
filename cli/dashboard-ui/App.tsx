@@ -1045,6 +1045,7 @@ export function App() {
       startupRefreshState.status === "idle" ||
       startupRefreshState.status === "running";
     if (!shouldPoll) return;
+    if (isRestartingStartupRefresh) return;
 
     let isActive = true;
     let intervalId: number | null = null;
@@ -1055,7 +1056,6 @@ export function App() {
           "/api/aso/refresh-status"
         );
         if (!isActive) return;
-        if (isRestartingStartupRefresh && data.status === "idle") return;
         setStartupRefreshState(data);
         if (
           intervalId != null &&

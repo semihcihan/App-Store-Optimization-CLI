@@ -80,6 +80,9 @@ function buildFetchMock(params: {
     includeResearchAppsInKeywordRefresh: boolean;
     refreshMode: "startup" | "manual";
   };
+  refreshStatusData?: Record<string, unknown>;
+  refreshStatusSequence?: Array<Record<string, unknown>>;
+  onGetRefreshStatus?: (callCount: number) => Record<string, unknown>;
   refreshStartData?: Record<string, unknown>;
   refreshStartResponse?: Promise<Response>;
   onPatchDashboardSettings?: (payload: any) => void;
@@ -95,6 +98,7 @@ function buildFetchMock(params: {
       includeResearchAppsInKeywordRefresh: true,
       refreshMode: "startup" as const,
     };
+  let refreshStatusCallCount = 0;
   return jest.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
     const method = (init?.method ?? "GET").toUpperCase();
@@ -161,22 +165,31 @@ function buildFetchMock(params: {
     }
 
     if (method === "GET" && url === "/api/aso/refresh-status") {
+      const defaultRefreshStatus = {
+        status: "idle",
+        startedAt: null,
+        finishedAt: null,
+        lastError: null,
+        requiresReauthentication: false,
+        counters: {
+          eligibleKeywordCount: 0,
+          refreshedKeywordCount: 0,
+          failedKeywordCount: 0,
+          appListRefreshAttempted: false,
+          appListRefreshSucceeded: false,
+        },
+      };
+      const data =
+        params.onGetRefreshStatus?.(refreshStatusCallCount) ??
+        params.refreshStatusSequence?.[
+          Math.min(refreshStatusCallCount, params.refreshStatusSequence.length - 1)
+        ] ??
+        params.refreshStatusData ??
+        defaultRefreshStatus;
+      refreshStatusCallCount += 1;
       return jsonResponse(200, {
         success: true,
-        data: {
-          status: "idle",
-          startedAt: null,
-          finishedAt: null,
-          lastError: null,
-          requiresReauthentication: false,
-          counters: {
-            eligibleKeywordCount: 0,
-            refreshedKeywordCount: 0,
-            failedKeywordCount: 0,
-            appListRefreshAttempted: false,
-            appListRefreshSucceeded: false,
-          },
-        },
+        data,
       });
     }
 
@@ -744,6 +757,89 @@ describe("dashboard app interactions", () => {
       })
     );
     expect(await screen.findByText("Refreshed.")).toBeInTheDocument();
+  });
+
+  it("ignores stale terminal refresh snapshots while manual refresh start is pending", async () => {
+    let resolveRefreshStart!: (response: Response) => void;
+    let manualStartRequested = false;
+    const refreshStartResponse = new Promise<Response>((resolve) => {
+      resolveRefreshStart = resolve;
+    });
+    const staleCompletedRefresh = {
+      status: "completed",
+      startedAt: "2026-06-13T11:00:00.000Z",
+      finishedAt: "2026-06-13T11:00:00.050Z",
+      lastError: null,
+      requiresReauthentication: false,
+      counters: {
+        eligibleKeywordCount: 5,
+        refreshedKeywordCount: 5,
+        failedKeywordCount: 0,
+      },
+    };
+    const fetchMock = buildFetchMock({
+      initialApps: [{ id: DEFAULT_RESEARCH_APP_ID, name: "Research" }],
+      keywordsByAppId: {
+        [DEFAULT_RESEARCH_APP_ID]: [],
+      },
+      dashboardSettings: {
+        includeResearchAppsInKeywordRefresh: true,
+        refreshMode: "manual",
+      },
+      onPostRefreshStart: () => {
+        manualStartRequested = true;
+      },
+      onGetRefreshStatus: () =>
+        manualStartRequested
+          ? staleCompletedRefresh
+          : {
+              status: "idle",
+              startedAt: null,
+              finishedAt: null,
+              lastError: null,
+              requiresReauthentication: false,
+              counters: {
+                eligibleKeywordCount: 0,
+                refreshedKeywordCount: 0,
+                failedKeywordCount: 0,
+              },
+            },
+      refreshStartResponse,
+    });
+    global.fetch = fetchMock as typeof fetch;
+
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Open settings" }));
+    const dialog = await screen.findByRole("dialog", { name: "Settings" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Refresh Now" }));
+
+    expect(await within(dialog).findByText("Refreshing")).toBeInTheDocument();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(screen.queryByText("Refreshed.")).toBeNull();
+    expect(within(dialog).queryByText("Refreshed")).toBeNull();
+    expect(within(dialog).getByText("Refreshing")).toBeInTheDocument();
+
+    resolveRefreshStart(
+      jsonResponse(202, {
+        success: true,
+        data: {
+          status: "failed",
+          startedAt: "2026-06-13T12:00:00.000Z",
+          finishedAt: "2026-06-13T12:00:00.050Z",
+          lastError: "Start failed",
+          requiresReauthentication: false,
+          counters: {
+            eligibleKeywordCount: 0,
+            refreshedKeywordCount: 0,
+            failedKeywordCount: 0,
+          },
+        },
+      })
+    );
+
+    expect(await screen.findByText("Background refresh failed.")).toBeInTheDocument();
+    expect(screen.queryByText("Refreshed.")).toBeNull();
   });
 
   it("collapses and expands the research section", async () => {
