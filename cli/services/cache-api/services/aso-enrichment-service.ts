@@ -15,6 +15,10 @@ import { asoAppleGet } from "./aso-apple-client";
 import { reportAppleContractChange } from "../../keywords/apple-http-trace";
 import { getStorefrontDefaultLanguage } from "../../../shared/aso-storefront-localizations";
 import { ASO_APPLE_WEB_USER_AGENT } from "../../../shared/aso-apple-http";
+import {
+  getAppleStoreFrontHeader,
+  getAsoStorefrontPath,
+} from "../../../shared/aso-storefronts";
 import type { KeywordMatchType } from "../../../shared/aso-keyword-match";
 import {
   calculateAppDifficultyBreakdown,
@@ -73,12 +77,8 @@ interface AmpSearchResponse {
   }>;
 }
 
-const MZSEARCH_PLATFORM_ID_JSON = 29;
-const STORE_FRONT_ID_BY_COUNTRY: Record<string, number> = {
-  US: 143441,
-};
 const MZSEARCH_ORDER_URL = "https://search.itunes.apple.com/WebObjects/MZSearch.woa/wa/search";
-const APPSTORE_SEARCH_URL = "https://apps.apple.com/us/iphone/search";
+const APPSTORE_SEARCH_ENDPOINT = "https://apps.apple.com/{country}/iphone/search";
 const INSUFFICIENT_DOCS_RETRY_COUNT = 1;
 const INSUFFICIENT_DOCS_RETRY_BACKOFF_MS = 150;
 const INCOMPLETE_TOP_DOC_LOOKUP_COOLDOWN_MS = 10 * 60 * 1000;
@@ -301,14 +301,18 @@ function appCompetitiveScore(app: AsoAppDoc, keyword: string): number {
 }
 
 function getStoreFrontHeader(country: string): string {
-  const storeId = STORE_FRONT_ID_BY_COUNTRY[country.toUpperCase()] || 143441;
-  return `${storeId}-1,${MZSEARCH_PLATFORM_ID_JSON}`;
+  return getAppleStoreFrontHeader(country);
+}
+
+function getAppStoreSearchUrl(country: string): string {
+  return `https://apps.apple.com/${getAsoStorefrontPath(country)}/iphone/search`;
 }
 
 async function fetchPopularityOrderedIds(params: {
   keyword: string;
   country: string;
 }): Promise<string[]> {
+  const defaultLanguage = getStorefrontDefaultLanguage(params.country);
   const response = await asoAppleGet<MzSearchResponse>(
     MZSEARCH_ORDER_URL,
     {
@@ -319,8 +323,8 @@ async function fetchPopularityOrderedIds(params: {
       },
       headers: {
         "User-Agent": ASO_APPLE_WEB_USER_AGENT,
-        "Accept-Language": "en-US,en;q=0.9",
-        Cookie: "dslang=US-EN",
+        "Accept-Language": `${defaultLanguage},en-US;q=0.9`,
+        Cookie: `dslang=${defaultLanguage}`,
         "x-apple-store-front": getStoreFrontHeader(params.country),
       },
       timeout: 30000,
@@ -423,13 +427,15 @@ async function fetchSearchPageOrderedData(params: {
   orderedAppIds: string[];
   appDocs: AsoAppDoc[];
 }> {
-  const response = await asoAppleGet(APPSTORE_SEARCH_URL, {
+  const searchUrl = getAppStoreSearchUrl(params.country);
+  const defaultLanguage = getStorefrontDefaultLanguage(params.country);
+  const response = await asoAppleGet(searchUrl, {
     operation: "appstore.search-page",
     params: { term: params.keyword },
     headers: {
       "User-Agent": ASO_APPLE_WEB_USER_AGENT,
       Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-      "Accept-Language": "en-US,en;q=0.9",
+      "Accept-Language": `${defaultLanguage},en-US;q=0.9`,
     },
     timeout: 30000,
   });
@@ -512,7 +518,7 @@ export async function refreshKeywordOrder(params: {
     reportAppleContractChange({
       provider: "apple-appstore",
       operation: "appstore.search-page",
-      endpoint: APPSTORE_SEARCH_URL,
+      endpoint: APPSTORE_SEARCH_ENDPOINT,
       expectedContract:
         "Search page includes serialized-server-data with ordered app ids",
       actualSignal: htmlMessage,
@@ -895,7 +901,7 @@ export async function enrichKeyword(
     reportAppleContractChange({
       provider: "apple-appstore",
       operation: "appstore.search-page",
-      endpoint: APPSTORE_SEARCH_URL,
+      endpoint: APPSTORE_SEARCH_ENDPOINT,
       expectedContract:
         "Search page includes serialized-server-data with ordered app ids and lockups",
       actualSignal: htmlMessage,

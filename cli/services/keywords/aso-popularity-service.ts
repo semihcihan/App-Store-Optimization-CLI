@@ -29,6 +29,7 @@ const APPLE_POPULARITY_URL =
 
 type FetchKeywordPopularitiesOptions = {
   allowInteractiveAuthRecovery?: boolean;
+  country?: string;
 };
 
 type KeywordPopularityResult = {
@@ -157,8 +158,9 @@ export class AsoPopularityService {
       };
     }
     const adamId = requireAdamId();
+    const country = (options?.country ?? "US").toUpperCase();
     logger.debug(
-      `[aso-popularity] requesting popularities terms=${sanitizedKeywords.length} adamId=${adamId}`
+      `[aso-popularity] requesting popularities terms=${sanitizedKeywords.length} adamId=${adamId} country=${country}`
     );
 
     const allowInteractiveAuthRecovery =
@@ -181,13 +183,13 @@ export class AsoPopularityService {
       options?: { maxAttempts?: number }
     ): Promise<{ statusCode: number; data: PopularityResponse; attempts: number }> => {
       logger.debug(
-        `[aso-popularity] sending ${stageLabel} request cookieHeaderLength=${cookieHeader.length} terms=${terms.length}`
+        `[aso-popularity] sending ${stageLabel} request cookieHeaderLength=${cookieHeader.length} terms=${terms.length} country=${country}`
       );
       let response = await requestPopularitiesWithKwsRetry(
         terms,
         cookieHeader,
         adamId,
-        options
+        { ...options, country }
       );
       logPopularityResponse(stageLabel, response.statusCode, response.data);
 
@@ -205,7 +207,7 @@ export class AsoPopularityService {
           terms,
           cookieHeader,
           adamId,
-          options
+          { ...options, country }
         );
         logPopularityResponse(
           `${stageLabel}-post-reauth`,

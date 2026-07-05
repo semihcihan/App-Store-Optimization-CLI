@@ -93,7 +93,7 @@ describe("aso-app-doc-service", () => {
     ]);
     expect(mockedAsoAppleGet).toHaveBeenNthCalledWith(
       1,
-      "https://apps.apple.com/app/id1",
+      "https://apps.apple.com/us/app/id1",
       expect.objectContaining({
         headers: expect.objectContaining({
           "X-Apple-Store-Front": "143441-1,29",
@@ -285,7 +285,7 @@ describe("aso-app-doc-service", () => {
 
     expect(repository.getAppDocs).not.toHaveBeenCalled();
     expect(mockedAsoAppleGet).toHaveBeenCalledWith(
-      "https://apps.apple.com/app/id1",
+      "https://apps.apple.com/us/app/id1",
       expect.any(Object)
     );
     expect(repository.upsertMany).toHaveBeenCalledWith({
@@ -373,17 +373,38 @@ describe("aso-app-doc-service", () => {
     expect(mockedAsoAppleGet).not.toHaveBeenCalled();
   });
 
-  it("throws for non-US country", async () => {
+  it("uses iTunes lookup directly for non-US storefront app lookup", async () => {
+    mockedAsoAppleGet.mockResolvedValueOnce({ data: {} } as never);
+
+    await fetchAppStoreLookupAppDocs({
+      country: "DK",
+      appIds: ["1"],
+    });
+
+    expect(mockedAsoAppleGet).toHaveBeenNthCalledWith(
+      1,
+      "https://itunes.apple.com/lookup",
+      expect.objectContaining({
+        params: expect.objectContaining({
+          id: "1",
+          country: "dk",
+          entity: "software",
+        }),
+      })
+    );
+  });
+
+  it("throws for unsupported country", async () => {
     const repository = createRepository({
       getAppDocs: (jest.fn(async () => []) as unknown) as AsoCacheRepository["getAppDocs"],
     });
 
     await expect(
       getAsoAppDocs({
-        country: "TR",
+        country: "XX",
         appIds: ["1"],
         repository,
       })
-    ).rejects.toThrow("Only US is supported for now");
+    ).rejects.toThrow('Unsupported country code "XX"');
   });
 });

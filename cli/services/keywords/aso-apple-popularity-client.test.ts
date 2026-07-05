@@ -158,4 +158,27 @@ describe("aso-apple-popularity-client", () => {
     expect(mockPost).toHaveBeenCalledTimes(1);
     expect(result.statusCode).toBe(503);
   });
+
+  it("sends the selected country code as the Search Ads storefront", async () => {
+    (mockPost as any).mockResolvedValue({
+      status: 200,
+      data: { status: "success", data: [{ name: "height ai", popularity: 5 }] },
+    });
+
+    await requestPopularitiesWithKwsRetry(
+      ["height ai"],
+      "cookie=value",
+      "adam",
+      { country: "DK", maxAttempts: 1 }
+    );
+
+    expect(mockPost).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({
+        storefronts: ["DK"],
+        terms: ["height ai"],
+      }),
+      expect.any(Object)
+    );
+  });
 });

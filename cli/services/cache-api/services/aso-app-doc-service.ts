@@ -9,6 +9,7 @@ import {
   assertSupportedCountry,
   normalizeCountry,
 } from "../../../domain/keywords/policy";
+import { getAppleStoreFrontHeader } from "../../../shared/aso-storefronts";
 
 type AppStoreProductVersionHistoryItem = {
   releaseDate?: string;
@@ -45,13 +46,8 @@ type AppStoreProductLookupPayload = {
   };
 };
 
-const APP_STORE_FRONT_ID_BY_COUNTRY: Record<string, string> = {
-  US: "143441",
-};
-
 function getStoreFrontHeader(country: string): string {
-  const id = APP_STORE_FRONT_ID_BY_COUNTRY[country.toUpperCase()] ?? APP_STORE_FRONT_ID_BY_COUNTRY.US;
-  return `${id}-1,29`;
+  return getAppleStoreFrontHeader(country);
 }
 
 function parseAppStorePayload(raw: unknown): AppStoreProductLookupPayload | null {
@@ -287,10 +283,16 @@ function mergeFallbackDoc(
 }
 
 async function fetchAppDocById(country: string, appId: string): Promise<AsoAppDoc | null> {
+  const normalizedCountry = country.toLowerCase();
+  const appUrl =
+    "https://apps.apple.com/" +
+    encodeURIComponent(normalizedCountry) +
+    "/app/id" +
+    encodeURIComponent(appId);
   let response;
   try {
     response = await asoAppleGet(
-      "https://apps.apple.com/app/id" + encodeURIComponent(appId),
+      appUrl,
       {
         operation: "appstore.app-lookup",
         headers: {
@@ -309,7 +311,7 @@ async function fetchAppDocById(country: string, appId: string): Promise<AsoAppDo
       country: country.toUpperCase(),
       message,
     });
-    throw error;
+    return null;
   }
 
   const payload = parseAppStorePayload(response.data);
@@ -317,7 +319,7 @@ async function fetchAppDocById(country: string, appId: string): Promise<AsoAppDo
     reportAppleContractChange({
       provider: "apple-appstore",
       operation: "appstore.app-lookup",
-      endpoint: "https://apps.apple.com/app/id{appId}",
+      endpoint: "https://apps.apple.com/{country}/app/id{appId}",
       statusCode: response.status,
       expectedContract:
         "App lookup response is JSON/object or HTML with serialized-server-data JSON",
@@ -341,7 +343,7 @@ async function fetchAppDocById(country: string, appId: string): Promise<AsoAppDo
     reportAppleContractChange({
       provider: "apple-appstore",
       operation: "appstore.app-lookup",
-      endpoint: "https://apps.apple.com/app/id{appId}",
+      endpoint: "https://apps.apple.com/{country}/app/id{appId}",
       statusCode: response.status,
       expectedContract:
         "App lookup payload has storePlatformData.product-dv.results with a product entry",
@@ -367,6 +369,27 @@ export async function fetchAppStoreLookupAppDocs(params: {
   assertSupportedCountry(country);
   if (params.appIds.length === 0) return [];
   const uniqueIds = Array.from(new Set(params.appIds.map((id) => id.trim()).filter(Boolean)));
+  if (country !== "US") {
+    const fallbackById = await fetchItunesLookupAppDocs({
+      country,
+      appIds: uniqueIds,
+    });
+    const parsedDocs = uniqueIds
+      .map((id) => fallbackById.get(id))
+      .filter((doc): doc is AsoAppDoc => doc != null);
+    logger.debug("[aso-app-lookup] lookup batch summary", {
+      country,
+      requestedCount: uniqueIds.length,
+      parsedCount: parsedDocs.length,
+      skippedCount: uniqueIds.length - parsedDocs.length,
+      unresolvedCount: uniqueIds.length - parsedDocs.length,
+      fallbackResolvedCount: parsedDocs.filter((doc) =>
+        Boolean(doc.releaseDate && doc.currentVersionReleaseDate)
+      ).length,
+      mode: "itunes-lookup",
+    });
+    return normalizeCountryOnAppDocs(country, parsedDocs);
+  }
   const docs = await Promise.all(uniqueIds.map((appId) => fetchAppDocById(country, appId)));
   const byId = new Map(
     docs.filter((doc): doc is AsoAppDoc => doc != null).map((doc) => [doc.appId, doc])

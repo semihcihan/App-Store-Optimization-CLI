@@ -11,6 +11,7 @@ import {
   attachAppleHttpTracing,
   withAppleHttpTraceContext,
 } from "./apple-http-trace";
+import { getSearchAdsStorefronts } from "../../shared/aso-storefronts";
 
 const APPLE_POPULARITY_URL =
   "https://app-ads.apple.com/cm/api/v2/keywords/popularities";
@@ -59,7 +60,8 @@ function wait(ms: number): Promise<void> {
 async function requestPopularitiesOnce(
   terms: string[],
   cookieHeader: string,
-  adamId: string
+  adamId: string,
+  country: string
 ): Promise<{
   statusCode: number;
   data: PopularityResponse;
@@ -67,7 +69,7 @@ async function requestPopularitiesOnce(
 }> {
   const requestUrl = `${APPLE_POPULARITY_URL}?adamId=${encodeURIComponent(adamId)}`;
   const requestBody = {
-    storefronts: [],
+    storefronts: getSearchAdsStorefronts(country),
     terms,
   };
   const requestHeaders = {
@@ -94,6 +96,7 @@ async function requestPopularitiesOnce(
       operation: "keywords-popularities-request",
       context: {
         adamId,
+        country: country.toUpperCase(),
         termsCount: terms.length,
       },
       isTerminal: false,
@@ -134,15 +137,21 @@ export async function requestPopularitiesWithKwsRetry(
   terms: string[],
   cookieHeader: string,
   adamId: string,
-  options?: { maxAttempts?: number }
+  options?: { country?: string; maxAttempts?: number }
 ): Promise<{ statusCode: number; data: PopularityResponse; attempts: number }> {
+  const country = (options?.country ?? "US").toUpperCase();
   const maxAttempts = Math.max(
     1,
     options?.maxAttempts ?? getAsoResilienceConfig().maxAttempts
   );
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     try {
-      const response = await requestPopularitiesOnce(terms, cookieHeader, adamId);
+      const response = await requestPopularitiesOnce(
+        terms,
+        cookieHeader,
+        adamId,
+        country
+      );
       const retryable = isTransientStatus(response.statusCode, response.data);
       if (!retryable || attempt >= maxAttempts) {
         return {
@@ -175,6 +184,7 @@ export async function requestPopularitiesWithKwsRetry(
           operation: "keywords-popularities-request",
           context: {
             adamId,
+            country,
             termsCount: terms.length,
             attempt,
             maxAttempts,

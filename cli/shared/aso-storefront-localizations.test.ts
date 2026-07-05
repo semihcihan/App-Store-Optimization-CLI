@@ -22,4 +22,11 @@ describe("aso storefront localizations", () => {
     expect(getStorefrontAdditionalLanguages("CA")).toEqual([]);
     expect(getStorefrontLanguages("CA")).toEqual(["en-CA"]);
   });
+
+  it("falls back to configured storefront default languages", () => {
+    expect(getStorefrontLanguageConfig("DK")).toEqual({
+      defaultLanguage: "da",
+      additionalLanguages: [],
+    });
+  });
 });

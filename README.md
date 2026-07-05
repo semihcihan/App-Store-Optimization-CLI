@@ -86,6 +86,9 @@ aso auth
 # Fetch keyword metrics
 aso keywords "meditation,sleep sounds,white noise"
 
+# Fetch keyword metrics for a specific storefront
+aso keywords "højde scanner,mål højde" --country DK
+
 # Open dashboard
 aso
 ```
@@ -103,7 +106,7 @@ aso
 
 ### Supported flags
 
-- `--country <code>`: currently `US` only
+- `--country <code>`: App Store storefront country code, e.g. `US`, `DK`, `GB`, `DE`
 - `--primary-app-id <id>`: saved locally for future runs
 - `--min-popularity <number>`: filters out low-popularity keywords before enrichment
 - `--max-difficulty <number>`: filters out high-difficulty keywords after enrichment
@@ -183,8 +186,8 @@ Example MCP config:
 
 ## Current Scope
 
-- Storefront support: `US`
-- Multi-storefront support is planned
+- Storefront support: multiple App Store storefronts, including `US`, `CA`, `GB`, `AU`, `DK`, `DE`, `FR`, `ES`, `IT`, `NL`, `SE`, `NO`, `FI`, `JP`, `KR`, `BR`, `MX`, and more
+- Keyword popularity requests are scoped to the requested Apple Search Ads storefront
 
 ## Project Docs
 
