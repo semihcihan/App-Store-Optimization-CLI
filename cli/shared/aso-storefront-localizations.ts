@@ -1,4 +1,5 @@
 import { DEFAULT_ASO_COUNTRY } from "../domain/keywords/policy";
+import { getAsoStorefront } from "./aso-storefronts";
 
 export type StorefrontLanguageConfig = {
   defaultLanguage: string;
@@ -35,8 +36,11 @@ export function getStorefrontLanguageConfig(
 ): NormalizedStorefrontLanguageConfig {
   const normalizedCountry = country.toUpperCase();
   const config =
-    ASO_STOREFRONT_LANGUAGES_BY_COUNTRY[normalizedCountry] ??
-    ASO_STOREFRONT_LANGUAGES_BY_COUNTRY[DEFAULT_ASO_COUNTRY];
+    ASO_STOREFRONT_LANGUAGES_BY_COUNTRY[normalizedCountry] ?? {
+      defaultLanguage:
+        getAsoStorefront(normalizedCountry)?.defaultLanguage ??
+        ASO_STOREFRONT_LANGUAGES_BY_COUNTRY[DEFAULT_ASO_COUNTRY].defaultLanguage,
+    };
   return {
     defaultLanguage: config.defaultLanguage,
     additionalLanguages: Array.isArray(config.additionalLanguages)

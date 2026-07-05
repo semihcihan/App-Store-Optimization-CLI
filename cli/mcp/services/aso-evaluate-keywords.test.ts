@@ -45,6 +45,8 @@ describe("aso_evaluate_keywords service", () => {
       "keywords",
       "foo,bar",
       "--stdout",
+      "--country",
+      "US",
       "--min-popularity",
       "6",
       "--max-difficulty",
@@ -70,6 +72,8 @@ describe("aso_evaluate_keywords service", () => {
       "keywords",
       "foo,bar",
       "--stdout",
+      "--country",
+      "US",
       "--min-popularity",
       "6",
       "--max-difficulty",
@@ -121,6 +125,8 @@ describe("aso_evaluate_keywords service", () => {
       "keywords",
       "romantic,story game",
       "--stdout",
+      "--country",
+      "US",
       "--min-popularity",
       "15",
       "--max-difficulty",
@@ -157,6 +163,8 @@ describe("aso_evaluate_keywords service", () => {
       "keywords",
       "sleep",
       "--stdout",
+      "--country",
+      "US",
       "--min-popularity",
       "6",
       "--max-difficulty",
@@ -164,6 +172,45 @@ describe("aso_evaluate_keywords service", () => {
       "--app-id",
       "123456789",
     ]);
+  });
+
+  it("passes country to CLI when provided", async () => {
+    mockRunAsoCommand.mockResolvedValue({
+      stdout: JSON.stringify({
+        items: [{ keyword: "højde", popularity: 5, difficulty: 20 }],
+        failedKeywords: [],
+      }),
+      stderr: "",
+      exitCode: 0,
+    });
+
+    await handleAsoEvaluateKeywords({
+      keywords: ["højde"],
+      country: "DK",
+    });
+
+    expect(mockRunAsoCommand).toHaveBeenCalledWith([
+      "keywords",
+      "højde",
+      "--stdout",
+      "--country",
+      "DK",
+      "--min-popularity",
+      "6",
+      "--max-difficulty",
+      "70",
+    ]);
+  });
+
+  it("returns MCP error for unsupported country", async () => {
+    const result = await handleAsoEvaluateKeywords({
+      keywords: ["height"],
+      country: "XX",
+    });
+
+    expect((result as { isError?: boolean }).isError).toBe(true);
+    expect(result.content[0]?.text).toContain('Unsupported country code "XX"');
+    expect(mockRunAsoCommand).not.toHaveBeenCalled();
   });
 
   it("rejects minPopularity lower than 6 at MCP schema boundary", () => {

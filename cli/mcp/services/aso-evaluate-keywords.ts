@@ -2,7 +2,12 @@ import { z } from "zod";
 import { runAsoCommand, toMcpToolResult } from "../execute-aso-cli";
 import { reportBugsnagError } from "../../services/telemetry/error-reporter";
 import { ASO_MAX_KEYWORDS } from "../../shared/aso-keyword-limits";
-import { sanitizeKeywords } from "../../domain/keywords/policy";
+import {
+  DEFAULT_ASO_COUNTRY,
+  assertSupportedCountry,
+  normalizeCountry,
+  sanitizeKeywords,
+} from "../../domain/keywords/policy";
 
 const DEFAULT_MIN_POPULARITY = 6;
 const DEFAULT_MAX_DIFFICULTY = 70;
@@ -34,6 +39,14 @@ export const asoEvaluateKeywordsInputSchema = z.object({
     ),
   minPopularity: z.number().min(ABSOLUTE_MIN_POPULARITY).optional(),
   maxDifficulty: z.number().optional(),
+  country: z
+    .string()
+    .trim()
+    .min(2)
+    .optional()
+    .describe(
+      "Optional App Store storefront country code, for example US, DK, GB, DE, FR. Defaults to US."
+    ),
   appId: z
     .string()
     .trim()
@@ -156,6 +169,14 @@ function buildFailureResult(message: string) {
 }
 
 export async function handleAsoEvaluateKeywords(args: AsoEvaluateKeywordsArgs) {
+  const country = normalizeCountry(args.country ?? DEFAULT_ASO_COUNTRY);
+  try {
+    assertSupportedCountry(country);
+  } catch (error) {
+    return buildFailureResult(
+      error instanceof Error ? error.message : "Unsupported country code."
+    );
+  }
   const minPopularity = Math.max(
     args.minPopularity ?? DEFAULT_MIN_POPULARITY,
     ABSOLUTE_MIN_POPULARITY
@@ -179,6 +200,8 @@ export async function handleAsoEvaluateKeywords(args: AsoEvaluateKeywordsArgs) {
     "keywords",
     keywordsArg,
     "--stdout",
+    "--country",
+    country,
     "--min-popularity",
     String(minPopularity),
     "--max-difficulty",

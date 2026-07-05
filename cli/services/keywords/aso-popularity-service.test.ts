@@ -80,7 +80,7 @@ describe("AsoPopularityService", () => {
         ["keyword", "another"],
         "cookie=value",
         expect.any(String),
-        undefined
+        { country: "US" }
       );
       expect(asoAuthService.getCookieHeader).toHaveBeenCalledWith(
         "https://app-ads.apple.com/cm/api/v2/keywords/popularities"
@@ -160,7 +160,7 @@ describe("AsoPopularityService", () => {
         ["x"],
         "new-cookie",
         expect.any(String),
-        undefined
+        { country: "US" }
       );
     });
 
@@ -346,14 +346,14 @@ describe("AsoPopularityService", () => {
         ["good"],
         "cookie=value",
         expect.any(String),
-        { maxAttempts: 1 }
+        { country: "US", maxAttempts: 1 }
       );
       expect(mockRequestPopularitiesWithKwsRetry).toHaveBeenNthCalledWith(
         3,
         ["bad"],
         "cookie=value",
         expect.any(String),
-        { maxAttempts: 1 }
+        { country: "US", maxAttempts: 1 }
       );
     });
   });

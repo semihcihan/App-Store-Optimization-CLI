@@ -152,6 +152,27 @@ describe("aso-enrichment-service", () => {
     );
   });
 
+  it("uses the requested storefront search page for order refresh", async () => {
+    mockedAsoAppleGet.mockResolvedValue({
+      data: buildSearchHtmlForIds(["1", "2", "3"]),
+    } as never);
+
+    await refreshKeywordOrder({
+      keyword: "højde scanner",
+      country: "DK",
+    });
+
+    expect(mockedAsoAppleGet).toHaveBeenCalledWith(
+      "https://apps.apple.com/dk/iphone/search",
+      expect.objectContaining({
+        params: { term: "højde scanner" },
+        headers: expect.objectContaining({
+          "Accept-Language": "da,en-US;q=0.9",
+        }),
+      })
+    );
+  });
+
   it("uses exact lookup rating count for first apps when lookup is used", async () => {
     mockedAsoAppleGet.mockResolvedValue({
       data: buildSearchHtml(),

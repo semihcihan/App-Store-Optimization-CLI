@@ -456,8 +456,8 @@ describe("keyword-pipeline-service", () => {
       fetchedBatches.map((batch) => batch.requestedKeywords.length)
     ).toEqual([100, 1]);
     expect(fetchedBatches.map((batch) => batch.options)).toEqual([
-      { allowInteractiveAuthRecovery: false },
-      { allowInteractiveAuthRecovery: false },
+      { allowInteractiveAuthRecovery: false, country: "US" },
+      { allowInteractiveAuthRecovery: false, country: "US" },
     ]);
     expect(
       new Set(fetchedBatches.flatMap((batch) => batch.requestedKeywords))

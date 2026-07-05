@@ -5,7 +5,7 @@ Design for `aso keywords` (including `--stdout`) and dashboard keyword-add flow:
 Also covers MCP keyword evaluation entrypoint (`aso_evaluate_keywords`) that evaluates explicit keywords + CLI invocation.
 
 ## Constraints
-- Storefront: `US` only.
+- Storefront: any country configured in `cli/shared/aso-storefronts.ts`.
 - US locale set for difficulty localization enrichment:
   - default: `en-US`
   - additional: `ar`, `zh-Hans`, `zh-Hant`, `fr-FR`, `ko-KR`, `pt-BR`, `ru-RU`, `es-MX`, `vi`

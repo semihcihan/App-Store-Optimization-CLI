@@ -187,7 +187,7 @@ Runtime flow contracts across CLI commands, local dashboard API, and ASO service
 - Dashboard history reads use `GET /api/aso/keywords/history?appId=...&keyword=...&country=US` and return time-ordered points with non-null positions only.
 
 ## Guardrails
-- Country must be `US`.
+- Country must be one of the configured App Store storefront codes.
 - Keyword limit is `100`.
 - Dashboard JSON request payloads are capped at `1 MiB`.
 - Dashboard paginated keyword reads use app-scoped SQL joins so keyword rows are filtered/sorted in storage before page slicing.
