@@ -5,6 +5,7 @@ import {
   getErrorMessage,
   getRequestPath,
   normalizeOperationPath,
+  toStatusCode,
   toStringValue,
   type AnyRecord,
 } from "./telemetry-helpers";
@@ -29,13 +30,31 @@ function isLikelyTransportError(error: unknown): boolean {
   );
 }
 
-function hasOnlyFourHundredKeywordFailures(message: string): boolean {
-  if (!message.startsWith("all keywords failed (")) return false;
+function hasOnlyFourHundredKeywordFailures(
+  error: unknown,
+  message: string
+): boolean {
+  const record = getErrorRecord(error);
+  const structuredStatuses = record?.keywordFailureStatusCodes;
+  if (Array.isArray(structuredStatuses)) {
+    return (
+      structuredStatuses.length > 0 &&
+      structuredStatuses.every((value) => {
+        const status = toStatusCode(value);
+        return status != null && status >= 400 && status < 500;
+      })
+    );
+  }
+
+  const failureCountMatch = /^all keywords failed \((\d+)\):/.exec(message);
+  if (!failureCountMatch) return false;
+  const failureCount = Number(failureCountMatch[1]);
   const statuses = Array.from(message.matchAll(/\((\d{3})\)/g), (match) =>
     Number(match[1])
   ).filter((status) => status >= 400);
   return (
-    statuses.length > 0 &&
+    failureCount > 0 &&
+    statuses.length === failureCount &&
     statuses.every((status) => status >= 400 && status < 500)
   );
 }
@@ -93,7 +112,7 @@ function classifyExpectedCliFlow(error: unknown): TelemetryDecision | undefined 
       reason: "apple_account_setup_required",
     };
   }
-  if (hasOnlyFourHundredKeywordFailures(message)) {
+  if (hasOnlyFourHundredKeywordFailures(error, message)) {
     return {
       report: false,
       classification: "validation_error",

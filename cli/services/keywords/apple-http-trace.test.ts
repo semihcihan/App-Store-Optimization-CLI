@@ -8,13 +8,20 @@ import {
 } from "./apple-http-trace";
 import { getErrorBugsnagMetadata } from "../telemetry/bugsnag-metadata";
 import { reportBugsnagError } from "../telemetry/error-reporter";
+import { logger } from "../../utils/logger";
 
 jest.mock("../telemetry/error-reporter", () => ({
   reportBugsnagError: jest.fn(),
 }));
+jest.mock("../../utils/logger", () => ({
+  logger: {
+    debug: jest.fn(),
+  },
+}));
 
 describe("apple-http-trace", () => {
   const mockReportBugsnagError = jest.mocked(reportBugsnagError);
+  const mockLoggerDebug = jest.mocked(logger.debug);
 
   beforeEach(() => {
     resetAppleHttpTracingForTests();
@@ -249,14 +256,35 @@ describe("apple-http-trace", () => {
     reportAppleContractChange({
       provider: "apple-appstore",
       operation: "appstore.search-page",
-      endpoint: "https://apps.apple.com/us/iphone/search",
+      endpoint:
+        "https://apps.apple.com/us/iphone/search?token=secret-query-value",
       expectedContract: "serialized-server-data exists",
-      actualSignal: "script_missing",
+      actualSignal: '{"password":"secret-password","signal":"script_missing"}',
       statusCode: 200,
+      context: {
+        password: "context-password",
+        parser: "serialized-server-data",
+      },
       isTerminal: false,
     });
 
     expect(mockReportBugsnagError).not.toHaveBeenCalled();
+    expect(mockLoggerDebug).toHaveBeenCalledWith(
+      "[apple-contract] non-terminal fallback",
+      expect.objectContaining({
+        provider: "apple-appstore",
+        operation: "appstore.search-page",
+        endpoint: expect.stringContaining("token=%5BREDACTED"),
+        actualSignal: {
+          password: expect.stringContaining("[REDACTED"),
+          signal: "script_missing",
+        },
+        context: {
+          password: expect.stringContaining("[REDACTED"),
+          parser: "serialized-server-data",
+        },
+      })
+    );
   });
 
   it("reports terminal apple contract drifts with explicit classification", () => {

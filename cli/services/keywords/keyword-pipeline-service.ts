@@ -101,6 +101,22 @@ function summarizeFailedKeywords(failures: FailedKeyword[]): string {
     : preview;
 }
 
+export class AllKeywordsFailedError extends Error {
+  readonly keywordFailureStatusCodes: Array<number | null>;
+
+  constructor(failures: FailedKeyword[]) {
+    super(
+      `All keywords failed (${failures.length}): ${summarizeFailedKeywords(
+        failures
+      )}`
+    );
+    this.name = "AllKeywordsFailedError";
+    this.keywordFailureStatusCodes = failures.map(
+      (failure) => failure.statusCode ?? null
+    );
+  }
+}
+
 function isBelowMinPopularity(
   popularity: number,
   filters?: KeywordFilterOptions
@@ -761,11 +777,7 @@ export class KeywordPipelineService {
       failedKeywords.length > 0 &&
       filteredOut.length === 0
     ) {
-      throw new Error(
-        `All keywords failed (${failedKeywords.length}): ${summarizeFailedKeywords(
-          failedKeywords
-        )}`
-      );
+      throw new AllKeywordsFailedError(failedKeywords);
     }
     return {
       items,

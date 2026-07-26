@@ -7,11 +7,27 @@ import {
   sanitizeTelemetryUrl,
   sanitizeTelemetryValue,
 } from "../../shared/telemetry/trace-utils";
+import { logger } from "../../utils/logger";
 
 export type AppleTraceProvider =
   | "apple-auth"
   | "apple-search-ads"
   | "apple-appstore";
+
+type AppleContractChangeParams = {
+  provider: AppleTraceProvider;
+  operation: string;
+  endpoint: string;
+  expectedContract: string;
+  actualSignal: string;
+  statusCode?: number;
+  requestId?: string;
+  context?: Record<string, unknown>;
+  error?: unknown;
+  isTerminal?: boolean;
+  dedupeKey?: string;
+  surface?: string;
+};
 
 type AppleHttpTrace = {
   timestamp: string;
@@ -359,21 +375,34 @@ export function withAppleHttpTraceContext(
   });
 }
 
-export function reportAppleContractChange(params: {
-  provider: AppleTraceProvider;
-  operation: string;
-  endpoint: string;
-  expectedContract: string;
-  actualSignal: string;
-  statusCode?: number;
-  requestId?: string;
-  context?: Record<string, unknown>;
-  error?: unknown;
-  isTerminal?: boolean;
-  dedupeKey?: string;
-  surface?: string;
-}): void {
+export function reportAppleContractChange(
+  params: AppleContractChangeParams
+): void {
   if (params.isTerminal !== true) {
+    logger.debug(
+      "[apple-contract] non-terminal fallback",
+      truncateTraceValue(
+        sanitizeTelemetryValue(
+          {
+            provider: params.provider,
+            operation: params.operation,
+            endpoint: sanitizeTelemetryUrl(params.endpoint, {
+              isSensitiveKey,
+              baseUrl: "https://apple.local",
+            }),
+            expectedContract: params.expectedContract,
+            actualSignal: params.actualSignal,
+            statusCode: params.statusCode,
+            requestId: params.requestId,
+            context: params.context || {},
+          },
+          {
+            isSensitiveKey,
+            parseJsonStrings: true,
+          }
+        )
+      )
+    );
     return;
   }
 

@@ -20,7 +20,10 @@ import {
   enrichAsoKeywordsLocal,
 } from "./aso-local-cache-service";
 import { asoPopularityService } from "./aso-popularity-service";
-import { keywordPipelineService } from "./keyword-pipeline-service";
+import {
+  AllKeywordsFailedError,
+  keywordPipelineService,
+} from "./keyword-pipeline-service";
 
 jest.mock("./aso-local-cache-service", () => ({
   lookupAsoCacheLocal: jest.fn(async () => ({ hits: [], misses: [] })),
@@ -442,9 +445,11 @@ describe("keyword-pipeline-service", () => {
       failedKeywords: [],
     });
 
-    await expect(keywordPipelineService.run("US", ["bad"])).rejects.toThrow(
-      "All keywords failed"
-    );
+    await expect(keywordPipelineService.run("US", ["bad"])).rejects.toMatchObject({
+      name: AllKeywordsFailedError.name,
+      message: expect.stringContaining("All keywords failed"),
+      keywordFailureStatusCodes: [500],
+    });
     expect(listKeywordFailures("US")).toHaveLength(1);
 
     const retryResult = await keywordPipelineService.run("US", ["bad"]);

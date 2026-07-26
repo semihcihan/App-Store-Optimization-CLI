@@ -76,7 +76,7 @@ Define failure boundaries, retry rules, and recovery behavior across CLI, dashbo
 ## Observability
 - Apple HTTP calls carry trace context.
 - Bugsnag Apple metadata includes the latest `3` redacted Apple HTTP calls plus up to `3` latest non-success calls when they have already rotated out of that `3`-call window.
-- Apple contract-drift reporting is centralized: terminal Apple response-shape/flow failures emit Bugsnag events classified as `apple_contract_change` with endpoint + expected-vs-actual metadata; non-terminal fallback diagnostics stay in debug logs.
+- Apple contract-drift reporting is centralized: terminal Apple response-shape/flow failures emit Bugsnag events classified as `apple_contract_change` with endpoint + expected-vs-actual metadata; non-terminal fallback diagnostics stay in sanitized, structured debug logs.
 - Contract-drift reporting covers all Apple API surfaces used by ASO runtime:
   - Apple auth/session bootstrap and 2FA flow
   - Search Ads popularity endpoint
@@ -104,6 +104,7 @@ Define failure boundaries, retry rules, and recovery behavior across CLI, dashbo
 - Apple auth `401` responses carrying Apple service code `-20101` are classified as `invalid_credentials` (`user_fault`) instead of contract drift.
 - Apple 2FA challenge payloads with service code `-28248` (verification code delivery unavailable) are classified as verification-delivery `user_fault` instead of contract drift.
 - Apple HTTP trace metadata attached to Bugsnag is size-bounded (string/array/object/depth truncation) so contract-drift events retain actionable metadata instead of being dropped for oversized payloads.
+- All-keyword failure telemetry preserves every status code separately from the five-item message preview. Suppression applies only when every failure is confirmed `4xx`; mixed or unknown statuses remain reportable.
 - Dashboard UI reports only actionable API failures (for example: `5xx`, network/runtime exceptions, malformed success payloads); expected `4xx` flows are suppressed.
 - Dashboard UI transport/setup noise (`/api/aso/auth/status` network fetch failures and repeated local search failures) is classified as `user_fault` and suppressed.
 - MCP parse-json shape drift (`MCP expected JSON output from aso keywords`) is classified as `user_fault` and suppressed.

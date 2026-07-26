@@ -275,6 +275,57 @@ describe("bugsnag-classifier", () => {
     });
   });
 
+  it("keeps truncated keyword previews when hidden statuses are unknown", () => {
+    const decision = classifyTelemetryError(
+      new Error(
+        "All keywords failed (6): one:BAD(400), two:BAD(400), three:BAD(400), four:BAD(400), five:BAD(400) (+1 more)"
+      ),
+      {}
+    );
+
+    expect(decision).toEqual({
+      report: true,
+      classification: "unknown",
+      reason: "default_report",
+    });
+  });
+
+  it("uses the complete structured keyword status list", () => {
+    const error = Object.assign(
+      new Error(
+        "All keywords failed (6): one:BAD(400), two:BAD(400), three:BAD(400), four:BAD(400), five:BAD(400) (+1 more)"
+      ),
+      {
+        name: "AllKeywordsFailedError",
+        keywordFailureStatusCodes: [400, 400, 400, 400, 400, 503],
+      }
+    );
+
+    expect(classifyTelemetryError(error, {})).toEqual({
+      report: true,
+      classification: "unknown",
+      reason: "default_report",
+    });
+  });
+
+  it("suppresses complete structured all-4xx keyword failures", () => {
+    const error = Object.assign(
+      new Error(
+        "All keywords failed (6): one:BAD(400), two:BAD(400), three:BAD(400), four:BAD(400), five:BAD(400) (+1 more)"
+      ),
+      {
+        name: "AllKeywordsFailedError",
+        keywordFailureStatusCodes: [400, 400, 400, 400, 400, 429],
+      }
+    );
+
+    expect(classifyTelemetryError(error, {})).toEqual({
+      report: false,
+      classification: "validation_error",
+      reason: "all_keywords_failed_4xx",
+    });
+  });
+
   it("adds decision metadata to report payloads", () => {
     const metadata = withTelemetryDecisionMetadata(
       { phase: "run" },
