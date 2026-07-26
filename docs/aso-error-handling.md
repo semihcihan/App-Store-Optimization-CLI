@@ -76,7 +76,7 @@ Define failure boundaries, retry rules, and recovery behavior across CLI, dashbo
 ## Observability
 - Apple HTTP calls carry trace context.
 - Bugsnag Apple metadata includes the latest `3` redacted Apple HTTP calls plus up to `3` latest non-success calls when they have already rotated out of that `3`-call window.
-- Apple contract-drift reporting is centralized: when expected Apple response shapes/flow contracts drift, the runtime emits Bugsnag events classified as `apple_contract_change` with endpoint + expected-vs-actual metadata.
+- Apple contract-drift reporting is centralized: terminal Apple response-shape/flow failures emit Bugsnag events classified as `apple_contract_change` with endpoint + expected-vs-actual metadata; non-terminal fallback diagnostics stay in debug logs.
 - Contract-drift reporting covers all Apple API surfaces used by ASO runtime:
   - Apple auth/session bootstrap and 2FA flow
   - Search Ads popularity endpoint
@@ -84,7 +84,7 @@ Define failure boundaries, retry rules, and recovery behavior across CLI, dashbo
   - MZSearch order payload parsing
   - App lookup payload parsing
   - Localized app-page `serialized-server-data` parsing (title/subtitle/rating/ratingCount)
-- Contract-drift events are deduped for `15` minutes per unique signature (`provider + operation + endpoint + drift kind + status bucket`) to reduce alert spam during repeated failures.
+- Terminal contract-drift events are deduped for `15` minutes per unique signature (`provider + operation + endpoint + drift kind + status bucket`) to reduce alert spam during repeated failures.
 - Bugsnag redaction is centralized at SDK startup via global `redactedKeys` and `onError` sanitization before event delivery (including nested metadata and keychain command-arg payloads such as `spawnargs` values after `-w`).
 - Runtime telemetry startup resolves Bugsnag API key in this order: explicit runtime option, runtime `BUGSNAG_API_KEY`, then packaged fallback key injected in release CI from GitHub Secret `BUGSNAG_API_KEY`; startup is skipped with a warning only when all are missing.
 - Runtime telemetry startup resolves PostHog settings before shared init: API key from `ASO_POSTHOG_API_KEY` (or packaged fallback when unset) plus optional `ASO_POSTHOG_HOST` override; `posthog-shared` passes host only when explicitly provided and otherwise relies on the PostHog SDK default host, and initialization is skipped in development mode.
@@ -96,15 +96,17 @@ Define failure boundaries, retry rules, and recovery behavior across CLI, dashbo
 - Dashboard server suppresses debug request/response logging for `GET` API routes to reduce dashboard poll noise; mutation (`POST`/`DELETE`) debug logging remains enabled.
 - Apple debug logging emphasizes compact derived-stage summaries (source mode + result counts for order/enrichment/app-lookup) instead of raw full response payload dumps.
 - Bugsnag reporting uses an actionability allowlist:
-  - reports internal bugs, Apple contract-change signals, and terminal upstream failures
+  - reports internal bugs, terminal Apple contract-change signals, and terminal upstream failures
   - suppresses expected flow/validation noise (`4xx`, validation issues)
-  - reports selected user-fault noise as low-severity (`info`, handled) for visibility without paging
+  - suppresses known user-fault noise such as invalid credentials, local dashboard transport failures, and malformed CLI input
+- CLI telemetry suppresses expected setup/auth outcomes (reauthentication required, missing/inaccessible Primary App ID, interactive-TTY requirements), all-keyword `4xx` failures, unsupported Node runtimes, and closed stdout/stderr pipes.
+- Transient Apple auth responses (`429`/`5xx`) are reported once as terminal upstream failures rather than both upstream failures and contract drift.
 - Apple auth `401` responses carrying Apple service code `-20101` are classified as `invalid_credentials` (`user_fault`) instead of contract drift.
 - Apple 2FA challenge payloads with service code `-28248` (verification code delivery unavailable) are classified as verification-delivery `user_fault` instead of contract drift.
 - Apple HTTP trace metadata attached to Bugsnag is size-bounded (string/array/object/depth truncation) so contract-drift events retain actionable metadata instead of being dropped for oversized payloads.
 - Dashboard UI reports only actionable API failures (for example: `5xx`, network/runtime exceptions, malformed success payloads); expected `4xx` flows are suppressed.
-- Dashboard UI transport/setup noise (`/api/aso/auth/status` network fetch failures and repeated local search failures) is reclassified as `user_fault` and deduped in-process per signature for `60` seconds.
-- MCP parse-json shape drift (`MCP expected JSON output from aso keywords`) is reclassified as `user_fault` and deduped in the shared reporter path for `60` seconds.
+- Dashboard UI transport/setup noise (`/api/aso/auth/status` network fetch failures and repeated local search failures) is classified as `user_fault` and suppressed.
+- MCP parse-json shape drift (`MCP expected JSON output from aso keywords`) is classified as `user_fault` and suppressed.
 - Dashboard UI Bugsnag metadata includes only failed local dashboard traces by default (max `3`); set `ASO_BUGSNAG_VERBOSE_TRACES=1` to include full recent local trace bundles for deep debugging.
 - MCP reports runtime/transport/parse-contract failures; non-zero child CLI exits are suppressed by default.
 - Startup refresh state (`status`, counters, timestamps, lastError) is exposed via API.

@@ -1,11 +1,15 @@
 import type { TelemetryDecision, TelemetryHint } from "./bugsnag-classifier";
 import {
+  getErrorName,
+  getErrorRecord,
   getErrorMessage,
   getRequestPath,
   normalizeOperationPath,
   toStringValue,
   type AnyRecord,
 } from "./telemetry-helpers";
+
+const AUTH_REAUTH_REQUIRED_ERROR_CODE = "ASO_AUTH_REAUTH_REQUIRED";
 
 function isDashboardUiSurface(
   metadata: AnyRecord,
@@ -25,15 +29,93 @@ function isLikelyTransportError(error: unknown): boolean {
   );
 }
 
+function hasOnlyFourHundredKeywordFailures(message: string): boolean {
+  if (!message.startsWith("all keywords failed (")) return false;
+  const statuses = Array.from(message.matchAll(/\((\d{3})\)/g), (match) =>
+    Number(match[1])
+  ).filter((status) => status >= 400);
+  return (
+    statuses.length > 0 &&
+    statuses.every((status) => status >= 400 && status < 500)
+  );
+}
+
+function classifyExpectedCliFlow(error: unknown): TelemetryDecision | undefined {
+  const record = getErrorRecord(error);
+  const name = getErrorName(error);
+  const code = toStringValue(record?.code);
+  const message = (getErrorMessage(error) || "").toLowerCase();
+
+  if (name === "CliValidationError" || code === "CLI_VALIDATION_ERROR") {
+    return {
+      report: false,
+      classification: "validation_error",
+      reason: "cli_validation_error",
+    };
+  }
+  if (
+    name === "AsoAuthReauthRequiredError" ||
+    code === AUTH_REAUTH_REQUIRED_ERROR_CODE ||
+    message.includes("needs interactive apple search ads reauthentication")
+  ) {
+    return {
+      report: false,
+      classification: "expected_flow",
+      reason: "cli_auth_reauthentication_required",
+    };
+  }
+  if (
+    message.includes("primary app id") &&
+    (message.includes("is missing") ||
+      message.includes("must be updated interactively") ||
+      message.includes("not accessible") ||
+      message.includes("you can access"))
+  ) {
+    return {
+      report: false,
+      classification: "expected_flow",
+      reason: "primary_app_setup_flow",
+    };
+  }
+  if (
+    message.includes("interactive terminal is required to enter apple credentials")
+  ) {
+    return {
+      report: false,
+      classification: "expected_flow",
+      reason: "cli_credentials_tty_required",
+    };
+  }
+  if (message.includes("not enabled for app store connect")) {
+    return {
+      report: false,
+      classification: "expected_flow",
+      reason: "apple_account_setup_required",
+    };
+  }
+  if (hasOnlyFourHundredKeywordFailures(message)) {
+    return {
+      report: false,
+      classification: "validation_error",
+      reason: "all_keywords_failed_4xx",
+    };
+  }
+
+  return undefined;
+}
+
 export function classifyKnownNoise(
   error: unknown,
   metadata: AnyRecord,
   hint: TelemetryHint | undefined
 ): TelemetryDecision | undefined {
+  const expectedCliFlow = classifyExpectedCliFlow(error);
+  if (expectedCliFlow) return expectedCliFlow;
+
   const message = (getErrorMessage(error) || "").toLowerCase();
   if (message.includes("mcp expected json output from aso keywords")) {
     return {
-      report: true,
+      report: false,
       classification: "user_fault",
       reason: "mcp_parse_json_shape",
     };
@@ -49,7 +131,7 @@ export function classifyKnownNoise(
     isLikelyTransportError(error)
   ) {
     return {
-      report: true,
+      report: false,
       classification: "user_fault",
       reason: "dashboard_auth_status_transport",
     };
@@ -59,7 +141,7 @@ export function classifyKnownNoise(
     message.includes("failed to search apps")
   ) {
     return {
-      report: true,
+      report: false,
       classification: "user_fault",
       reason: "dashboard_apps_search_failed",
     };

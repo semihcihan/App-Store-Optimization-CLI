@@ -15,6 +15,7 @@ import {
   inferSource,
   inferSurface,
 } from "./telemetry-context";
+import { isRetryableTransientStatusCode } from "../aso-transient-error";
 
 export type TelemetryClassification =
   | "actionable_bug"
@@ -145,6 +146,16 @@ function classifyKnownFlow(
   const hint = getTelemetryHint(metadata);
   const noisy = classifyKnownNoise(error, metadata, hint);
   if (noisy) return noisy;
+  if (
+    hint?.classification === "apple_contract_change" &&
+    hint.isTerminal === false
+  ) {
+    return {
+      report: false,
+      classification: "transient_non_terminal",
+      reason: "non_terminal_contract_fallback",
+    };
+  }
   if (hint?.classification) {
     return {
       report: REPORTABLE_CLASSIFICATIONS.has(hint.classification),
@@ -163,9 +174,17 @@ function classifyKnownFlow(
     const reason = toStringValue((error as AnyRecord).reason);
     if (reason && APPLE_AUTH_USER_FAULT_REASONS.has(reason)) {
       return {
-        report: true,
+        report: false,
         classification: "user_fault",
         reason: `apple_auth_${reason}`,
+      };
+    }
+    const statusCode = getStatusCode(error, metadata);
+    if (isRetryableTransientStatusCode(statusCode)) {
+      return {
+        report: true,
+        classification: "upstream_terminal_failure",
+        reason: "apple_auth_transient_upstream",
       };
     }
     return {
@@ -192,7 +211,7 @@ function classifyKnownFlow(
 
   if (isLikelyCredentialUserFault(error)) {
     return {
-      report: true,
+      report: false,
       classification: "user_fault",
       reason: "credential_user_fault_message",
     };

@@ -22,7 +22,9 @@ import {
   shutdownPostHog,
   trackCliStarted,
 } from "./services/telemetry/posthog-usage-tracking";
+import { installProcessStreamErrorHandlers } from "./services/runtime/process-stream-errors";
 
+installProcessStreamErrorHandlers();
 assertSupportedNodeVersion();
 const processArgs = process.argv?.slice(2) || [];
 const stdoutKeywordsRun = isStdoutKeywordsRun(processArgs);

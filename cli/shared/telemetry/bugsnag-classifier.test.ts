@@ -105,7 +105,7 @@ describe("bugsnag-classifier", () => {
     });
 
     const decision = classifyTelemetryError(error, {});
-    expect(decision.report).toBe(true);
+    expect(decision.report).toBe(false);
     expect(decision.classification).toBe("user_fault");
   });
 
@@ -117,7 +117,7 @@ describe("bugsnag-classifier", () => {
 
     const decision = classifyTelemetryError(error, {});
     expect(decision).toEqual({
-      report: true,
+      report: false,
       classification: "user_fault",
       reason: "apple_auth_verification_delivery_failed",
     });
@@ -133,7 +133,7 @@ describe("bugsnag-classifier", () => {
     );
 
     expect(decision).toEqual({
-      report: true,
+      report: false,
       classification: "user_fault",
       reason: "mcp_parse_json_shape",
     });
@@ -147,9 +147,25 @@ describe("bugsnag-classifier", () => {
     });
 
     expect(decision).toEqual({
-      report: true,
+      report: false,
       classification: "user_fault",
       reason: "dashboard_auth_status_transport",
+    });
+  });
+
+  it("suppresses non-terminal Apple contract fallback diagnostics", () => {
+    const decision = classifyTelemetryError(new Error("primary parser failed"), {
+      telemetryHint: {
+        classification: "apple_contract_change",
+        upstreamProvider: "apple-appstore",
+        isTerminal: false,
+      },
+    });
+
+    expect(decision).toEqual({
+      report: false,
+      classification: "transient_non_terminal",
+      reason: "non_terminal_contract_fallback",
     });
   });
 
@@ -178,6 +194,84 @@ describe("bugsnag-classifier", () => {
       report: true,
       classification: "apple_contract_change",
       reason: "apple_auth_unknown",
+    });
+  });
+
+  it("classifies transient Apple auth responses as terminal upstream failures", () => {
+    const error = Object.assign(new Error("Apple login failed with status 503"), {
+      name: "AppleAuthResponseError",
+      reason: "unknown",
+      status: 503,
+    });
+
+    const decision = classifyTelemetryError(error, {});
+    expect(decision).toEqual({
+      report: true,
+      classification: "upstream_terminal_failure",
+      reason: "apple_auth_transient_upstream",
+    });
+  });
+
+  it.each([
+    [
+      Object.assign(new Error("bad command"), {
+        name: "CliValidationError",
+        code: "CLI_VALIDATION_ERROR",
+      }),
+      {},
+      "cli_validation_error",
+    ],
+    [
+      Object.assign(new Error("session expired"), {
+        name: "AsoAuthReauthRequiredError",
+        code: "ASO_AUTH_REAUTH_REQUIRED",
+      }),
+      {},
+      "cli_auth_reauthentication_required",
+    ],
+    [
+      new Error(
+        "Primary App ID 123 is not accessible for this Apple Ads account."
+      ),
+      {
+        telemetryHint: {
+          upstreamProvider: "apple-search-ads",
+          isTerminal: true,
+        },
+      },
+      "primary_app_setup_flow",
+    ],
+    [
+      new Error(
+        "Interactive terminal is required to enter Apple credentials."
+      ),
+      {},
+      "cli_credentials_tty_required",
+    ],
+    [
+      new Error("All keywords failed (2): one:UPSTREAM_ERROR(400), two:BAD(403)"),
+      {},
+      "all_keywords_failed_4xx",
+    ],
+  ])("suppresses expected CLI noise: %s", (error, metadata, reason) => {
+    const decision = classifyTelemetryError(error, metadata);
+
+    expect(decision.report).toBe(false);
+    expect(decision.reason).toBe(reason);
+  });
+
+  it("keeps mixed-status terminal keyword failures", () => {
+    const decision = classifyTelemetryError(
+      new Error(
+        "All keywords failed (2): one:UPSTREAM_ERROR(400), two:FAILED(503)"
+      ),
+      {}
+    );
+
+    expect(decision).toEqual({
+      report: true,
+      classification: "unknown",
+      reason: "default_report",
     });
   });
 

@@ -245,7 +245,7 @@ describe("apple-http-trace", () => {
     );
   });
 
-  it("reports apple contract drifts with explicit contract classification", () => {
+  it("suppresses non-terminal apple contract fallback diagnostics", () => {
     reportAppleContractChange({
       provider: "apple-appstore",
       operation: "appstore.search-page",
@@ -254,6 +254,20 @@ describe("apple-http-trace", () => {
       actualSignal: "script_missing",
       statusCode: 200,
       isTerminal: false,
+    });
+
+    expect(mockReportBugsnagError).not.toHaveBeenCalled();
+  });
+
+  it("reports terminal apple contract drifts with explicit classification", () => {
+    reportAppleContractChange({
+      provider: "apple-appstore",
+      operation: "appstore.search-page",
+      endpoint: "https://apps.apple.com/us/iphone/search",
+      expectedContract: "serialized-server-data exists",
+      actualSignal: "script_missing",
+      statusCode: 200,
+      isTerminal: true,
     });
 
     expect(mockReportBugsnagError).toHaveBeenCalledTimes(1);
@@ -281,7 +295,7 @@ describe("apple-http-trace", () => {
       expectedContract: "serialized-server-data exists",
       actualSignal: "script_missing",
       statusCode: 200,
-      isTerminal: false,
+      isTerminal: true,
       dedupeKey: "search-page-script-missing",
     };
 

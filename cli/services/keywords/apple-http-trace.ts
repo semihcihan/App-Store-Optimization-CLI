@@ -373,6 +373,10 @@ export function reportAppleContractChange(params: {
   dedupeKey?: string;
   surface?: string;
 }): void {
+  if (params.isTerminal !== true) {
+    return;
+  }
+
   const now = Date.now();
   const signature = buildContractChangeSignature({
     provider: params.provider,

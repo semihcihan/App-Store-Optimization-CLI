@@ -242,6 +242,26 @@ describe("aso-auth-service legacy parity edge handling", () => {
     expect(reportContractSpy).not.toHaveBeenCalled();
   });
 
+  it("treats transient auth responses as upstream failures without contract drift", async () => {
+    const engine = createEngine();
+    const reportContractSpy = jest
+      .spyOn(appleHttpTrace, "reportAppleContractChange")
+      .mockImplementation(() => {});
+
+    await expect(
+      (engine as any).handlePostLoginResponse({
+        status: 503,
+        data: "Service Unavailable",
+        headers: {},
+      })
+    ).rejects.toMatchObject({
+      name: "AppleAuthResponseError",
+      reason: "unknown",
+      status: 503,
+    });
+    expect(reportContractSpy).not.toHaveBeenCalled();
+  });
+
   it("maps itctx cookie responses to explicit account-access error", async () => {
     const engine = createEngine();
 

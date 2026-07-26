@@ -72,10 +72,7 @@ describe("dashboard-ui/bugsnag", () => {
     );
   });
 
-  it("dedupes repeated user-fault transport noise within 60 seconds", () => {
-    const nowSpy = jest.spyOn(Date, "now");
-    nowSpy.mockReturnValue(1_000);
-
+  it("suppresses local auth-status transport noise", () => {
     const error = new TypeError("Failed to fetch");
     const metadata = {
       method: "GET",
@@ -85,27 +82,7 @@ describe("dashboard-ui/bugsnag", () => {
     };
 
     notifyDashboardError(error, metadata);
-    notifyDashboardError(error, metadata);
-    nowSpy.mockReturnValue(62_000);
-    notifyDashboardError(error, metadata);
 
-    expect(mockNotifyBugsnagError).toHaveBeenCalledTimes(2);
-    expect(mockNotifyBugsnagError).toHaveBeenNthCalledWith(
-      1,
-      error,
-      expect.objectContaining({
-        telemetryClassification: "user_fault",
-      }),
-      expect.any(Function)
-    );
-    expect(mockNotifyBugsnagError).toHaveBeenNthCalledWith(
-      2,
-      error,
-      expect.objectContaining({
-        telemetryClassification: "user_fault",
-        deduped_count: 1,
-      }),
-      expect.any(Function)
-    );
+    expect(mockNotifyBugsnagError).not.toHaveBeenCalled();
   });
 });

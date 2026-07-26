@@ -1,9 +1,11 @@
 import { version } from "../../../package.json";
 import { initializeBugsnag } from "../../shared/telemetry/bugsnag-shared";
 import { initializePostHog } from "../../shared/telemetry/posthog-shared";
+import { assertSupportedNodeVersion } from "../runtime/node-version-guard";
 
 const DEFAULT_POSTHOG_API_KEY = "phc_CjK5coJt6fxtXseg8XgkU8dMfXPur3JgabQh5454opmQ";
 
+assertSupportedNodeVersion();
 const isDevelopment = process.env.NODE_ENV == "development";
 const bugsnagApiKey = process.env.BUGSNAG_API_KEY?.trim();
 initializeBugsnag({

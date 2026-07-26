@@ -74,8 +74,7 @@ describe("reportBugsnagError", () => {
     );
   });
 
-  it("dedupes repeated MCP parse-json user-fault signals in a 60 second window", () => {
-    const nowSpy = jest.spyOn(Date, "now");
+  it("suppresses MCP parse-json user-fault signals", () => {
     const error = new Error("MCP expected JSON output from aso keywords");
     const metadata = {
       surface: "aso-mcp",
@@ -85,36 +84,12 @@ describe("reportBugsnagError", () => {
       source: "mcp.aso-evaluate-keywords.parse-json",
     };
 
-    nowSpy.mockReturnValue(1_000);
-    reportBugsnagError(error, metadata);
-    nowSpy.mockReturnValue(20_000);
-    reportBugsnagError(error, metadata);
-    nowSpy.mockReturnValue(62_000);
     reportBugsnagError(error, metadata);
 
-    expect(mockNotifyBugsnagError).toHaveBeenCalledTimes(2);
-    expect(mockNotifyBugsnagError).toHaveBeenNthCalledWith(
-      1,
-      error,
-      expect.objectContaining({
-        telemetryClassification: "user_fault",
-        telemetryDecisionReason: "mcp_parse_json_shape",
-      }),
-      expect.any(Function)
-    );
-    expect(mockNotifyBugsnagError).toHaveBeenNthCalledWith(
-      2,
-      error,
-      expect.objectContaining({
-        telemetryClassification: "user_fault",
-        telemetryDecisionReason: "mcp_parse_json_shape",
-        deduped_count: 1,
-      }),
-      expect.any(Function)
-    );
+    expect(mockNotifyBugsnagError).not.toHaveBeenCalled();
   });
 
-  it("reports user-fault Apple auth errors with suppressed-noise signal", () => {
+  it("suppresses user-fault Apple auth errors", () => {
     const error = Object.assign(new Error("Invalid Apple ID credentials"), {
       name: "AppleAuthResponseError",
       reason: "invalid_credentials",
@@ -123,16 +98,7 @@ describe("reportBugsnagError", () => {
 
     reportBugsnagError(error, { command: "aso auth" });
 
-    expect(mockNotifyBugsnagError).toHaveBeenCalledWith(
-      error,
-      expect.objectContaining({
-        telemetryClassification: "user_fault",
-        telemetryDecisionReason: "apple_auth_invalid_credentials",
-        signal: "suppressed_noise",
-        noise_class: "credential_user_fault",
-      }),
-      expect.any(Function)
-    );
+    expect(mockNotifyBugsnagError).not.toHaveBeenCalled();
   });
 
   it("deep-merges telemetryHint so caller classifications survive trace metadata", () => {

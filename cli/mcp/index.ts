@@ -8,7 +8,9 @@ import {
 } from "./services/aso-evaluate-keywords";
 import { assertSupportedNodeVersion } from "../services/runtime/node-version-guard";
 import { reportBugsnagError } from "../services/telemetry/error-reporter";
+import { installProcessStreamErrorHandlers } from "../services/runtime/process-stream-errors";
 
+installProcessStreamErrorHandlers();
 assertSupportedNodeVersion();
 
 const server = new McpServer(

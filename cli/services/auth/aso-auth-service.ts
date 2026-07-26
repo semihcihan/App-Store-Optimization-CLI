@@ -26,6 +26,7 @@ import {
   promptWithCliAsoPrompt,
   type AsoPromptHandler,
 } from "../prompts/aso-prompt-handler";
+import { isRetryableTransientStatusCode } from "../../shared/aso-transient-error";
 
 const APPLE_APP_ADS_URL = "https://app-ads.apple.com/cm/app";
 const APPLE_SEARCH_ADS_URL = "https://app.searchads.apple.com/cm/app";
@@ -1198,7 +1199,10 @@ export class AsoAuthEngine {
 
     const bodyType = typeof response.data;
     const reason = inferAppleAuthFailureReason(response.status, response.data);
-    if (reason === "unknown") {
+    if (
+      reason === "unknown" &&
+      !isRetryableTransientStatusCode(response.status)
+    ) {
       reportAppleContractChange({
         provider: "apple-auth",
         operation: "signin-complete",
