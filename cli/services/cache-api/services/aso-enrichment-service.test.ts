@@ -57,6 +57,7 @@ function buildSearchHtmlForIds(
     ratingCountById?: Record<string, string | number>;
     kindsById?: Record<string, string>;
     resultTypesById?: Record<string, string>;
+    includeNextPage?: boolean;
   }
 ): string {
   const items = ids.map((id, index) => ({
@@ -85,9 +86,13 @@ function buildSearchHtmlForIds(
               items,
             },
           ],
-          nextPage: {
-            results: tailIds.map((id) => ({ id, type: "apps" })),
-          },
+          ...(options?.includeNextPage === false
+            ? {}
+            : {
+                nextPage: {
+                  results: tailIds.map((id) => ({ id, type: "apps" })),
+                },
+              }),
         },
       },
     ],
@@ -148,6 +153,51 @@ describe("aso-enrichment-service", () => {
         country: "US",
         mode: "search-page",
         appCount: 3,
+      })
+    );
+  });
+
+  it("falls back to MZSearch when serialized search data omits nextPage", async () => {
+    mockedAsoAppleGet
+      .mockResolvedValueOnce({
+        data: buildSearchHtmlForIds(["html-1", "html-2"], [], {
+          includeNextPage: false,
+        }),
+      } as never)
+      .mockResolvedValueOnce({
+        data: {
+          pageData: {
+            bubbles: [
+              {
+                name: "software",
+                results: [{ id: "1" }, { id: "2" }, { id: "3" }],
+              },
+            ],
+          },
+        },
+      } as never);
+
+    const result = await refreshKeywordOrder({
+      keyword: "dust remover",
+      country: "US",
+    });
+
+    expect(result).toEqual({
+      keyword: "dust remover",
+      normalizedKeyword: "dust remover",
+      appCount: 3,
+      orderedAppIds: ["1", "2", "3"],
+      appDocs: [],
+    });
+    expect(mockedAsoAppleGet).toHaveBeenNthCalledWith(
+      2,
+      "https://search.itunes.apple.com/WebObjects/MZSearch.woa/wa/search",
+      expect.objectContaining({
+        operation: "mzsearch.keyword-order",
+        params: {
+          clientApplication: "Software",
+          term: "dust remover",
+        },
       })
     );
   });

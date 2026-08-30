@@ -444,6 +444,9 @@ async function fetchSearchPageOrderedData(params: {
 
   const parsed = JSON.parse(serializedDataMatch[1]) as AmpSearchResponse;
   const pageData = parsed.data?.[0]?.data;
+  if (!pageData?.nextPage) {
+    throw new Error("Search page serialized data did not include nextPage");
+  }
   const searchShelf = (pageData?.shelves || []).find(
     (shelf) => shelf?.contentType === "searchResult"
   );

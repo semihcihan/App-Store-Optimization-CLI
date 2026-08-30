@@ -90,8 +90,8 @@ Also covers MCP keyword evaluation entrypoint (`aso_evaluate_keywords`) that eva
 - It does not run dashboard startup, keyword lookup, or reauthentication.
 
 ## Enrichment Strategy
-- Primary ordering source: App Store search page `serialized-server-data`.
-- Fallback ordering source: MZSearch.
+- Primary ordering source: App Store search page `serialized-server-data` when `data[0].data.nextPage` is present.
+- Fallback ordering source: MZSearch when the search page fails parsing or omits `data[0].data.nextPage`.
 - App detail sources:
   - App Store lookup payloads for competitor docs and release-date fields.
   - iTunes Lookup fallback (`itunes.apple.com/lookup`) for top-app IDs that are missing or incomplete from App Store lookup, so release-date fields can still be hydrated for difficulty scoring.
