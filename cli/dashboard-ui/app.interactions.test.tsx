@@ -91,6 +91,11 @@ function buildFetchMock(params: {
   onDeleteApps?: (payload: any) => void;
   onDeleteKeywords?: (payload: any) => void;
   onRetryFailed?: (payload: any) => void;
+  retryFailedResult?: {
+    retriedCount: number;
+    succeededCount: number;
+    failedCount: number;
+  };
   onForceRefresh?: (payload: any) => void;
 }) {
   let appsCallCount = 0;
@@ -281,7 +286,7 @@ function buildFetchMock(params: {
       params.onRetryFailed?.(body);
       return jsonResponse(200, {
         success: true,
-        data: {
+        data: params.retryFailedResult ?? {
           retriedCount: 1,
           succeededCount: 1,
           failedCount: 0,
@@ -423,6 +428,43 @@ describe("dashboard app interactions", () => {
     await screen.findByText(
       "Retried 1 failed keyword: 1 succeeded."
     );
+  });
+
+  it("shows an error when every retried keyword still fails", async () => {
+    const failedKeywords = ["failed-one", "failed-two"].map((keyword) => ({
+      keyword,
+      popularity: 55,
+      difficultyScore: null,
+      appCount: 90,
+      keywordStatus: "failed",
+      positions: [{ appId: "111", previousPosition: null, currentPosition: null }],
+      updatedAt: "2026-03-10T10:00:00.000Z",
+    }));
+    global.fetch = buildFetchMock({
+      initialApps: [
+        { id: DEFAULT_RESEARCH_APP_ID, name: "Research" },
+        { id: "111", name: "Owned App" },
+      ],
+      keywordsByAppId: { "111": failedKeywords },
+      retryFailedResult: {
+        retriedCount: 2,
+        succeededCount: 0,
+        failedCount: 2,
+      },
+    }) as typeof fetch;
+    localStorage.setItem("aso-dashboard:selected-app-id", "111");
+
+    render(<App />);
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Refresh failed keywords (2)" })
+    );
+
+    const message = await screen.findByText(
+      "Retried 2 failed keywords: none succeeded, 2 still failed."
+    );
+    expect(message).toHaveClass("error", "visible");
+    expect(screen.getByRole("button", { name: "Refresh failed keywords (2)" })).toBeVisible();
   });
 
   it("hides retry button when there are no failed keywords", async () => {

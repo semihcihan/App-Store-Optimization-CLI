@@ -1701,7 +1701,7 @@ export function App() {
         if (result.failedCount === 0) {
           setSuccessText(`${retriedLabel}: ${result.succeededCount} succeeded.`);
         } else if (result.succeededCount === 0) {
-          setSuccessText(`${retriedLabel}: none succeeded, ${result.failedCount} still failed.`);
+          setErrorText(`${retriedLabel}: none succeeded, ${result.failedCount} still failed.`);
         } else {
           setSuccessText(
             `${retriedLabel}: ${result.succeededCount} succeeded, ${result.failedCount} still failed.`

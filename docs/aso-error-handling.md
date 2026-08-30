@@ -50,7 +50,7 @@ Define failure boundaries, retry rules, and recovery behavior across CLI, dashbo
 - Stage-2 enrichment writes are per-keyword progressive: successful keywords are visible in cache/UI polling as soon as that keyword finishes, while other keywords continue running.
 - For `appCount >= 5`, enrichment does not persist fallback `difficultyScore=1` when top-5 docs are incomplete; it records a retryable enrichment failure instead.
 - If dashboard background stage-2 enrichment throws before returning per-keyword results, pending keywords are marked as `enrichment` failures in `aso_keyword_failures` so UI does not stay indefinitely in `Calculating...` and retry-failed remains available.
-- Dashboard retry-failed endpoint retries only failed keywords for selected app/country and returns `{ retriedCount, succeededCount, failedCount }`.
+- Dashboard retry-failed endpoint retries only failed keywords for selected app/country and returns `{ retriedCount, succeededCount, failedCount }`; success/failure counts come from the final persisted failure state, so `succeededCount + failedCount = retriedCount`.
 - Top-app and competitor app-doc hydration (`/api/aso/top-apps`, `/api/aso/apps`):
   - Missing/expired competitor docs trigger backend fetch.
   - On hydration failure, return available cached competitor data when possible.

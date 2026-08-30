@@ -659,6 +659,65 @@ describe("keyword-pipeline-service", () => {
     expect(listKeywordFailures("US")).toHaveLength(0);
   });
 
+  it("reports every retried keyword from its final persisted failure state", async () => {
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date("2026-04-13T00:00:00.000Z"));
+    const keywords = ["popularity failure", "order refresh failure"];
+    createAppKeywords("research", keywords, "US");
+    upsertKeywords("US", [
+      {
+        keyword: "order refresh failure",
+        popularity: 42,
+        difficultyScore: 19,
+        minDifficultyScore: 12,
+        appCount: 241,
+        keywordMatch: "titleAllWords",
+        orderedAppIds: ["app-1"],
+        orderExpiresAt: "2000-01-01T00:00:00.000Z",
+        popularityExpiresAt: "2099-01-01T00:00:00.000Z",
+      },
+    ]);
+    upsertKeywordFailures(
+      "US",
+      keywords.map((keyword) => ({
+        keyword,
+        stage: "enrichment",
+        reasonCode: "UPSTREAM_ERROR",
+        message: "error",
+        statusCode: 500,
+        retryable: true,
+        attempts: 1,
+      }))
+    );
+    mockLookupAsoCacheLocal.mockResolvedValue({ hits: [], misses: keywords });
+    mockFetchKeywordPopularitiesWithFailures.mockResolvedValue({
+      popularities: {},
+      failedKeywords: [
+        {
+          keyword: "popularity failure",
+          stage: "popularity",
+          reasonCode: "UPSTREAM_ERROR",
+          message: "error",
+          statusCode: 500,
+          retryable: true,
+          attempts: 1,
+        },
+      ],
+    });
+    mockRefreshAsoKeywordOrderLocal.mockRejectedValue(new Error("refresh failed"));
+
+    await expect(
+      keywordPipelineService.retryFailed("research", "US")
+    ).resolves.toEqual({
+      retriedCount: 2,
+      succeededCount: 0,
+      failedCount: 2,
+    });
+    expect(
+      new Set(listKeywordFailures("US").map((failure) => failure.keyword))
+    ).toEqual(new Set(keywords));
+  });
+
   it("persists each enriched keyword as soon as that keyword finishes", async () => {
     const firstDone = createDeferred<void>();
     const secondDone = createDeferred<void>();

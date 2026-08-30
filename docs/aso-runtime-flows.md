@@ -110,7 +110,7 @@ Runtime flow contracts across CLI commands, local dashboard API, and ASO service
 2. Rerun the same keyword pipeline in non-interactive auth mode, chunked into max `100` keyword batches.
 3. If auth is invalid, return `AUTH_REQUIRED` or `AUTH_IN_PROGRESS`; the dashboard enters the shared reauthentication flow and resumes the original retry-failed mutation once after auth succeeds.
 4. While retry-failed reauth is auto-starting or silently in progress, the dashboard keeps the retry action in a visible loading state until a prompt, failure, or success resolves the auth handoff.
-5. Return aggregate `{ retriedCount, succeededCount, failedCount }`.
+5. Return aggregate `{ retriedCount, succeededCount, failedCount }` from the final persisted failure state, with every retried keyword counted as either succeeded or still failed.
 6. Clear failed status for keywords that succeeded.
 7. Dashboard UI shows the retry action only when current keyword rows include failed entries.
 

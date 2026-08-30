@@ -885,9 +885,6 @@ export class KeywordPipelineService {
       };
     }
 
-    let succeededCount = 0;
-    let failedCount = 0;
-
     for (const keywordBatch of chunkKeywords(keywordsToRetry)) {
       const stageResult = await this.runPopularityStage(country, keywordBatch, {
         allowInteractiveAuthRecovery: false,
@@ -906,15 +903,18 @@ export class KeywordPipelineService {
       if (succeededKeywords.length > 0) {
         keywordWriteRepository.clearFailures(country, succeededKeywords);
       }
-      succeededCount += succeededKeywords.length;
-      failedCount +=
-        stageResult.failedKeywords.length +
-        enrichedResult.failedKeywords.length;
     }
+
+    const retriedKeywords = new Set(keywordsToRetry.map(normalizeKeyword));
+    const failedCount = new Set(
+      listKeywordFailuresForApp(appId, country)
+        .map((failure) => normalizeKeyword(failure.keyword))
+        .filter((keyword) => retriedKeywords.has(keyword))
+    ).size;
 
     return {
       retriedCount: keywordsToRetry.length,
-      succeededCount,
+      succeededCount: keywordsToRetry.length - failedCount,
       failedCount,
     };
   }
