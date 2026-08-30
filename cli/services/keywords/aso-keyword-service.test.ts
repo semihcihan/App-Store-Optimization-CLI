@@ -265,6 +265,122 @@ describe("keyword-pipeline-service", () => {
     expect(failures[0].keyword).toBe("bad");
   });
 
+  it("force refresh bypasses keyword freshness and refetches popularity and difficulty", async () => {
+    upsertKeywords("US", [
+      {
+        keyword: "fresh term",
+        popularity: 10,
+        difficultyScore: 20,
+        minDifficultyScore: 15,
+        appCount: 50,
+        keywordMatch: "none",
+        orderedAppIds: ["old-app"],
+        orderExpiresAt: "2099-01-01T00:00:00.000Z",
+        popularityExpiresAt: "2099-01-01T00:00:00.000Z",
+      },
+    ]);
+    mockFetchKeywordPopularitiesWithFailures.mockResolvedValue({
+      popularities: { "fresh term": 72 },
+      failedKeywords: [],
+    });
+    mockEnrichAsoKeywordsLocal.mockResolvedValue({
+      items: [
+        {
+          keyword: "fresh term",
+          normalizedKeyword: "fresh term",
+          country: "US",
+          popularity: 72,
+          difficultyScore: 48,
+          minDifficultyScore: 32,
+          isBrandKeyword: false,
+          appCount: 80,
+          keywordMatch: "titleAllWords",
+          orderedAppIds: ["new-app"],
+          orderExpiresAt: "2099-01-02T00:00:00.000Z",
+          popularityExpiresAt: "2099-01-02T00:00:00.000Z",
+        },
+      ],
+      failedKeywords: [],
+    });
+
+    const result = await keywordPipelineService.forceRefresh(
+      "US",
+      ["Fresh Term"],
+      { allowInteractiveAuthRecovery: false }
+    );
+
+    expect(mockLookupAsoCacheLocal).not.toHaveBeenCalled();
+    expect(mockFetchKeywordPopularitiesWithFailures).toHaveBeenCalledWith(
+      ["fresh term"],
+      { allowInteractiveAuthRecovery: false }
+    );
+    expect(mockEnrichAsoKeywordsLocal).toHaveBeenCalledWith("US", [
+      { keyword: "fresh term", popularity: 72 },
+    ]);
+    expect(result.items).toEqual([
+      expect.objectContaining({
+        keyword: "fresh term",
+        popularity: 72,
+        difficultyScore: 48,
+      }),
+    ]);
+  });
+
+  it("preserves complete cached data when force refresh enrichment fails", async () => {
+    upsertKeywords("US", [
+      {
+        keyword: "stable term",
+        popularity: 38,
+        difficultyScore: 44,
+        minDifficultyScore: 30,
+        isBrandKeyword: true,
+        appCount: 120,
+        keywordMatch: "titleExactPhrase",
+        orderedAppIds: ["app-1", "app-2"],
+        orderExpiresAt: "2099-01-01T00:00:00.000Z",
+        popularityExpiresAt: "2099-01-01T00:00:00.000Z",
+      },
+    ]);
+    mockFetchKeywordPopularitiesWithFailures.mockResolvedValue({
+      popularities: { "stable term": 70 },
+      failedKeywords: [],
+    });
+    mockEnrichAsoKeywordsLocal.mockResolvedValue({
+      items: [],
+      failedKeywords: [
+        {
+          keyword: "stable term",
+          stage: "enrichment",
+          reasonCode: "UPSTREAM_TIMEOUT",
+          message: "timeout",
+          statusCode: 504,
+          retryable: true,
+          attempts: 2,
+        },
+      ],
+    });
+
+    const result = await keywordPipelineService.forceRefresh(
+      "US",
+      ["stable term"],
+      { allowInteractiveAuthRecovery: false }
+    );
+
+    expect(result.items).toEqual([]);
+    expect(result.failedKeywords).toHaveLength(1);
+    expect(getKeyword("US", "stable term")).toEqual(
+      expect.objectContaining({
+        popularity: 38,
+        difficultyScore: 44,
+        minDifficultyScore: 30,
+        isBrandKeyword: true,
+        appCount: 120,
+        keywordMatch: "titleExactPhrase",
+        orderedAppIds: ["app-1", "app-2"],
+      })
+    );
+  });
+
   it("skips enrichment when keyword popularity is below min threshold", async () => {
     mockLookupAsoCacheLocal.mockResolvedValue({
       hits: [],

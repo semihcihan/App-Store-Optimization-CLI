@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 type KeywordActionMenuProps = {
   x: number;
   y: number;
+  onForceRefresh: () => void;
   onCopy: () => void;
   onDelete: () => void;
 };
@@ -15,6 +16,14 @@ export function KeywordActionMenu(props: KeywordActionMenuProps) {
       role="menu"
       aria-label="Keyword actions"
     >
+      <button
+        type="button"
+        className="keyword-action-item"
+        role="menuitem"
+        onClick={props.onForceRefresh}
+      >
+        Force Refresh
+      </button>
       <button
         type="button"
         className="keyword-action-item"

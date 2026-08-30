@@ -159,9 +159,15 @@ type RetryFailedRequestContext = {
   country: string;
   failedCount: number;
 };
+type ForceRefreshRequestContext = {
+  appId: string;
+  country: string;
+  keywords: string[];
+};
 type PendingKeywordAuthResume =
   | ({ kind: "add-keywords" } & AddKeywordsRequestContext)
-  | ({ kind: "retry-failed" } & RetryFailedRequestContext);
+  | ({ kind: "retry-failed" } & RetryFailedRequestContext)
+  | ({ kind: "force-refresh" } & ForceRefreshRequestContext);
 
 type Row = {
   keyword: string;
@@ -233,7 +239,7 @@ const POSITION_HISTORY_CHART_PADDING = {
 };
 const FLOATING_MENU_PADDING = 8;
 const APP_ACTION_MENU_SIZE = { width: 170, height: 58 };
-const KEYWORD_ACTION_MENU_SIZE = { width: 190, height: 96 };
+const KEYWORD_ACTION_MENU_SIZE = { width: 190, height: 134 };
 const DELETE_CONFIRM_MENU_SIZE = { width: 300, height: 156 };
 
 function clampFloatingPosition(x: number, y: number, width: number, height: number) {
@@ -426,6 +432,7 @@ export function App() {
   const [hasCachedData, setHasCachedData] = useState(false);
   const [isAddingKeywords, setIsAddingKeywords] = useState(false);
   const [isRetryingFailedKeywords, setIsRetryingFailedKeywords] = useState(false);
+  const [isForceRefreshingKeywords, setIsForceRefreshingKeywords] = useState(false);
   const [isRestartingStartupRefresh, setIsRestartingStartupRefresh] =
     useState(false);
   const [isStoppingStartupRefresh, setIsStoppingStartupRefresh] =
@@ -529,12 +536,14 @@ export function App() {
     setPendingAddContext,
     openAuthModalForPendingAdd,
     openAuthModalForRetryFailed,
+    openAuthModalForForceRefresh,
     requestStartupRefreshReauthentication,
     startReauthentication,
     submitAuthPromptResponse,
     authCheckLoadingText,
     isAddKeywordsAuthBusy,
     isRetryFailedAuthBusy,
+    isForceRefreshAuthBusy,
     authStatusLabel,
     activeAuthContext,
     canStartReauth,
@@ -542,6 +551,7 @@ export function App() {
   } = useAuthFlow({
     isAddingKeywords,
     isRetryingFailedKeywords,
+    isForceRefreshingKeywords,
   });
   const {
     setupStatusError,
@@ -1305,6 +1315,75 @@ export function App() {
     }
   }, []);
 
+  const forceRefreshKeywords = useCallback(
+    async (
+      context: ForceRefreshRequestContext,
+      options: { allowAuthResume: boolean } = { allowAuthResume: true }
+    ): Promise<boolean> => {
+      if (context.keywords.length === 0) return false;
+      if (isKeywordMutationBlockedByStartupReauth) {
+        setErrorText("Finish Apple reauthentication before refreshing keywords.");
+        return false;
+      }
+      try {
+        setIsForceRefreshingKeywords(true);
+        setErrorText("");
+        setSuccessText("");
+        setLoadingText(
+          `Force refreshing popularity and difficulty for ${context.keywords.length} keyword${context.keywords.length === 1 ? "" : "s"}...`
+        );
+        const result = await apiWrite<{
+          requestedCount: number;
+          succeededCount: number;
+          failedCount: number;
+        }>("POST", "/api/aso/keywords/force-refresh", {
+          appId: context.appId,
+          keywords: context.keywords,
+          country: context.country,
+        });
+        if (selectedAppIdRef.current === context.appId) {
+          await loadKeywords(context.appId, keywordPage);
+        }
+        if (result.failedCount === 0) {
+          setSuccessText(
+            `Force refreshed ${result.succeededCount} keyword${result.succeededCount === 1 ? "" : "s"}.`
+          );
+        } else {
+          setErrorText(
+            `Force refreshed ${result.succeededCount} of ${result.requestedCount} keywords; ${result.failedCount} failed.`
+          );
+        }
+        return true;
+      } catch (error) {
+        if (
+          options.allowAuthResume &&
+          openAuthModalForForceRefresh(error, context.keywords.length)
+        ) {
+          pendingKeywordAuthResumeRef.current = {
+            kind: "force-refresh",
+            ...context,
+          };
+          return false;
+        }
+        if (openSetupModalForPrimaryAppAccessError(error)) return false;
+        setErrorText(
+          toActionableErrorMessage(error, "Failed to force refresh keywords")
+        );
+        return false;
+      } finally {
+        setIsForceRefreshingKeywords(false);
+        setLoadingText("");
+      }
+    },
+    [
+      isKeywordMutationBlockedByStartupReauth,
+      keywordPage,
+      loadKeywords,
+      openAuthModalForForceRefresh,
+      openSetupModalForPrimaryAppAccessError,
+    ]
+  );
+
   useEffect(() => {
     const isEditableTarget = (target: EventTarget | null): boolean => {
       if (!(target instanceof HTMLElement)) return false;
@@ -1425,10 +1504,18 @@ export function App() {
   );
 
   const onContextAction = useCallback(
-    async (action: "copy" | "delete") => {
+    async (action: "force-refresh" | "copy" | "delete") => {
       if (!keywordActionMenu) return;
       const selected = keywordActionMenu.keywords;
       setKeywordActionMenu(null);
+      if (action === "force-refresh") {
+        await forceRefreshKeywords({
+          appId: selectedAppId,
+          country: DEFAULT_ASO_COUNTRY,
+          keywords: selected,
+        });
+        return;
+      }
       if (action === "copy") {
         await onContextCopy(selected);
         return;
@@ -1448,7 +1535,13 @@ export function App() {
         keywords: selected,
       });
     },
-    [keywordActionMenu, onContextCopy, selectedAppId, selectedAppName]
+    [
+      forceRefreshKeywords,
+      keywordActionMenu,
+      onContextCopy,
+      selectedAppId,
+      selectedAppName,
+    ]
   );
 
   const onAppContextDelete = useCallback(() => {
@@ -1671,11 +1764,22 @@ export function App() {
           );
           return;
         }
-        await retryFailedKeywords(
+        if (pendingResume.kind === "retry-failed") {
+          await retryFailedKeywords(
+            {
+              appId: pendingResume.appId,
+              country: pendingResume.country,
+              failedCount: pendingResume.failedCount,
+            },
+            { allowAuthResume: false }
+          );
+          return;
+        }
+        await forceRefreshKeywords(
           {
             appId: pendingResume.appId,
             country: pendingResume.country,
-            failedCount: pendingResume.failedCount,
+            keywords: pendingResume.keywords,
           },
           { allowAuthResume: false }
         );
@@ -1686,7 +1790,7 @@ export function App() {
         keywordAuthResumeInFlightRef.current = false;
       }
     })();
-  }, [authStatus, retryFailedKeywords, submitKeywords]);
+  }, [authStatus, forceRefreshKeywords, retryFailedKeywords, submitKeywords]);
 
   useEffect(() => {
     if (authStatus !== "succeeded") return;
@@ -2219,7 +2323,8 @@ export function App() {
   const isAnyAppMutationInFlight = isAddingApp;
   const isAddKeywordsBusy = isAddingKeywords || isAddKeywordsAuthBusy;
   const isRetryFailedBusy = isRetryingFailedKeywords || isRetryFailedAuthBusy;
-  const isKeywordAuthBusy = isAddKeywordsAuthBusy || isRetryFailedAuthBusy;
+  const isKeywordAuthBusy =
+    isAddKeywordsAuthBusy || isRetryFailedAuthBusy || isForceRefreshAuthBusy;
   const showAddKeywordsOnboardingHighlight = !hasAnyAddedKeyword;
   const showAddAppOnboardingHighlight = !hasAnyAddedNonDefaultApp;
   const showError = !showLoading && errorText !== "";
@@ -3023,6 +3128,9 @@ export function App() {
         <KeywordActionMenu
           x={keywordActionMenu.x}
           y={keywordActionMenu.y}
+          onForceRefresh={() => {
+            void onContextAction("force-refresh");
+          }}
           onCopy={() => {
             void onContextAction("copy");
           }}

@@ -699,6 +699,13 @@ export function createServerRequestHandler(): http.RequestListener {
         return;
       }
 
+      if (req.method === "POST" && pathname === "/api/aso/keywords/force-refresh") {
+        await runAsForegroundMutation(() =>
+          asoRouteHandlers.handleApiAsoKeywordsForceRefreshPost(req, res)
+        );
+        return;
+      }
+
       if (req.method === "DELETE" && pathname === "/api/aso/keywords") {
         await runAsForegroundMutation(() =>
           asoRouteHandlers.handleApiAsoKeywordsDelete(req, res)

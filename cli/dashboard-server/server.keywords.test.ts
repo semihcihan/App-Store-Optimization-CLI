@@ -48,6 +48,7 @@ jest.mock("../services/keywords/keyword-pipeline-service", () => ({
     persistBackgroundEnrichmentCrashFailures: jest.fn(),
     refreshOrder: jest.fn(),
     retryFailed: jest.fn(),
+    forceRefresh: jest.fn(),
     refreshStartup: jest.fn(async () => []),
   },
 }));
@@ -147,6 +148,7 @@ describe("dashboard server keyword add flow", () => {
   );
   const mockRefreshOrder = jest.mocked(keywordPipelineService.refreshOrder);
   const mockRetryFailed = jest.mocked(keywordPipelineService.retryFailed);
+  const mockForceRefresh = jest.mocked(keywordPipelineService.forceRefresh);
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -168,6 +170,11 @@ describe("dashboard server keyword add flow", () => {
       retriedCount: 0,
       succeededCount: 0,
       failedCount: 0,
+    });
+    mockForceRefresh.mockResolvedValue({
+      items: [],
+      failedKeywords: [],
+      filteredOut: [],
     });
   });
 
@@ -299,5 +306,51 @@ describe("dashboard server keyword add flow", () => {
       },
     });
     expect(mockRetryFailed).toHaveBeenCalledWith("app-1", "US");
+  });
+
+  it("force refreshes selected keywords through the cache-bypassing pipeline", async () => {
+    mockForceRefresh.mockResolvedValue({
+      items: [
+        {
+          keyword: "fresh term",
+          normalizedKeyword: "fresh term",
+          country: "US",
+          popularity: 55,
+          difficultyScore: 42,
+          minDifficultyScore: 30,
+          isBrandKeyword: false,
+          appCount: 100,
+          keywordMatch: "none",
+          orderedAppIds: [],
+          orderExpiresAt: "2099-01-01T00:00:00.000Z",
+          popularityExpiresAt: "2099-01-01T00:00:00.000Z",
+        },
+      ],
+      failedKeywords: [],
+      filteredOut: [],
+    });
+
+    const response = await requestJson({
+      method: "POST",
+      path: "/api/aso/keywords/force-refresh",
+      body: {
+        appId: "app-1",
+        country: "US",
+        keywords: ["Fresh Term"],
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.body).toEqual({
+      success: true,
+      data: {
+        requestedCount: 1,
+        succeededCount: 1,
+        failedCount: 0,
+      },
+    });
+    expect(mockForceRefresh).toHaveBeenCalledWith("US", ["fresh term"], {
+      allowInteractiveAuthRecovery: false,
+    });
   });
 });

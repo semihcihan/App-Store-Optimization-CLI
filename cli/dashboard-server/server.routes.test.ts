@@ -112,6 +112,11 @@ jest.mock("../services/keywords/keyword-pipeline-service", () => ({
       succeededCount: 0,
       failedCount: 0,
     })),
+    forceRefresh: jest.fn(async () => ({
+      items: [],
+      failedKeywords: [],
+      filteredOut: [],
+    })),
     refreshStartup: jest.fn(async () => []),
   },
 }));
@@ -292,6 +297,7 @@ describe("dashboard server routes", () => {
   );
   const mockRefreshOrder = jest.mocked(keywordPipelineService.refreshOrder);
   const mockRetryFailed = jest.mocked(keywordPipelineService.retryFailed);
+  const mockForceRefresh = jest.mocked(keywordPipelineService.forceRefresh);
   const mockIsAsoAuthReauthRequiredError = jest.mocked(isAsoAuthReauthRequiredError);
 
   beforeEach(() => {
@@ -341,6 +347,11 @@ describe("dashboard server routes", () => {
       retriedCount: 0,
       succeededCount: 0,
       failedCount: 0,
+    });
+    mockForceRefresh.mockResolvedValue({
+      items: [],
+      failedKeywords: [],
+      filteredOut: [],
     });
     mockIsAsoAuthReauthRequiredError.mockReturnValue(false);
   });
@@ -1797,6 +1808,7 @@ describe("dashboard server routes", () => {
     mockIsAsoAuthReauthRequiredError.mockReturnValue(true);
     mockFetchKeywordStage.mockRejectedValue(new Error("session expired"));
     mockRetryFailed.mockRejectedValue(new Error("session expired"));
+    mockForceRefresh.mockRejectedValue(new Error("session expired"));
 
     const addKeywords = await request({
       method: "POST",
@@ -1820,6 +1832,18 @@ describe("dashboard server routes", () => {
     });
     expect(retryFailed.statusCode).toBe(401);
     expect(retryFailed.json?.errorCode).toBe("AUTH_REQUIRED");
+
+    const forceRefresh = await request({
+      method: "POST",
+      path: "/api/aso/keywords/force-refresh",
+      body: {
+        appId: "app-1",
+        country: "US",
+        keywords: ["failed-term"],
+      },
+    });
+    expect(forceRefresh.statusCode).toBe(401);
+    expect(forceRefresh.json?.errorCode).toBe("AUTH_REQUIRED");
   });
 
   it("maps delete-keywords authorization failures", async () => {

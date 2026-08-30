@@ -120,6 +120,14 @@ Runtime flow contracts across CLI commands, local dashboard API, and ASO service
 3. Server updates `app_keywords.is_favorite` for the exact `(appId, keyword, country)` association.
 4. Favorite state is app-scoped: the same keyword associated to a different app keeps its own favorite state.
 
+## Flow B4: Dashboard Force Refresh Selected Keywords
+
+1. The keyword row context menu sends the selected keyword set to `POST /api/aso/keywords/force-refresh`.
+2. The pipeline bypasses keyword freshness/cache-hit classification and always requests popularity from Apple Search Ads.
+3. Every keyword with fresh popularity runs full enrichment, which fetches current result order and recomputes difficulty; the refreshed row is persisted only after enrichment succeeds, preserving the last complete row on failure.
+4. The request is foreground/synchronous so the dashboard can reload the affected rows and report aggregate success/failure counts.
+5. Auth-required responses use the shared dashboard reauthentication flow and resume the same selected-keyword request once after auth succeeds.
+
 ## Flow C0: Dashboard Primary App Setup
 1. Plain `aso` starts the dashboard immediately; it does not block startup on a terminal-only Primary App ID prompt.
 2. If Primary App ID is already configured (`--primary-app-id` save, env, or saved local value), dashboard setup is skipped unless a later API call proves that the configured ID is inaccessible for the current Apple Ads account.

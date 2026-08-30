@@ -53,6 +53,10 @@ type KeywordPopularityStageOptions = {
 
 export type KeywordFetchOptions = KeywordPopularityStageOptions;
 
+export type ForceRefreshOptions = {
+  allowInteractiveAuthRecovery?: boolean;
+};
+
 export type KeywordFilterOptions = {
   minPopularity?: number;
   maxDifficulty?: number;
@@ -717,6 +721,81 @@ export class KeywordPipelineService {
       allowInteractiveAuthRecovery: false,
     });
     return result.items;
+  }
+
+  async forceRefresh(
+    country: string,
+    keywords: string[],
+    options?: ForceRefreshOptions
+  ): Promise<KeywordFetchResult> {
+    const normalizedKeywords = this.normalizeKeywords(keywords);
+    validateKeywordCount(normalizedKeywords);
+    if (normalizedKeywords.length === 0) {
+      return {
+        items: [],
+        failedKeywords: [],
+        filteredOut: [],
+      };
+    }
+
+    const popularityResult =
+      options?.allowInteractiveAuthRecovery === false
+        ? await asoPopularityService.fetchKeywordPopularitiesWithFailures(
+            normalizedKeywords,
+            { allowInteractiveAuthRecovery: false }
+          )
+        : await asoPopularityService.fetchKeywordPopularitiesWithFailures(
+            normalizedKeywords
+          );
+    const popularityFailureKeywords = new Set(
+      popularityResult.failedKeywords.map((failure) =>
+        normalizeKeyword(failure.keyword)
+      )
+    );
+    const pendingItems = normalizedKeywords
+      .filter((keyword) => popularityResult.popularities[keyword] != null)
+      .map((keyword) => ({
+        keyword,
+        popularity: popularityResult.popularities[keyword],
+      }));
+    const missingPopularityFailures: FailedKeyword[] = normalizedKeywords
+      .filter(
+        (keyword) =>
+          popularityResult.popularities[keyword] == null &&
+          !popularityFailureKeywords.has(keyword)
+      )
+      .map((keyword) => ({
+        keyword,
+        stage: "popularity",
+        reasonCode: "POPULARITY_MISSING",
+        message: "Apple Search Ads did not return popularity for this keyword.",
+        retryable: true,
+        attempts: 1,
+      }));
+    const popularityFailures = [
+      ...popularityResult.failedKeywords,
+      ...missingPopularityFailures,
+    ];
+
+    keywordWriteRepository.persistFailures(country, popularityFailures);
+
+    const enrichedResult = await this.enrichAndPersist(country, pendingItems);
+    const items = enrichedResult.items.map(stripTimestamps);
+    const failedKeywords = [
+      ...popularityFailures,
+      ...enrichedResult.failedKeywords,
+    ];
+    keywordWriteRepository.persistFailures(country, failedKeywords);
+    keywordWriteRepository.clearFailures(
+      country,
+      items.map((item) => item.keyword)
+    );
+
+    return {
+      items,
+      failedKeywords,
+      filteredOut: [],
+    };
   }
 
   async run(

@@ -91,6 +91,7 @@ function buildFetchMock(params: {
   onDeleteApps?: (payload: any) => void;
   onDeleteKeywords?: (payload: any) => void;
   onRetryFailed?: (payload: any) => void;
+  onForceRefresh?: (payload: any) => void;
 }) {
   let appsCallCount = 0;
   let dashboardSettings =
@@ -283,6 +284,18 @@ function buildFetchMock(params: {
         data: {
           retriedCount: 1,
           succeededCount: 1,
+          failedCount: 0,
+        },
+      });
+    }
+
+    if (method === "POST" && url === "/api/aso/keywords/force-refresh") {
+      params.onForceRefresh?.(body);
+      return jsonResponse(200, {
+        success: true,
+        data: {
+          requestedCount: body.keywords.length,
+          succeededCount: body.keywords.length,
           failedCount: 0,
         },
       });
@@ -642,6 +655,60 @@ describe("dashboard app interactions", () => {
     await waitFor(() => expect(deleteAppBody).toEqual({ appId: "111" }));
     await screen.findByText('Deleted "Owned App".');
     expect(screen.queryByText("Owned App")).toBeNull();
+  });
+
+  it("force refreshes popularity and difficulty for selected keywords", async () => {
+    let forceRefreshBody: any = null;
+    const fetchMock = buildFetchMock({
+      initialApps: [
+        { id: DEFAULT_RESEARCH_APP_ID, name: "Research" },
+        { id: "111", name: "Owned App" },
+      ],
+      keywordsByAppId: {
+        [DEFAULT_RESEARCH_APP_ID]: [],
+        "111": [
+          {
+            keyword: "first term",
+            popularity: 50,
+            difficultyScore: 40,
+            appCount: 100,
+          },
+          {
+            keyword: "second term",
+            popularity: 45,
+            difficultyScore: 35,
+            appCount: 90,
+          },
+        ],
+      },
+      onForceRefresh: (payload) => {
+        forceRefreshBody = payload;
+      },
+    });
+    global.fetch = fetchMock as typeof fetch;
+    localStorage.setItem("aso-dashboard:selected-app-id", "111");
+
+    render(<App />);
+
+    const firstRow = (await screen.findByText("first term")).closest(
+      "tr"
+    ) as HTMLElement;
+    const secondRow = screen.getByText("second term").closest("tr") as HTMLElement;
+    fireEvent.click(firstRow);
+    fireEvent.click(secondRow, { metaKey: true });
+    fireEvent.contextMenu(secondRow, { clientX: 60, clientY: 60 });
+    fireEvent.click(
+      await screen.findByRole("menuitem", { name: "Force Refresh" })
+    );
+
+    await waitFor(() =>
+      expect(forceRefreshBody).toEqual({
+        appId: "111",
+        country: "US",
+        keywords: ["first term", "second term"],
+      })
+    );
+    expect(await screen.findByText("Force refreshed 2 keywords.")).toBeInTheDocument();
   });
 
   it("opens settings and auto-saves refresh settings", async () => {

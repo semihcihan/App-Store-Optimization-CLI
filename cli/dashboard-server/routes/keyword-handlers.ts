@@ -649,6 +649,92 @@ export function createKeywordHandlers(deps: AsoRouteDeps) {
     }
   }
 
+  async function handleApiAsoKeywordsForceRefreshPost(
+    req: http.IncomingMessage,
+    res: http.ServerResponse
+  ): Promise<void> {
+    const body = await deps.parseJsonBody<{
+      appId?: string;
+      keywords?: string[];
+      country?: string;
+    }>(req, res);
+    if (!body) {
+      return;
+    }
+    const appId = body.appId ?? DEFAULT_RESEARCH_APP_ID;
+    const keywords = keywordPipelineService.normalizeKeywords(body.keywords ?? []);
+    const country = normalizeCountry(body.country);
+
+    if (keywords.length === 0) {
+      deps.sendApiError(
+        res,
+        400,
+        "INVALID_REQUEST",
+        "Please provide at least one keyword."
+      );
+      return;
+    }
+    if (keywords.length > ASO_MAX_KEYWORDS) {
+      deps.sendApiError(
+        res,
+        400,
+        "INVALID_REQUEST",
+        ASO_MAX_KEYWORDS_PER_REQUEST_ERROR
+      );
+      return;
+    }
+    if (deps.isDashboardAuthInProgress()) {
+      deps.sendApiError(
+        res,
+        409,
+        "AUTH_IN_PROGRESS",
+        "Reauthentication is in progress. Finish it and retry."
+      );
+      return;
+    }
+
+    try {
+      const result = await keywordPipelineService.forceRefresh(country, keywords, {
+        allowInteractiveAuthRecovery: false,
+      });
+      deps.sendJson(res, 200, {
+        success: true,
+        data: {
+          requestedCount: keywords.length,
+          succeededCount: result.items.length,
+          failedCount: result.failedKeywords.length,
+        },
+      });
+    } catch (error) {
+      if (isAsoAuthReauthRequiredError(error)) {
+        deps.sendApiError(
+          res,
+          401,
+          "AUTH_REQUIRED",
+          "Apple Search Ads session expired. Reauthenticate from the dashboard and retry."
+        );
+        return;
+      }
+      deps.reportDashboardError(error, {
+        method: "POST",
+        path: "/api/aso/keywords/force-refresh",
+        appId,
+        country,
+        keywordCount: keywords.length,
+      });
+      const publicError = deps.toUserSafeError(
+        error,
+        "Failed to force refresh keywords"
+      );
+      deps.sendApiError(
+        res,
+        deps.statusForDashboardErrorCode(publicError.errorCode),
+        publicError.errorCode,
+        publicError.message
+      );
+    }
+  }
+
   async function handleApiAsoKeywordsFavoritePost(
     req: http.IncomingMessage,
     res: http.ServerResponse
@@ -995,6 +1081,7 @@ export function createKeywordHandlers(deps: AsoRouteDeps) {
     handleApiAsoKeywordsPost,
     handleApiAsoKeywordsDelete,
     handleApiAsoKeywordsFavoritePost,
+    handleApiAsoKeywordsForceRefreshPost,
     handleApiAsoKeywordsRetryFailedPost,
     handleApiAsoKeywordHistoryGet,
     handleApiAsoKeywordsGet,
