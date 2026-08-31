@@ -49,8 +49,8 @@ export async function refreshAsoKeywordOrderLocal(
 ): Promise<{
   keyword: string;
   normalizedKeyword: string;
-  appCount: number;
-  orderedAppIds: string[];
+  appCount: number | null;
+  orderedAppIds: string[] | null;
   appDocs?: AsoAppDocItem[];
 }> {
   return refreshKeywordOrder({ country, keyword });

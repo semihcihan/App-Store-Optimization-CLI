@@ -212,6 +212,46 @@ describe("keyword-pipeline-service", () => {
     ]);
   });
 
+  it("preserves the complete stored count when a partial order refresh cannot resolve count", async () => {
+    upsertKeywords("US", [
+      {
+        keyword: "partial refresh",
+        popularity: 50,
+        difficultyScore: 10,
+        minDifficultyScore: 5,
+        appCount: 240,
+        keywordMatch: "titleExactPhrase",
+        orderedAppIds: ["old-1", "old-2"],
+        orderExpiresAt: "2000-01-01T00:00:00.000Z",
+        popularityExpiresAt: "2099-01-01T00:00:00.000Z",
+      },
+    ]);
+
+    mockRefreshAsoKeywordOrderLocal.mockResolvedValue({
+      keyword: "partial refresh",
+      normalizedKeyword: "partial refresh",
+      appCount: null,
+      orderedAppIds: ["primary-1", "primary-2"],
+    });
+
+    const refreshed = await keywordPipelineService.refreshOrder("US", [
+      "partial refresh",
+    ]);
+
+    expect(refreshed).toEqual([
+      expect.objectContaining({
+        appCount: 240,
+        orderedAppIds: ["primary-1", "primary-2"],
+      }),
+    ]);
+    expect(getKeyword("US", "partial refresh")).toEqual(
+      expect.objectContaining({
+        appCount: 240,
+        orderedAppIds: ["primary-1", "primary-2"],
+      })
+    );
+  });
+
   it("returns partial success and persists failed keywords", async () => {
     mockLookupAsoCacheLocal.mockResolvedValue({
       hits: [],

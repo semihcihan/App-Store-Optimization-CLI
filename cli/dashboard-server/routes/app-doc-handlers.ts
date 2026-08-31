@@ -131,7 +131,7 @@ export function createAppDocHandlers(deps: AsoRouteDeps) {
     }> = [];
     try {
       const orderData = await refreshAsoKeywordOrderLocal(country, term);
-      orderedAppIds = orderData.orderedAppIds;
+      orderedAppIds = orderData.orderedAppIds ?? [];
       searchPageAppDocs = [];
       for (const doc of orderData.appDocs ?? []) {
         const appId = `${doc.appId ?? ""}`.trim();

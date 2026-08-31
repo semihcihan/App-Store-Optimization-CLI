@@ -8,6 +8,7 @@ import { asoAppleGet } from "./aso-apple-client";
 import { fetchAppStoreLookupAppDocs } from "./aso-app-doc-service";
 import { fetchAppStoreAdditionalLocalizations } from "./aso-app-store-details";
 import { logger } from "../../../utils/logger";
+import { reportAppleContractChange } from "../../keywords/apple-http-trace";
 
 jest.mock("./aso-apple-client", () => ({
   asoAppleGet: jest.fn(),
@@ -37,6 +38,9 @@ jest.mock("../../../utils/logger", () => ({
     error: jest.fn(),
   },
 }));
+jest.mock("../../keywords/apple-http-trace", () => ({
+  reportAppleContractChange: jest.fn(),
+}));
 
 const mockedAsoAppleGet = jest.mocked(asoAppleGet);
 const mockedFetchAppStoreLookupAppDocs = jest.mocked(fetchAppStoreLookupAppDocs);
@@ -44,6 +48,7 @@ const mockedFetchAppStoreAdditionalLocalizations = jest.mocked(
   fetchAppStoreAdditionalLocalizations
 );
 const mockedLogger = jest.mocked(logger);
+const mockedReportAppleContractChange = jest.mocked(reportAppleContractChange);
 
 function buildSearchHtml(): string {
   return buildSearchHtmlForIds(["1", "2", "3", "4", "5"]);
@@ -58,6 +63,7 @@ function buildSearchHtmlForIds(
     kindsById?: Record<string, string>;
     resultTypesById?: Record<string, string>;
     includeNextPage?: boolean;
+    shelfContentType?: string;
   }
 ): string {
   const items = ids.map((id, index) => ({
@@ -82,7 +88,7 @@ function buildSearchHtmlForIds(
         data: {
           shelves: [
             {
-              contentType: "searchResult",
+              contentType: options?.shelfContentType ?? "searchResult",
               items,
             },
           ],
@@ -157,7 +163,7 @@ describe("aso-enrichment-service", () => {
     );
   });
 
-  it("falls back to MZSearch when serialized search data omits nextPage", async () => {
+  it("keeps primary order and documents when nextPage is missing and uses only the MZSearch count", async () => {
     mockedAsoAppleGet
       .mockResolvedValueOnce({
         data: buildSearchHtmlForIds(["html-1", "html-2"], [], {
@@ -186,8 +192,11 @@ describe("aso-enrichment-service", () => {
       keyword: "dust remover",
       normalizedKeyword: "dust remover",
       appCount: 3,
-      orderedAppIds: ["1", "2", "3"],
-      appDocs: [],
+      orderedAppIds: ["html-1", "html-2"],
+      appDocs: [
+        expect.objectContaining({ appId: "html-1", name: "App html-1" }),
+        expect.objectContaining({ appId: "html-2", name: "App html-2" }),
+      ],
     });
     expect(mockedAsoAppleGet).toHaveBeenNthCalledWith(
       2,
@@ -200,6 +209,233 @@ describe("aso-enrichment-service", () => {
         },
       })
     );
+    expect(mockedReportAppleContractChange).not.toHaveBeenCalled();
+  });
+
+  it("does not allow the MZSearch count below the primary order length", async () => {
+    mockedAsoAppleGet
+      .mockResolvedValueOnce({
+        data: buildSearchHtmlForIds(["html-1", "html-2", "html-3"], [], {
+          includeNextPage: false,
+        }),
+      } as never)
+      .mockResolvedValueOnce({
+        data: {
+          pageData: {
+            bubbles: [
+              {
+                name: "software",
+                results: [{ id: "fallback-1" }],
+              },
+            ],
+          },
+        },
+      } as never);
+
+    const result = await refreshKeywordOrder({
+      keyword: "dust remover",
+      country: "US",
+    });
+
+    expect(result.appCount).toBe(3);
+    expect(result.orderedAppIds).toEqual(["html-1", "html-2", "html-3"]);
+  });
+
+  it("treats empty MZSearch as unresolved when the primary response contains apps", async () => {
+    mockedAsoAppleGet
+      .mockResolvedValueOnce({
+        data: buildSearchHtmlForIds(["html-1", "html-2"], [], {
+          includeNextPage: false,
+        }),
+      } as never)
+      .mockResolvedValueOnce({
+        data: {
+          pageData: {
+            bubbles: [],
+          },
+        },
+      } as never);
+
+    const result = await refreshKeywordOrder({
+      keyword: "dust remover",
+      country: "US",
+    });
+
+    expect(result.appCount).toBeNull();
+    expect(result.orderedAppIds).toEqual(["html-1", "html-2"]);
+    expect(result.appDocs).toEqual([
+      expect.objectContaining({ appId: "html-1" }),
+      expect.objectContaining({ appId: "html-2" }),
+    ]);
+    expect(mockedReportAppleContractChange).toHaveBeenCalledWith(
+      expect.objectContaining({
+        operation: "mzsearch.keyword-order",
+        actualSignal:
+          "primaryOrderedAppIds=2 primaryAppDocs=2 mzSearchIds=0",
+        dedupeKey: "mzsearch-empty-contradicts-primary-results",
+      })
+    );
+  });
+
+  it("allows empty MZSearch to resolve zero when the primary response contains no apps", async () => {
+    mockedAsoAppleGet
+      .mockResolvedValueOnce({
+        data: buildSearchHtmlForIds([]),
+      } as never)
+      .mockResolvedValueOnce({
+        data: {
+          pageData: {
+            bubbles: [],
+          },
+        },
+      } as never);
+
+    const result = await refreshKeywordOrder({
+      keyword: "no results",
+      country: "US",
+    });
+
+    expect(result).toEqual({
+      keyword: "no results",
+      normalizedKeyword: "no results",
+      appCount: 0,
+      orderedAppIds: [],
+      appDocs: [],
+    });
+    expect(mockedReportAppleContractChange).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        operation: "mzsearch.keyword-order",
+      })
+    );
+  });
+
+  it("fails enrichment when empty MZSearch cannot corroborate a partial primary count", async () => {
+    mockedAsoAppleGet
+      .mockResolvedValueOnce({
+        data: buildSearchHtmlForIds(["html-1", "html-2"], [], {
+          includeNextPage: false,
+        }),
+      } as never)
+      .mockResolvedValueOnce({
+        data: {
+          pageData: {
+            bubbles: [
+              {
+                name: "software",
+                results: [],
+              },
+            ],
+          },
+        },
+      } as never);
+
+    await expect(
+      enrichKeyword({
+        keyword: "dust remover",
+        country: "US",
+        popularity: 50,
+      })
+    ).rejects.toThrow("Unable to resolve App Store result count");
+    expect(mockedReportAppleContractChange).toHaveBeenCalledWith(
+      expect.objectContaining({
+        operation: "mzsearch.keyword-order",
+        dedupeKey: "mzsearch-empty-contradicts-primary-results",
+      })
+    );
+  });
+
+  it("uses MZSearch order while retaining primary documents when the primary order is unusable", async () => {
+    mockedAsoAppleGet
+      .mockResolvedValueOnce({
+        data: buildSearchHtmlForIds(["2"], [], {
+          includeNextPage: false,
+          shelfContentType: "featured",
+        }),
+      } as never)
+      .mockResolvedValueOnce({
+        data: {
+          pageData: {
+            bubbles: [
+              {
+                name: "software",
+                results: [{ id: "1" }, { id: "2" }, { id: "3" }],
+              },
+            ],
+          },
+        },
+      } as never);
+
+    const result = await refreshKeywordOrder({
+      keyword: "dust remover",
+      country: "US",
+    });
+
+    expect(result.appCount).toBe(3);
+    expect(result.orderedAppIds).toEqual(["1", "2", "3"]);
+    expect(result.appDocs).toEqual([
+      expect.objectContaining({ appId: "2", name: "App 2" }),
+    ]);
+    expect(mockedReportAppleContractChange).toHaveBeenCalledWith(
+      expect.objectContaining({
+        operation: "appstore.search-page",
+        actualSignal: expect.stringContaining("searchResult shelf"),
+      })
+    );
+  });
+
+  it("uses MZSearch for the complete result when the primary response has no usable data", async () => {
+    mockedAsoAppleGet
+      .mockResolvedValueOnce({
+        data: "<html><body>no serialized data</body></html>",
+      } as never)
+      .mockResolvedValueOnce({
+        data: {
+          pageData: {
+            bubbles: [
+              {
+                name: "software",
+                results: [{ id: "1" }, { id: "2" }, { id: "3" }],
+              },
+            ],
+          },
+        },
+      } as never);
+
+    const result = await refreshKeywordOrder({
+      keyword: "dust remover",
+      country: "US",
+    });
+
+    expect(result).toEqual({
+      keyword: "dust remover",
+      normalizedKeyword: "dust remover",
+      appCount: 3,
+      orderedAppIds: ["1", "2", "3"],
+      appDocs: [],
+    });
+  });
+
+  it("keeps useful primary data unresolved when MZSearch cannot supply the missing count", async () => {
+    mockedAsoAppleGet
+      .mockResolvedValueOnce({
+        data: buildSearchHtmlForIds(["html-1", "html-2"], [], {
+          includeNextPage: false,
+        }),
+      } as never)
+      .mockRejectedValueOnce(new Error("MZSearch unavailable"));
+
+    const result = await refreshKeywordOrder({
+      keyword: "dust remover",
+      country: "US",
+    });
+
+    expect(result.appCount).toBeNull();
+    expect(result.orderedAppIds).toEqual(["html-1", "html-2"]);
+    expect(result.appDocs).toEqual([
+      expect.objectContaining({ appId: "html-1" }),
+      expect.objectContaining({ appId: "html-2" }),
+    ]);
+    expect(mockedReportAppleContractChange).not.toHaveBeenCalled();
   });
 
   it("uses exact lookup rating count for first apps when lookup is used", async () => {

@@ -84,6 +84,8 @@ Define failure boundaries, retry rules, and recovery behavior across CLI, dashbo
   - MZSearch order payload parsing
   - App lookup payload parsing
   - Localized app-page `serialized-server-data` parsing (title/subtitle/rating/ratingCount)
+- A missing search-page `nextPage` is an expected partial-response fallback, not contract drift; usable primary order and lockups are retained while MZSearch is queried only for count. Other malformed or missing search-page structures remain reportable.
+- An empty MZSearch fallback contradicting non-empty primary order/documents is reported as contract drift and leaves count unresolved; empty MZSearch resolves to zero only when primary also contains no apps.
 - Terminal contract-drift events are deduped for `15` minutes per unique signature (`provider + operation + endpoint + drift kind + status bucket`) to reduce alert spam during repeated failures.
 - Bugsnag redaction is centralized at SDK startup via global `redactedKeys` and `onError` sanitization before event delivery (including nested metadata and keychain command-arg payloads such as `spawnargs` values after `-w`).
 - Runtime telemetry startup resolves Bugsnag API key in this order: explicit runtime option, runtime `BUGSNAG_API_KEY`, then packaged fallback key injected in release CI from GitHub Secret `BUGSNAG_API_KEY`; startup is skipped with a warning only when all are missing.

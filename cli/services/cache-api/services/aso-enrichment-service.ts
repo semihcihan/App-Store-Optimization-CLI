@@ -308,7 +308,7 @@ function getStoreFrontHeader(country: string): string {
 async function fetchPopularityOrderedIds(params: {
   keyword: string;
   country: string;
-}): Promise<string[]> {
+}): Promise<string[] | null> {
   const response = await asoAppleGet<MzSearchResponse>(
     MZSEARCH_ORDER_URL,
     {
@@ -343,7 +343,7 @@ async function fetchPopularityOrderedIds(params: {
       isTerminal: false,
       dedupeKey: "mzsearch-keyword-order-bubbles-array",
     });
-    return [];
+    return null;
   }
 
   for (const bubble of bubbles) {
@@ -363,7 +363,7 @@ async function fetchPopularityOrderedIds(params: {
         isTerminal: false,
         dedupeKey: "mzsearch-keyword-order-software-results-array",
       });
-      return [];
+      return null;
     }
     return (bubble.results || [])
       .map((result) => `${result.id || ""}`.trim())
@@ -416,13 +416,29 @@ function isAppLikeSearchResultItem(item: {
   return true;
 }
 
-async function fetchSearchPageOrderedData(params: {
-  keyword: string;
-  country: string;
-}): Promise<{
+type SearchPageData = {
   orderedAppIds: string[];
   appDocs: AsoAppDoc[];
-}> {
+  appCount: number | null;
+  contractIssue: Error | null;
+};
+
+type ResolvedSearchData = {
+  orderedAppIds: string[] | null;
+  appDocs: AsoAppDoc[];
+  appCount: number | null;
+  sourceMode:
+    | "search-page"
+    | "search-page+mzsearch-count"
+    | "search-page-docs+mzsearch-order"
+    | "mzsearch-fallback"
+    | "partial-unresolved";
+};
+
+async function fetchSearchPageData(params: {
+  keyword: string;
+  country: string;
+}): Promise<SearchPageData> {
   const response = await asoAppleGet(APPSTORE_SEARCH_URL, {
     operation: "appstore.search-page",
     params: { term: params.keyword },
@@ -444,16 +460,42 @@ async function fetchSearchPageOrderedData(params: {
 
   const parsed = JSON.parse(serializedDataMatch[1]) as AmpSearchResponse;
   const pageData = parsed.data?.[0]?.data;
-  if (!pageData?.nextPage) {
-    throw new Error("Search page serialized data did not include nextPage");
+  if (!pageData) {
+    throw new Error("Search page serialized data did not include data[0].data");
   }
-  const searchShelf = (pageData?.shelves || []).find(
+  const contractIssues: string[] = [];
+  const shelves = pageData.shelves;
+  if (!Array.isArray(shelves)) {
+    contractIssues.push("Search page serialized data did not include shelves[]");
+  }
+  const usableShelves = Array.isArray(shelves) ? shelves : [];
+  const searchShelf = usableShelves.find(
     (shelf) => shelf?.contentType === "searchResult"
   );
+  if (!searchShelf) {
+    contractIssues.push("Search page serialized data did not include searchResult shelf");
+  } else if (!Array.isArray(searchShelf.items)) {
+    contractIssues.push("Search page searchResult shelf did not include items[]");
+  }
 
   const appDocs: AsoAppDoc[] = [];
+  const seenAppDocIds = new Set<string>();
+  for (const shelf of usableShelves) {
+    if (!Array.isArray(shelf?.items)) continue;
+    for (const item of shelf.items) {
+      if (!isAppLikeSearchResultItem(item)) continue;
+      const lockup = item?.lockup;
+      if (!lockup) continue;
+      const doc = lockupToAppDoc(lockup, params.country);
+      if (doc && !seenAppDocIds.has(doc.appId)) {
+        seenAppDocIds.add(doc.appId);
+        appDocs.push(doc);
+      }
+    }
+  }
+
   const leadingOrderedIds: string[] = [];
-  for (const item of searchShelf?.items || []) {
+  for (const item of searchShelf?.items ?? []) {
     if (!isAppLikeSearchResultItem(item)) {
       continue;
     }
@@ -462,20 +504,155 @@ async function fetchSearchPageOrderedData(params: {
     const doc = lockupToAppDoc(lockup, params.country);
     if (doc) {
       leadingOrderedIds.push(doc.appId);
-      appDocs.push(doc);
     }
   }
 
-  const tailIds = (pageData?.nextPage?.results || [])
-    .filter((item) => item?.type === "apps")
-    .map((item) => `${item.id || ""}`.trim())
-    .filter(Boolean);
+  let tailIds: string[] = [];
+  let appCount: number | null = null;
+  if (pageData.nextPage) {
+    if (!Array.isArray(pageData.nextPage.results)) {
+      contractIssues.push("Search page nextPage did not include results[]");
+    } else {
+      tailIds = pageData.nextPage.results
+        .filter((item) => item?.type === "apps")
+        .map((item) => `${item.id || ""}`.trim())
+        .filter(Boolean);
+      appCount = new Set([...leadingOrderedIds, ...tailIds]).size;
+    }
+  }
   const orderedAppIds = [...new Set([...leadingOrderedIds, ...tailIds])];
   if (orderedAppIds.length === 0) {
-    throw new Error("Search page serialized data did not return ordered app ids");
+    contractIssues.push("Search page serialized data did not return ordered app ids");
   }
 
-  return { orderedAppIds, appDocs };
+  return {
+    orderedAppIds,
+    appDocs,
+    appCount,
+    contractIssue:
+      contractIssues.length > 0 ? new Error(contractIssues.join("; ")) : null,
+  };
+}
+
+function reportSearchPageContractIssue(params: {
+  keyword: string;
+  country: string;
+  error: unknown;
+}): void {
+  const actualSignal =
+    params.error instanceof Error ? params.error.message : String(params.error);
+  reportAppleContractChange({
+    provider: "apple-appstore",
+    operation: "appstore.search-page",
+    endpoint: APPSTORE_SEARCH_URL,
+    expectedContract:
+      "Search page includes serialized-server-data with search result order and lockups",
+    actualSignal,
+    context: {
+      keyword: params.keyword,
+      country: params.country,
+    },
+    error: params.error,
+    isTerminal: false,
+    dedupeKey: "appstore-search-page-fallback",
+  });
+}
+
+async function resolveSearchData(params: {
+  keyword: string;
+  country: string;
+}): Promise<ResolvedSearchData> {
+  let primaryData: SearchPageData = {
+    orderedAppIds: [],
+    appDocs: [],
+    appCount: null,
+    contractIssue: null,
+  };
+
+  try {
+    primaryData = await fetchSearchPageData(params);
+    if (primaryData.contractIssue) {
+      reportSearchPageContractIssue({
+        keyword: params.keyword,
+        country: params.country,
+        error: primaryData.contractIssue,
+      });
+    }
+  } catch (error) {
+    reportSearchPageContractIssue({
+      keyword: params.keyword,
+      country: params.country,
+      error,
+    });
+  }
+
+  const hasPrimaryOrder = primaryData.orderedAppIds.length > 0;
+  const hasPrimaryDocs = primaryData.appDocs.length > 0;
+  const needsMzSearch = primaryData.appCount == null || !hasPrimaryOrder;
+  let mzSearchIds: string[] | null = null;
+
+  if (needsMzSearch) {
+    try {
+      mzSearchIds = await fetchPopularityOrderedIds(params);
+    } catch (error) {
+      logger.debug("[aso-enrichment] MZSearch fallback failed", {
+        keyword: params.keyword,
+        country: params.country,
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  const hasUsefulPrimaryData = hasPrimaryOrder || hasPrimaryDocs;
+  if (hasUsefulPrimaryData && mzSearchIds?.length === 0) {
+    reportAppleContractChange({
+      provider: "apple-appstore",
+      operation: "mzsearch.keyword-order",
+      endpoint: MZSEARCH_ORDER_URL,
+      expectedContract:
+        "MZSearch returns software results when the primary App Store response contains apps",
+      actualSignal: `primaryOrderedAppIds=${primaryData.orderedAppIds.length} primaryAppDocs=${primaryData.appDocs.length} mzSearchIds=0`,
+      context: {
+        keyword: params.keyword,
+        country: params.country,
+      },
+      isTerminal: false,
+      dedupeKey: "mzsearch-empty-contradicts-primary-results",
+    });
+    mzSearchIds = null;
+  }
+
+  const orderedAppIds = hasPrimaryOrder
+    ? primaryData.orderedAppIds
+    : mzSearchIds;
+  let appCount: number | null = null;
+  if (hasUsefulPrimaryData && primaryData.appCount != null) {
+    appCount = Math.max(
+      primaryData.appCount,
+      primaryData.orderedAppIds.length,
+      mzSearchIds?.length ?? 0
+    );
+  } else if (mzSearchIds != null) {
+    appCount = Math.max(primaryData.orderedAppIds.length, mzSearchIds.length);
+  }
+
+  let sourceMode: ResolvedSearchData["sourceMode"] = "partial-unresolved";
+  if (!needsMzSearch) {
+    sourceMode = "search-page";
+  } else if (hasPrimaryOrder && mzSearchIds != null) {
+    sourceMode = "search-page+mzsearch-count";
+  } else if (hasPrimaryDocs && mzSearchIds != null) {
+    sourceMode = "search-page-docs+mzsearch-order";
+  } else if (mzSearchIds != null) {
+    sourceMode = "mzsearch-fallback";
+  }
+
+  return {
+    orderedAppIds,
+    appDocs: primaryData.appDocs,
+    appCount,
+    sourceMode,
+  };
 }
 
 export async function refreshKeywordOrder(params: {
@@ -484,76 +661,40 @@ export async function refreshKeywordOrder(params: {
 }): Promise<{
   keyword: string;
   normalizedKeyword: string;
-  appCount: number;
-  orderedAppIds: string[];
+  appCount: number | null;
+  orderedAppIds: string[] | null;
   appDocs: AsoAppDoc[];
 }> {
   const country = params.country.toUpperCase();
   const normalizedKeyword = normalizeKeyword(params.keyword);
-  let orderedAppIds: string[] = [];
-  let appDocs: AsoAppDoc[] = [];
-  let sourceMode: "search-page" | "mzsearch-fallback" = "search-page";
+  const resolved = await resolveSearchData({
+    keyword: normalizedKeyword,
+    country,
+  });
+  const { orderedAppIds, appDocs, appCount, sourceMode } = resolved;
 
-  try {
-    const searchPageData = await fetchSearchPageOrderedData({
-      keyword: normalizedKeyword,
-      country,
-    });
-    orderedAppIds = searchPageData.orderedAppIds;
-    appDocs = searchPageData.appDocs;
-    logger.debug("[aso-enrichment] order source", {
-      keyword: params.keyword,
-      country,
-      mode: sourceMode,
-      orderedAppIdsCount: orderedAppIds.length,
-      appDocsCount: appDocs.length,
-    });
-  } catch (htmlErr) {
-    sourceMode = "mzsearch-fallback";
-    const htmlMessage =
-      htmlErr instanceof Error ? htmlErr.message : String(htmlErr);
-    reportAppleContractChange({
-      provider: "apple-appstore",
-      operation: "appstore.search-page",
-      endpoint: APPSTORE_SEARCH_URL,
-      expectedContract:
-        "Search page includes serialized-server-data with ordered app ids",
-      actualSignal: htmlMessage,
-      context: {
-        keyword: params.keyword,
-        country,
-      },
-      error: htmlErr,
-      isTerminal: false,
-      dedupeKey: "appstore-search-page-fallback",
-    });
-    orderedAppIds = await fetchPopularityOrderedIds({
-      keyword: normalizedKeyword,
-      country,
-    });
-    appDocs = [];
-    logger.debug("[aso-enrichment] order source", {
-      keyword: params.keyword,
-      country,
-      mode: sourceMode,
-      fallbackReason: htmlMessage,
-      orderedAppIdsCount: orderedAppIds.length,
-      appDocsCount: appDocs.length,
-    });
-  }
+  logger.debug("[aso-enrichment] order source", {
+    keyword: params.keyword,
+    country,
+    mode: sourceMode,
+    appCountResolved: appCount != null,
+    orderedAppIdsResolved: orderedAppIds != null,
+    orderedAppIdsCount: orderedAppIds?.length ?? 0,
+    appDocsCount: appDocs.length,
+  });
 
   logger.debug("[aso-enrichment] order result", {
     keyword: params.keyword,
     country,
     mode: sourceMode,
-    appCount: orderedAppIds.length,
-    orderedAppIdsCount: orderedAppIds.length,
+    appCount,
+    orderedAppIdsCount: orderedAppIds?.length ?? 0,
     appDocsCount: appDocs.length,
   });
   return {
     keyword: params.keyword,
     normalizedKeyword,
-    appCount: orderedAppIds.length,
+    appCount,
     orderedAppIds,
     appDocs,
   };
@@ -870,69 +1011,46 @@ export async function enrichKeyword(
 }> {
   const country = params.country.toUpperCase();
   const normalizedKeyword = normalizeKeyword(params.keyword);
-  let orderedAppIds: string[] = [];
-  let appDocs: AsoAppDoc[] = [];
-  let cachedTopDocs: AsoAppDoc[] = [];
-  let usedSearchPage = false;
-  let sourceMode: "search-page" | "mzsearch-fallback" = "search-page";
+  const resolved = await resolveSearchData({
+    keyword: normalizedKeyword,
+    country,
+  });
+  if (resolved.orderedAppIds == null) {
+    throw new Error(
+      `Unable to resolve App Store order for keyword="${params.keyword}" country="${country}"`
+    );
+  }
+  if (resolved.appCount == null) {
+    throw new Error(
+      `Unable to resolve App Store result count for keyword="${params.keyword}" country="${country}"`
+    );
+  }
 
-  try {
-    const searchPageData = await fetchSearchPageOrderedData({
-      keyword: normalizedKeyword,
-      country,
-    });
-    orderedAppIds = searchPageData.orderedAppIds;
-    appDocs = searchPageData.appDocs;
-    usedSearchPage = true;
-    logger.debug("[aso-enrichment] enrich source", {
-      keyword: params.keyword,
-      country,
-      mode: sourceMode,
-      orderedAppIdsCount: orderedAppIds.length,
-      appDocsCount: appDocs.length,
-    });
-  } catch (htmlErr) {
-    sourceMode = "mzsearch-fallback";
-    const htmlMessage =
-      htmlErr instanceof Error ? htmlErr.message : String(htmlErr);
-    reportAppleContractChange({
-      provider: "apple-appstore",
-      operation: "appstore.search-page",
-      endpoint: APPSTORE_SEARCH_URL,
-      expectedContract:
-        "Search page includes serialized-server-data with ordered app ids and lockups",
-      actualSignal: htmlMessage,
-      context: {
-        keyword: params.keyword,
-        country,
-      },
-      error: htmlErr,
-      isTerminal: false,
-      dedupeKey: "appstore-search-page-fallback",
-    });
-    orderedAppIds = await fetchPopularityOrderedIds({
-      keyword: normalizedKeyword,
-      country: params.country,
-    });
-    const firstFiveIds = orderedAppIds.slice(0, TOP_DIFFICULTY_DOC_LIMIT);
+  const orderedAppIds = resolved.orderedAppIds;
+  let appDocs = resolved.appDocs;
+  const appCount = resolved.appCount;
+  let cachedTopDocs: AsoAppDoc[] = [];
+  const usedSearchPageDocs = appDocs.length > 0;
+  const sourceMode = resolved.sourceMode;
+  const firstFiveIds = orderedAppIds.slice(0, TOP_DIFFICULTY_DOC_LIMIT);
+
+  if (!usedSearchPageDocs) {
     appDocs = await buildAppDocsFromLookup({
       appIds: firstFiveIds,
       country: params.country,
     });
-    logger.debug("[aso-enrichment] enrich source", {
-      keyword: params.keyword,
-      country,
-      mode: sourceMode,
-      fallbackReason: htmlMessage,
-      orderedAppIdsCount: orderedAppIds.length,
-      appDocsCount: appDocs.length,
-    });
   }
 
-  const appCount = orderedAppIds.length;
-  const firstFiveIds = orderedAppIds.slice(0, TOP_DIFFICULTY_DOC_LIMIT);
+  logger.debug("[aso-enrichment] enrich source", {
+    keyword: params.keyword,
+    country,
+    mode: sourceMode,
+    appCount,
+    orderedAppIdsCount: orderedAppIds.length,
+    appDocsCount: appDocs.length,
+  });
 
-  if (usedSearchPage && appDocs.length > 0) {
+  if (usedSearchPageDocs) {
     cachedTopDocs = options?.getAppDocs
       ? normalizeCountryOnAppDocs(country, await options.getAppDocs(firstFiveIds))
       : [];
