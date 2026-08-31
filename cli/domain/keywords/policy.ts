@@ -1,5 +1,14 @@
 export const DEFAULT_ASO_COUNTRY = "US" as const;
 
+export class UnsupportedCountryError extends Error {
+  readonly code = "ASO_UNSUPPORTED_COUNTRY";
+
+  constructor() {
+    super("Only US is supported for now");
+    this.name = "UnsupportedCountryError";
+  }
+}
+
 export function normalizeKeyword(keyword: string): string {
   return keyword.trim().toLowerCase();
 }
@@ -21,6 +30,6 @@ export function normalizeCountry(input: string | undefined | null): string {
 
 export function assertSupportedCountry(country: string): void {
   if (normalizeCountry(country) !== DEFAULT_ASO_COUNTRY) {
-    throw new Error("Only US is supported for now");
+    throw new UnsupportedCountryError();
   }
 }

@@ -1,16 +1,8 @@
-import {
-  initializeDashboardBugsnag,
-  notifyDashboardError,
-  resetDashboardBugsnagDeduplicationForTests,
-} from "./bugsnag";
-import {
-  initializeBugsnag,
-  notifyBugsnagError,
-} from "../shared/telemetry/bugsnag-shared";
+import { initializeDashboardBugsnag } from "./bugsnag";
+import { initializeBugsnag } from "../shared/telemetry/bugsnag-shared";
 
 jest.mock("../shared/telemetry/bugsnag-shared", () => ({
   initializeBugsnag: jest.fn(),
-  notifyBugsnagError: jest.fn(),
 }));
 
 jest.mock("./runtime-config", () => ({
@@ -20,11 +12,9 @@ jest.mock("./runtime-config", () => ({
 
 describe("dashboard-ui/bugsnag", () => {
   const mockInitializeBugsnag = jest.mocked(initializeBugsnag);
-  const mockNotifyBugsnagError = jest.mocked(notifyBugsnagError);
 
   beforeEach(() => {
     jest.clearAllMocks();
-    resetDashboardBugsnagDeduplicationForTests();
   });
 
   it("initializes dashboard bugsnag with sessions and request/navigation breadcrumbs", () => {
@@ -36,53 +26,5 @@ describe("dashboard-ui/bugsnag", () => {
       autoTrackSessions: true,
       enabledBreadcrumbTypes: ["error", "manual", "navigation", "request"],
     });
-  });
-
-  it("suppresses expected dashboard 4xx flow errors", () => {
-    const error = Object.assign(new Error("Unauthorized"), {
-      name: "DashboardApiError",
-      status: 401,
-      errorCode: "AUTH_REQUIRED",
-    });
-
-    notifyDashboardError(error, { method: "POST", path: "/api/aso/auth/start" });
-
-    expect(mockNotifyBugsnagError).not.toHaveBeenCalled();
-  });
-
-  it("reports actionable dashboard failures with decision metadata", () => {
-    const error = Object.assign(new Error("Internal"), {
-      name: "DashboardApiError",
-      status: 500,
-      errorCode: "INTERNAL_ERROR",
-    });
-
-    notifyDashboardError(error, { method: "POST", path: "/api/aso/keywords" });
-
-    expect(mockNotifyBugsnagError).toHaveBeenCalledWith(
-      error,
-      expect.objectContaining({
-        surface: "aso-dashboard-ui",
-        method: "POST",
-        path: "/api/aso/keywords",
-        telemetryClassification: "unknown",
-        telemetryDecisionReason: "default_report",
-      }),
-      expect.any(Function)
-    );
-  });
-
-  it("suppresses local auth-status transport noise", () => {
-    const error = new TypeError("Failed to fetch");
-    const metadata = {
-      method: "GET",
-      path: "/api/aso/auth/status",
-      source: "dashboard-ui.api-request",
-      operation: "GET /api/aso/auth/status",
-    };
-
-    notifyDashboardError(error, metadata);
-
-    expect(mockNotifyBugsnagError).not.toHaveBeenCalled();
   });
 });

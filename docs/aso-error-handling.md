@@ -1,9 +1,11 @@
 # ASO Error Handling Model
 
 ## Goal
+
 Define failure boundaries, retry rules, and recovery behavior across CLI, dashboard API, and ASO services.
 
 ## Failure Boundaries
+
 - CLI popularity stage (`cli/services/keywords/aso-popularity-service.ts`) handles Search Ads auth/session and popularity failures.
 - Dashboard error mapping is centralized in `cli/domain/errors/dashboard-errors.ts` and consumed by both server (`cli/dashboard-server/server.ts`) and UI (`cli/dashboard-ui/app-helpers.ts`).
 - Enrichment services (`cli/services/cache-api/services/aso-enrichment-service.ts`, `cli/services/cache-api/services/aso-apple-client.ts`) handle App Store fetch failures and fallback behavior.
@@ -11,6 +13,7 @@ Define failure boundaries, retry rules, and recovery behavior across CLI, dashbo
 - Shared setup/auth prompts are emitted by services and transported through either CLI prompts or dashboard prompt sessions; browser UX does not fork the auth logic.
 
 ## Dashboard Error Codes
+
 - `INVALID_REQUEST`
 - `PAYLOAD_TOO_LARGE`
 - `AUTH_REQUIRED`
@@ -25,6 +28,7 @@ Define failure boundaries, retry rules, and recovery behavior across CLI, dashbo
 - `INTERNAL_ERROR`
 
 ## Retry Policy
+
 - Shared resilience config lives in `cli/shared/aso-resilience.ts` (env defaults/parsing centralized in `cli/shared/aso-env.ts`).
 - Popularity fetch retries transient responses (`429`, `5xx`, `KWS_NO_ORG_CONTENT_PROVIDERS`) and transient network errors with bounded request attempts (default: 2 total attempts, i.e. one retry).
 - App Store web fetches retry `429`, `5xx`, and transient network errors with jittered exponential backoff using the same bounded request-attempt policy (default: 2 total attempts).
@@ -38,6 +42,7 @@ Define failure boundaries, retry rules, and recovery behavior across CLI, dashbo
 - `keywordPipelineService` isolates terminal failures per keyword and stores normalized failure metadata in `aso_keyword_failures` via `keywordWriteRepository` (single write owner).
 
 ## Recovery Behavior
+
 - Dashboard add-keyword:
   - If auth is invalid in stage 1, return `AUTH_REQUIRED` or `AUTH_IN_PROGRESS` (no interactive prompt in request path).
   - After dashboard reauthentication succeeds, retry the original add once against the originally selected app/country.
@@ -74,9 +79,10 @@ Define failure boundaries, retry rules, and recovery behavior across CLI, dashbo
   - Recovers missing Primary App ID through dashboard setup state instead of requiring an immediate terminal prompt.
 
 ## Observability
+
 - Apple HTTP calls carry trace context.
 - Bugsnag Apple metadata includes the latest `3` redacted Apple HTTP calls plus up to `3` latest non-success calls when they have already rotated out of that `3`-call window.
-- Apple contract-drift reporting is centralized: terminal Apple response-shape/flow failures emit Bugsnag events classified as `apple_contract_change` with endpoint + expected-vs-actual metadata; non-terminal fallback diagnostics stay in sanitized, structured debug logs.
+- Apple contract-drift reporting is centralized: every genuine Apple response-shape/flow change emits a Bugsnag event classified as `apple_contract_change`, including drift recovered by fallback. Events carry sanitized endpoint + expected-vs-actual metadata, `driftKind`, `recoveryOutcome`, `fallbackSource`, and operation-level terminality.
 - Contract-drift reporting covers all Apple API surfaces used by ASO runtime:
   - Apple auth/session bootstrap and 2FA flow
   - Search Ads popularity endpoint
@@ -85,45 +91,49 @@ Define failure boundaries, retry rules, and recovery behavior across CLI, dashbo
   - App lookup payload parsing
   - Localized app-page `serialized-server-data` parsing (title/subtitle/rating/ratingCount)
 - A missing search-page `nextPage` is an expected partial-response fallback, not contract drift; usable primary order and lockups are retained while MZSearch is queried only for count. Other malformed or missing search-page structures remain reportable.
+- Structurally valid empty search results are expected results, not drift. Missing/malformed shelves, lockups, present `nextPage.results`, MZSearch bubbles/results, and popularity payloads remain reportable while usable entries are retained.
+- App lookup `404`, `itemNotAvailable` plist, and `unsupported_product_page` responses are endpoint-specific unavailable results, not drift. Other malformed successful app-lookup payloads are reported after the iTunes Lookup fallback outcome is known.
 - An empty MZSearch fallback contradicting non-empty primary order/documents is reported as contract drift and leaves count unresolved; empty MZSearch resolves to zero only when primary also contains no apps.
-- Terminal contract-drift events are deduped for `15` minutes per unique signature (`provider + operation + endpoint + drift kind + status bucket`) to reduce alert spam during repeated failures.
+- Contract-drift events are deduped for `15` minutes per unique signature (`provider + operation + endpoint + drift kind + status bucket + recovery outcome`) to reduce alert spam without allowing a recovered occurrence to suppress a later terminal occurrence.
+- Transport failures (`429`, `5xx`, timeout, and network failures) never enter the contract-drift reporter. Retries and fallback resolution determine whether they remain non-terminal or become a separately classified terminal upstream failure.
 - Bugsnag redaction is centralized at SDK startup via global `redactedKeys` and `onError` sanitization before event delivery (including nested metadata and keychain command-arg payloads such as `spawnargs` values after `-w`).
 - Runtime telemetry startup resolves Bugsnag API key in this order: explicit runtime option, runtime `BUGSNAG_API_KEY`, then packaged fallback key injected in release CI from GitHub Secret `BUGSNAG_API_KEY`; startup is skipped with a warning only when all are missing.
 - Runtime telemetry startup resolves PostHog settings before shared init: API key from `ASO_POSTHOG_API_KEY` (or packaged fallback when unset) plus optional `ASO_POSTHOG_HOST` override; `posthog-shared` passes host only when explicitly provided and otherwise relies on the PostHog SDK default host, and initialization is skipped in development mode.
 - CLI usage tracking persists a stable PostHog `distinctId` in `~/.aso/config.json` (`userId`) and emits `cli_started` with `$set_once.first_seen_at` plus `$set.last_seen_at/cli_version/node_version` on each process start.
 - CLI process exit paths explicitly call PostHog shutdown before exiting so short-lived command runs flush queued analytics events.
 - Release pipeline pins its npm toolchain to a Node-compatible version and enforces packaged-key integrity by requiring the secret, replacing exactly one source placeholder, and failing if placeholder text remains in built artifacts.
-- Dashboard Bugsnag startup enables browser session tracking and includes `request`/`navigation` breadcrumbs; CLI/MCP keep stricter defaults.
-- Dashboard server reports failures with structured metadata (path, phase, counts).
+- Dashboard Bugsnag startup captures frontend runtime failures with browser session tracking and `request`/`navigation` breadcrumbs; it does not manually report dashboard API failures.
+- The local dashboard server is the sole reporting owner for dashboard API, Apple, database, and upstream failures, preventing the browser from echoing the same failure. It reports failures with structured metadata (path, phase, counts).
 - Dashboard server suppresses debug request/response logging for `GET` API routes to reduce dashboard poll noise; mutation (`POST`/`DELETE`) debug logging remains enabled.
 - Apple debug logging emphasizes compact derived-stage summaries (source mode + result counts for order/enrichment/app-lookup) instead of raw full response payload dumps.
 - Bugsnag reporting uses an actionability allowlist:
-  - reports internal bugs, terminal Apple contract-change signals, and terminal upstream failures
+  - reports internal bugs, all genuine Apple contract-change signals, and terminal upstream failures
   - suppresses expected flow/validation noise (`4xx`, validation issues)
-  - suppresses known user-fault noise such as invalid credentials, local dashboard transport failures, and malformed CLI input
+  - suppresses known user-fault noise such as invalid credentials and malformed CLI input
 - CLI telemetry suppresses expected setup/auth outcomes (reauthentication required, missing/inaccessible Primary App ID, interactive-TTY requirements), all-keyword `4xx` failures, unsupported Node runtimes, and closed stdout/stderr pipes.
 - Transient Apple auth responses (`429`/`5xx`) are reported once as terminal upstream failures rather than both upstream failures and contract drift.
 - Apple auth `401` responses carrying Apple service code `-20101` are classified as `invalid_credentials` (`user_fault`) instead of contract drift.
 - Apple 2FA challenge payloads with service code `-28248` (verification code delivery unavailable) are classified as verification-delivery `user_fault` instead of contract drift.
 - Apple HTTP trace metadata attached to Bugsnag is size-bounded (string/array/object/depth truncation) so contract-drift events retain actionable metadata instead of being dropped for oversized payloads.
 - All-keyword failure telemetry preserves every status code separately from the five-item message preview. Suppression applies only when every failure is confirmed `4xx`; mixed or unknown statuses remain reportable.
-- Dashboard UI reports only actionable API failures (for example: `5xx`, network/runtime exceptions, malformed success payloads); expected `4xx` flows are suppressed.
-- Dashboard UI transport/setup noise (`/api/aso/auth/status` network fetch failures and repeated local search failures) is classified as `user_fault` and suppressed.
 - MCP parse-json shape drift (`MCP expected JSON output from aso keywords`) is classified as `user_fault` and suppressed.
-- Dashboard UI Bugsnag metadata includes only failed local dashboard traces by default (max `3`); set `ASO_BUGSNAG_VERBOSE_TRACES=1` to include full recent local trace bundles for deep debugging.
+- Unsupported-country requests use a typed validation error and are suppressed as user input rather than reported as bugs.
 - MCP reports runtime/transport/parse-contract failures; non-zero child CLI exits are suppressed by default.
 - Startup refresh state (`status`, counters, timestamps, lastError) is exposed via API.
 - Startup refresh can be restarted explicitly from the dashboard after recovery (`POST /api/aso/refresh/start`).
 - CLI ASO retry/fallback diagnostics (auth, popularity, and enrichment fallback traces) are logged at `debug`; user-facing flows should surface terminal outcomes and actionable prompts/errors instead of intermediate warning noise.
 
 ## Request Payload Limits
+
 - Dashboard JSON request bodies are capped at `1 MiB`.
 - Requests above this limit return `413` with `errorCode="PAYLOAD_TOO_LARGE"`.
 
 ## Auth Persistence Contract
+
 - Cookie persistence is atomic (temp file + rename).
 - Cookie persistence/load prunes expired cookies.
 - Popularity requests use URL-scoped cookie selection (domain/path/secure aware), not a flat all-cookies header.
 
 ## Design Choice
+
 Prefer partial progress when safe (preserve useful local data), but fail explicitly for auth/contract errors so automation clients can recover deterministically.

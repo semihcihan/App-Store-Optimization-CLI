@@ -43,7 +43,9 @@ jest.mock("../../keywords/apple-http-trace", () => ({
 }));
 
 const mockedAsoAppleGet = jest.mocked(asoAppleGet);
-const mockedFetchAppStoreLookupAppDocs = jest.mocked(fetchAppStoreLookupAppDocs);
+const mockedFetchAppStoreLookupAppDocs = jest.mocked(
+  fetchAppStoreLookupAppDocs
+);
 const mockedFetchAppStoreAdditionalLocalizations = jest.mocked(
   fetchAppStoreAdditionalLocalizations
 );
@@ -76,7 +78,9 @@ function buildSearchHtmlForIds(
       title: `App ${id}`,
       subtitle: `Sub ${id}`,
       rating: Math.max(1, 4.9 - index * 0.1),
-      ratingCount: String(options?.ratingCountById?.[id] ?? `${(index + 1) * 1000}`),
+      ratingCount: String(
+        options?.ratingCountById?.[id] ?? `${(index + 1) * 1000}`
+      ),
       ...(options?.developerNamesById?.[id]
         ? { developerName: options.developerNamesById[id] }
         : {}),
@@ -270,25 +274,18 @@ describe("aso-enrichment-service", () => {
     expect(mockedReportAppleContractChange).toHaveBeenCalledWith(
       expect.objectContaining({
         operation: "mzsearch.keyword-order",
-        actualSignal:
-          "primaryOrderedAppIds=2 primaryAppDocs=2 mzSearchIds=0",
-        dedupeKey: "mzsearch-empty-contradicts-primary-results",
+        actualSignal: "primaryOrderedAppIds=2 primaryAppDocs=2 mzSearchIds=0",
+        driftKind: "mzsearch_empty_contradicts_primary",
+        recoveryOutcome: "unresolved",
+        isTerminal: true,
       })
     );
   });
 
-  it("allows empty MZSearch to resolve zero when the primary response contains no apps", async () => {
-    mockedAsoAppleGet
-      .mockResolvedValueOnce({
-        data: buildSearchHtmlForIds([]),
-      } as never)
-      .mockResolvedValueOnce({
-        data: {
-          pageData: {
-            bubbles: [],
-          },
-        },
-      } as never);
+  it("accepts a structurally valid empty primary search without fallback", async () => {
+    mockedAsoAppleGet.mockResolvedValueOnce({
+      data: buildSearchHtmlForIds([]),
+    } as never);
 
     const result = await refreshKeywordOrder({
       keyword: "no results",
@@ -302,6 +299,7 @@ describe("aso-enrichment-service", () => {
       orderedAppIds: [],
       appDocs: [],
     });
+    expect(mockedAsoAppleGet).toHaveBeenCalledTimes(1);
     expect(mockedReportAppleContractChange).not.toHaveBeenCalledWith(
       expect.objectContaining({
         operation: "mzsearch.keyword-order",
@@ -339,7 +337,7 @@ describe("aso-enrichment-service", () => {
     expect(mockedReportAppleContractChange).toHaveBeenCalledWith(
       expect.objectContaining({
         operation: "mzsearch.keyword-order",
-        dedupeKey: "mzsearch-empty-contradicts-primary-results",
+        driftKind: "mzsearch_empty_contradicts_primary",
       })
     );
   });
@@ -378,7 +376,10 @@ describe("aso-enrichment-service", () => {
     expect(mockedReportAppleContractChange).toHaveBeenCalledWith(
       expect.objectContaining({
         operation: "appstore.search-page",
-        actualSignal: expect.stringContaining("searchResult shelf"),
+        driftKind: "search_page_search_shelf_missing",
+        recoveryOutcome: "recovered",
+        fallbackSource: "mzsearch",
+        isTerminal: false,
       })
     );
   });
@@ -413,6 +414,151 @@ describe("aso-enrichment-service", () => {
       orderedAppIds: ["1", "2", "3"],
       appDocs: [],
     });
+    expect(mockedReportAppleContractChange).toHaveBeenCalledWith(
+      expect.objectContaining({
+        driftKind: "search_page_serialized_data_missing",
+        recoveryOutcome: "recovered",
+        fallbackSource: "mzsearch",
+        isTerminal: false,
+      })
+    );
+  });
+
+  it.each([
+    Object.assign(new Error("Request failed with status code 429"), {
+      response: { status: 429 },
+    }),
+    Object.assign(new Error("Request failed with status code 503"), {
+      response: { status: 503 },
+    }),
+    Object.assign(new Error("Request timed out"), { code: "ETIMEDOUT" }),
+    Object.assign(new Error("Network unavailable"), { code: "ECONNRESET" }),
+  ])("does not classify a primary transport failure as contract drift", async (error) => {
+    mockedAsoAppleGet
+      .mockRejectedValueOnce(error)
+      .mockResolvedValueOnce({
+        data: {
+          pageData: {
+            bubbles: [
+              {
+                name: "software",
+                results: [{ id: "1" }],
+              },
+            ],
+          },
+        },
+      } as never);
+
+    await expect(
+      refreshKeywordOrder({ keyword: "rate limited", country: "US" })
+    ).resolves.toEqual(
+      expect.objectContaining({ orderedAppIds: ["1"], appCount: 1 })
+    );
+    expect(mockedReportAppleContractChange).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [
+      "invalid serialized JSON",
+      '<script id="serialized-server-data">not-json</script>',
+      "search_page_serialized_json_invalid",
+    ],
+    [
+      "malformed present nextPage",
+      `<script id="serialized-server-data">${JSON.stringify({
+        data: [
+          {
+            data: {
+              shelves: [{ contentType: "searchResult", items: [] }],
+              nextPage: { results: "unexpected" },
+            },
+          },
+        ],
+      })}</script>`,
+      "search_page_next_page_results_not_array",
+    ],
+    [
+      "malformed lockup",
+      `<script id="serialized-server-data">${JSON.stringify({
+        data: [
+          {
+            data: {
+              shelves: [
+                {
+                  contentType: "searchResult",
+                  items: [{ lockup: { title: "Missing id" } }],
+                },
+              ],
+              nextPage: { results: [] },
+            },
+          },
+        ],
+      })}</script>`,
+      "search_page_lockup_missing_required_fields",
+    ],
+    [
+      "malformed nextPage app entry",
+      `<script id="serialized-server-data">${JSON.stringify({
+        data: [
+          {
+            data: {
+              shelves: [{ contentType: "searchResult", items: [] }],
+              nextPage: { results: [{ type: "apps" }] },
+            },
+          },
+        ],
+      })}</script>`,
+      "search_page_next_page_app_id_missing",
+    ],
+  ])("reports %s while allowing MZSearch recovery", async (_name, html, driftKind) => {
+    mockedAsoAppleGet
+      .mockResolvedValueOnce({ data: html, status: 200 } as never)
+      .mockResolvedValueOnce({
+        data: {
+          pageData: {
+            bubbles: [
+              { name: "software", results: [{ id: "fallback-1" }] },
+            ],
+          },
+        },
+        status: 200,
+      } as never);
+
+    await refreshKeywordOrder({ keyword: "shape test", country: "US" });
+
+    expect(mockedReportAppleContractChange).toHaveBeenCalledWith(
+      expect.objectContaining({
+        driftKind,
+        recoveryOutcome: "recovered",
+        isTerminal: false,
+      })
+    );
+  });
+
+  it("reports malformed MZSearch as terminal drift when fallback is unresolved", async () => {
+    mockedAsoAppleGet
+      .mockResolvedValueOnce({
+        data: "<html><body>no serialized data</body></html>",
+        status: 200,
+      } as never)
+      .mockResolvedValueOnce({
+        data: { pageData: { bubbles: "unexpected" } },
+        status: 200,
+      } as never);
+
+    const result = await refreshKeywordOrder({
+      keyword: "broken fallback",
+      country: "US",
+    });
+
+    expect(result.orderedAppIds).toBeNull();
+    expect(mockedReportAppleContractChange).toHaveBeenCalledWith(
+      expect.objectContaining({
+        driftKind: "mzsearch_bubbles_not_array",
+        recoveryOutcome: "unresolved",
+        isTerminal: true,
+      })
+    );
   });
 
   it("keeps useful primary data unresolved when MZSearch cannot supply the missing count", async () => {
@@ -729,18 +875,14 @@ describe("aso-enrichment-service", () => {
   it("skips bundle search results when building top app ids for difficulty docs", async () => {
     const bundleId = "1814195639";
     mockedAsoAppleGet.mockResolvedValue({
-      data: buildSearchHtmlForIds(
-        ["1", "2", bundleId, "3", "4"],
-        ["5", "6"],
-        {
-          kindsById: {
-            [bundleId]: "BundleSearchResult",
-          },
-          resultTypesById: {
-            [bundleId]: "bundle",
-          },
-        }
-      ),
+      data: buildSearchHtmlForIds(["1", "2", bundleId, "3", "4"], ["5", "6"], {
+        kindsById: {
+          [bundleId]: "BundleSearchResult",
+        },
+        resultTypesById: {
+          [bundleId]: "bundle",
+        },
+      }),
     } as never);
     mockedFetchAppStoreLookupAppDocs.mockResolvedValue([
       {
@@ -967,7 +1109,9 @@ describe("aso-enrichment-service", () => {
       }
     );
 
-    expect(result.appDocs.find((doc) => doc.appId === "6")?.expiresAt).toBeUndefined();
+    expect(
+      result.appDocs.find((doc) => doc.appId === "6")?.expiresAt
+    ).toBeUndefined();
     expect(result.appDocs.find((doc) => doc.appId === "1")?.expiresAt).toBe(
       "2099-01-01T00:00:00.000Z"
     );
@@ -1123,18 +1267,14 @@ describe("aso-enrichment-service", () => {
 
   it("detects brand keyword from search lockup publisher", async () => {
     mockedAsoAppleGet.mockResolvedValue({
-      data: buildSearchHtmlForIds(
-        ["1", "2", "3", "4", "5"],
-        [],
-        {
-          developerNamesById: {
-            "1": "Dream Labs LLC",
-          },
-          ratingCountById: {
-            "1": 1500,
-          },
-        }
-      ),
+      data: buildSearchHtmlForIds(["1", "2", "3", "4", "5"], [], {
+        developerNamesById: {
+          "1": "Dream Labs LLC",
+        },
+        ratingCountById: {
+          "1": 1500,
+        },
+      }),
     } as never);
 
     const result = await enrichKeyword(
@@ -1144,7 +1284,8 @@ describe("aso-enrichment-service", () => {
         popularity: 66,
       },
       {
-        getAppDocs: async () => buildCompleteCachedTopDocs(["1", "2", "3", "4", "5"]),
+        getAppDocs: async () =>
+          buildCompleteCachedTopDocs(["1", "2", "3", "4", "5"]),
       }
     );
 
@@ -1200,18 +1341,14 @@ describe("aso-enrichment-service", () => {
 
   it("returns non-brand when #1 publisher tokens do not match keyword", async () => {
     mockedAsoAppleGet.mockResolvedValue({
-      data: buildSearchHtmlForIds(
-        ["1", "2", "3", "4", "5"],
-        [],
-        {
-          developerNamesById: {
-            "1": "Different Publisher",
-          },
-          ratingCountById: {
-            "1": 3000,
-          },
-        }
-      ),
+      data: buildSearchHtmlForIds(["1", "2", "3", "4", "5"], [], {
+        developerNamesById: {
+          "1": "Different Publisher",
+        },
+        ratingCountById: {
+          "1": 3000,
+        },
+      }),
     } as never);
 
     const result = await enrichKeyword(
@@ -1221,7 +1358,8 @@ describe("aso-enrichment-service", () => {
         popularity: 66,
       },
       {
-        getAppDocs: async () => buildCompleteCachedTopDocs(["1", "2", "3", "4", "5"]),
+        getAppDocs: async () =>
+          buildCompleteCachedTopDocs(["1", "2", "3", "4", "5"]),
       }
     );
 
@@ -1230,26 +1368,22 @@ describe("aso-enrichment-service", () => {
 
   it("marks weak leader as brand when independent runner-up median ratings are strong", async () => {
     mockedAsoAppleGet.mockResolvedValue({
-      data: buildSearchHtmlForIds(
-        ["1", "2", "3", "4", "5"],
-        [],
-        {
-          developerNamesById: {
-            "1": "Acme Labs",
-            "2": "Runner A",
-            "3": "Runner B",
-            "4": "Runner C",
-            "5": "Runner D",
-          },
-          ratingCountById: {
-            "1": 500,
-            "2": 12000,
-            "3": 15000,
-            "4": 20000,
-            "5": 8000,
-          },
-        }
-      ),
+      data: buildSearchHtmlForIds(["1", "2", "3", "4", "5"], [], {
+        developerNamesById: {
+          "1": "Acme Labs",
+          "2": "Runner A",
+          "3": "Runner B",
+          "4": "Runner C",
+          "5": "Runner D",
+        },
+        ratingCountById: {
+          "1": 500,
+          "2": 12000,
+          "3": 15000,
+          "4": 20000,
+          "5": 8000,
+        },
+      }),
     } as never);
 
     const result = await enrichKeyword(
@@ -1259,7 +1393,8 @@ describe("aso-enrichment-service", () => {
         popularity: 66,
       },
       {
-        getAppDocs: async () => buildCompleteCachedTopDocs(["1", "2", "3", "4", "5"]),
+        getAppDocs: async () =>
+          buildCompleteCachedTopDocs(["1", "2", "3", "4", "5"]),
       }
     );
 
@@ -1268,26 +1403,22 @@ describe("aso-enrichment-service", () => {
 
   it("marks weak leader as non-brand when independent runner-up median ratings are weak", async () => {
     mockedAsoAppleGet.mockResolvedValue({
-      data: buildSearchHtmlForIds(
-        ["1", "2", "3", "4", "5"],
-        [],
-        {
-          developerNamesById: {
-            "1": "Acme Labs",
-            "2": "Runner A",
-            "3": "Runner B",
-            "4": "Runner C",
-            "5": "Runner D",
-          },
-          ratingCountById: {
-            "1": 500,
-            "2": 1000,
-            "3": 2000,
-            "4": 5000,
-            "5": 7000,
-          },
-        }
-      ),
+      data: buildSearchHtmlForIds(["1", "2", "3", "4", "5"], [], {
+        developerNamesById: {
+          "1": "Acme Labs",
+          "2": "Runner A",
+          "3": "Runner B",
+          "4": "Runner C",
+          "5": "Runner D",
+        },
+        ratingCountById: {
+          "1": 500,
+          "2": 1000,
+          "3": 2000,
+          "4": 5000,
+          "5": 7000,
+        },
+      }),
     } as never);
 
     const result = await enrichKeyword(
@@ -1297,7 +1428,8 @@ describe("aso-enrichment-service", () => {
         popularity: 66,
       },
       {
-        getAppDocs: async () => buildCompleteCachedTopDocs(["1", "2", "3", "4", "5"]),
+        getAppDocs: async () =>
+          buildCompleteCachedTopDocs(["1", "2", "3", "4", "5"]),
       }
     );
 

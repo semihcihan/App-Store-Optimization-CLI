@@ -51,7 +51,6 @@ const REPORTABLE_CLASSIFICATIONS = new Set<TelemetryClassification>([
   "actionable_bug",
   "apple_contract_change",
   "upstream_terminal_failure",
-  "user_fault",
   "unknown",
 ]);
 
@@ -81,8 +80,10 @@ function getTelemetryHint(metadata: AnyRecord): TelemetryHint | undefined {
     classification: toStringValue(hint.classification) as
       | TelemetryClassification
       | undefined,
-    isTerminal: typeof hint.isTerminal === "boolean" ? hint.isTerminal : undefined,
-    isUserFault: typeof hint.isUserFault === "boolean" ? hint.isUserFault : undefined,
+    isTerminal:
+      typeof hint.isTerminal === "boolean" ? hint.isTerminal : undefined,
+    isUserFault:
+      typeof hint.isUserFault === "boolean" ? hint.isUserFault : undefined,
     source: toStringValue(hint.source),
     operation: toStringValue(hint.operation),
     surface: toStringValue(hint.surface),
@@ -94,12 +95,17 @@ function getTelemetryHint(metadata: AnyRecord): TelemetryHint | undefined {
   };
 }
 
-function getStatusCode(error: unknown, metadata: AnyRecord): number | undefined {
+function getStatusCode(
+  error: unknown,
+  metadata: AnyRecord
+): number | undefined {
   const hint = getTelemetryHint(metadata);
   if (hint?.statusCode != null) return hint.statusCode;
 
   const record = getErrorRecord(error);
-  return toStatusCode(record?.status ?? record?.statusCode ?? metadata.statusCode);
+  return toStatusCode(
+    record?.status ?? record?.statusCode ?? metadata.statusCode
+  );
 }
 
 function getErrorCode(error: unknown, metadata: AnyRecord): string | undefined {
@@ -108,11 +114,6 @@ function getErrorCode(error: unknown, metadata: AnyRecord): string | undefined {
 
   const record = getErrorRecord(error);
   return toStringValue(record?.errorCode ?? record?.code ?? metadata.errorCode);
-}
-
-function isDashboardApiErrorLike(error: unknown): boolean {
-  const record = getErrorRecord(error);
-  return toStringValue(record?.name) === "DashboardApiError";
 }
 
 function isAppleAuthResponseErrorLike(error: unknown): boolean {
@@ -146,16 +147,6 @@ function classifyKnownFlow(
   const hint = getTelemetryHint(metadata);
   const noisy = classifyKnownNoise(error, metadata, hint);
   if (noisy) return noisy;
-  if (
-    hint?.classification === "apple_contract_change" &&
-    hint.isTerminal === false
-  ) {
-    return {
-      report: false,
-      classification: "transient_non_terminal",
-      reason: "non_terminal_contract_fallback",
-    };
-  }
   if (hint?.classification) {
     return {
       report: REPORTABLE_CLASSIFICATIONS.has(hint.classification),
@@ -165,7 +156,7 @@ function classifyKnownFlow(
   }
   if (hint?.isUserFault) {
     return {
-      report: true,
+      report: false,
       classification: "user_fault",
       reason: "explicit_hint_user_fault",
     };
@@ -219,15 +210,6 @@ function classifyKnownFlow(
 
   const statusCode = getStatusCode(error, metadata);
   const errorCode = getErrorCode(error, metadata);
-  const isDashboardClientFlow = isDashboardApiErrorLike(error) && statusCode != null;
-  if (isDashboardClientFlow && statusCode >= 400 && statusCode < 500) {
-    return {
-      report: false,
-      classification: "expected_flow",
-      reason: "dashboard_api_4xx",
-    };
-  }
-
   if (errorCode && EXPECTED_DASHBOARD_FLOW_ERROR_CODES.has(errorCode)) {
     return {
       report: false,
@@ -297,7 +279,8 @@ export function withTelemetryDecisionMetadata(
   const signal =
     toStringValue(metadata.signal) ?? inferSignal(decision.classification);
   const noiseClass = inferNoiseClass(metadata, decision.reason, signal);
-  const isTerminal = toBooleanOrNull(metadata.isTerminal) ?? hint?.isTerminal ?? null;
+  const isTerminal =
+    toBooleanOrNull(metadata.isTerminal) ?? hint?.isTerminal ?? null;
 
   return {
     ...metadataWithoutLegacy,

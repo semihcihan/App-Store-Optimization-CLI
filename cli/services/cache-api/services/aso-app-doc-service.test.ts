@@ -35,8 +35,13 @@ function createRepository(
   overrides: Partial<AsoCacheRepository> = {}
 ): AsoCacheRepository {
   return {
-    getByKeywords: (jest.fn(async () => ({ hits: [], misses: [] })) as unknown) as AsoCacheRepository["getByKeywords"],
-    upsertMany: (jest.fn(async () => []) as unknown) as AsoCacheRepository["upsertMany"],
+    getByKeywords: jest.fn(async () => ({
+      hits: [],
+      misses: [],
+    })) as unknown as AsoCacheRepository["getByKeywords"],
+    upsertMany: jest.fn(
+      async () => []
+    ) as unknown as AsoCacheRepository["upsertMany"],
     ...overrides,
   };
 }
@@ -181,9 +186,71 @@ describe("aso-app-doc-service", () => {
     );
   });
 
+  it.each([
+    [
+      "item-not-available plist",
+      `<?xml version="1.0"?><plist><dict><key>dialogId</key><string>itemNotAvailable</string></dict></plist>`,
+      200,
+    ],
+    [
+      "unsupported product page",
+      { pageData: { componentName: "unsupported_product_page" } },
+      200,
+    ],
+    ["not found", "", 404],
+  ])(
+    "treats %s as an expected unavailable app result",
+    async (_name, data, status) => {
+      mockedAsoAppleGet
+        .mockResolvedValueOnce({ data, status } as never)
+        .mockResolvedValueOnce({
+          data: { resultCount: 0, results: [] },
+        } as never);
+
+      await expect(
+        fetchAppStoreLookupAppDocs({ country: "US", appIds: ["404"] })
+      ).resolves.toEqual([]);
+
+      expect(mockedReportAppleContractChange).not.toHaveBeenCalled();
+    }
+  );
+
+  it("reports malformed app lookup as recovered after iTunes fallback", async () => {
+    mockedAsoAppleGet
+      .mockResolvedValueOnce({ data: {}, status: 200 } as never)
+      .mockResolvedValueOnce({
+        data: {
+          resultCount: 1,
+          results: [
+            {
+              trackId: 42,
+              wrapperType: "software",
+              trackName: "Fallback App",
+              sellerName: "Fallback Seller",
+              releaseDate: "2024-01-01T00:00:00Z",
+              currentVersionReleaseDate: "2025-01-01T00:00:00Z",
+            },
+          ],
+        },
+      } as never);
+
+    await expect(
+      fetchAppStoreLookupAppDocs({ country: "US", appIds: ["42"] })
+    ).resolves.toEqual([expect.objectContaining({ appId: "42" })]);
+
+    expect(mockedReportAppleContractChange).toHaveBeenCalledWith(
+      expect.objectContaining({
+        driftKind: "app_lookup_product_payload_missing",
+        recoveryOutcome: "recovered",
+        fallbackSource: "itunes.lookup",
+        isTerminal: false,
+      })
+    );
+  });
+
   it("returns cached docs first, fetches missing docs, and persists them", async () => {
     const repository = createRepository({
-      getAppDocs: (jest.fn(async () => [
+      getAppDocs: jest.fn(async () => [
         {
           appId: "1",
           country: "US",
@@ -192,7 +259,7 @@ describe("aso-app-doc-service", () => {
           userRatingCount: 10,
           expiresAt: "2099-01-01T00:00:00.000Z",
         },
-      ]) as unknown) as AsoCacheRepository["getAppDocs"],
+      ]) as unknown as AsoCacheRepository["getAppDocs"],
     });
     mockedAsoAppleGet.mockResolvedValue({
       data: {
@@ -245,7 +312,7 @@ describe("aso-app-doc-service", () => {
 
   it("bypasses cache and refetches all requested docs when forceLookup is true", async () => {
     const repository = createRepository({
-      getAppDocs: (jest.fn(async () => [
+      getAppDocs: jest.fn(async () => [
         {
           appId: "1",
           country: "US",
@@ -254,7 +321,7 @@ describe("aso-app-doc-service", () => {
           userRatingCount: 100,
           expiresAt: "2099-01-01T00:00:00.000Z",
         },
-      ]) as unknown) as AsoCacheRepository["getAppDocs"],
+      ]) as unknown as AsoCacheRepository["getAppDocs"],
     });
     mockedAsoAppleGet.mockResolvedValueOnce({
       data: {
@@ -310,7 +377,9 @@ describe("aso-app-doc-service", () => {
 
   it("does not set expiresAt when fetched app doc is missing date fields", async () => {
     const repository = createRepository({
-      getAppDocs: (jest.fn(async () => []) as unknown) as AsoCacheRepository["getAppDocs"],
+      getAppDocs: jest.fn(
+        async () => []
+      ) as unknown as AsoCacheRepository["getAppDocs"],
     });
     mockedAsoAppleGet.mockResolvedValue({
       data: {
@@ -375,7 +444,9 @@ describe("aso-app-doc-service", () => {
 
   it("throws for non-US country", async () => {
     const repository = createRepository({
-      getAppDocs: (jest.fn(async () => []) as unknown) as AsoCacheRepository["getAppDocs"],
+      getAppDocs: jest.fn(
+        async () => []
+      ) as unknown as AsoCacheRepository["getAppDocs"],
     });
 
     await expect(

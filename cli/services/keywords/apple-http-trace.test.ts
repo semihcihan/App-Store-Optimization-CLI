@@ -8,20 +8,13 @@ import {
 } from "./apple-http-trace";
 import { getErrorBugsnagMetadata } from "../telemetry/bugsnag-metadata";
 import { reportBugsnagError } from "../telemetry/error-reporter";
-import { logger } from "../../utils/logger";
 
 jest.mock("../telemetry/error-reporter", () => ({
   reportBugsnagError: jest.fn(),
 }));
-jest.mock("../../utils/logger", () => ({
-  logger: {
-    debug: jest.fn(),
-  },
-}));
 
 describe("apple-http-trace", () => {
   const mockReportBugsnagError = jest.mocked(reportBugsnagError);
-  const mockLoggerDebug = jest.mocked(logger.debug);
 
   beforeEach(() => {
     resetAppleHttpTracingForTests();
@@ -149,16 +142,18 @@ describe("apple-http-trace", () => {
     const failedTraces = appleApi.recentFailedHttpTraces || [];
     const traceSeq = traces.map((trace: any) =>
       Number(
-        new URL(trace.request.url || "", "https://apple.local").searchParams.get(
-          "seq"
-        )
+        new URL(
+          trace.request.url || "",
+          "https://apple.local"
+        ).searchParams.get("seq")
       )
     );
     const failedSeq = failedTraces.map((trace: any) =>
       Number(
-        new URL(trace.request.url || "", "https://apple.local").searchParams.get(
-          "seq"
-        )
+        new URL(
+          trace.request.url || "",
+          "https://apple.local"
+        ).searchParams.get("seq")
       )
     );
 
@@ -252,7 +247,7 @@ describe("apple-http-trace", () => {
     );
   });
 
-  it("suppresses non-terminal apple contract fallback diagnostics", () => {
+  it("reports recovered apple contract drift with sanitized metadata", () => {
     reportAppleContractChange({
       provider: "apple-appstore",
       operation: "appstore.search-page",
@@ -266,23 +261,36 @@ describe("apple-http-trace", () => {
         parser: "serialized-server-data",
       },
       isTerminal: false,
+      driftKind: "search_page_serialized_data_missing",
+      recoveryOutcome: "recovered",
+      fallbackSource: "mzsearch",
     });
 
-    expect(mockReportBugsnagError).not.toHaveBeenCalled();
-    expect(mockLoggerDebug).toHaveBeenCalledWith(
-      "[apple-contract] non-terminal fallback",
+    expect(mockReportBugsnagError).toHaveBeenCalledTimes(1);
+    expect(mockReportBugsnagError).toHaveBeenCalledWith(
+      expect.any(Error),
       expect.objectContaining({
-        provider: "apple-appstore",
         operation: "appstore.search-page",
         endpoint: expect.stringContaining("token=%5BREDACTED"),
-        actualSignal: {
-          password: expect.stringContaining("[REDACTED"),
-          signal: "script_missing",
-        },
-        context: {
-          password: expect.stringContaining("[REDACTED"),
-          parser: "serialized-server-data",
-        },
+        isTerminal: false,
+        recoveryOutcome: "recovered",
+        fallbackSource: "mzsearch",
+        appleContractChange: expect.objectContaining({
+          actualSignal: {
+            password: expect.stringContaining("[REDACTED"),
+            signal: "script_missing",
+          },
+        }),
+      })
+    );
+    const wrapped = mockReportBugsnagError.mock.calls[0][0];
+    expect(getErrorBugsnagMetadata(wrapped)).toEqual(
+      expect.objectContaining({
+        appleApi: expect.objectContaining({
+          context: expect.objectContaining({
+            password: expect.stringContaining("[REDACTED"),
+          }),
+        }),
       })
     );
   });
@@ -314,6 +322,46 @@ describe("apple-http-trace", () => {
     );
   });
 
+  it("redacts sensitive metadata in terminal contract drift events", () => {
+    reportAppleContractChange({
+      provider: "apple-auth",
+      operation: "signin.complete",
+      endpoint: "https://idmsa.apple.com/signin?token=terminal-secret",
+      expectedContract: "signin response includes auth attributes",
+      actualSignal: '{"password":"secret","shape":"missing_auth"}',
+      context: { cookie: "private-cookie", responseShape: "missing_auth" },
+      error: new Error("password=secret must not be reported"),
+      isTerminal: true,
+      driftKind: "signin_auth_attributes_missing",
+      recoveryOutcome: "unresolved",
+    });
+
+    expect(mockReportBugsnagError).toHaveBeenCalledWith(
+      expect.any(Error),
+      expect.objectContaining({
+        endpoint: expect.stringContaining("token=%5BREDACTED"),
+        appleContractChange: expect.objectContaining({
+          actualSignal: expect.objectContaining({
+            password: expect.stringContaining("[REDACTED"),
+          }),
+        }),
+      })
+    );
+    const wrapped = mockReportBugsnagError.mock.calls[0][0];
+    expect((wrapped as Error).message).toBe(
+      "Apple contract drift detected: signin.complete"
+    );
+    expect(getErrorBugsnagMetadata(wrapped)).toEqual(
+      expect.objectContaining({
+        appleApi: expect.objectContaining({
+          context: expect.objectContaining({
+            cookie: expect.stringContaining("[REDACTED"),
+          }),
+        }),
+      })
+    );
+  });
+
   it("dedupes repeated apple contract drifts for 15 minutes", () => {
     jest.useFakeTimers();
     const params = {
@@ -335,5 +383,48 @@ describe("apple-http-trace", () => {
     reportAppleContractChange(params);
     expect(mockReportBugsnagError).toHaveBeenCalledTimes(2);
     jest.useRealTimers();
+  });
+
+  it("does not let a recovered drift suppress a later terminal occurrence", () => {
+    const common = {
+      provider: "apple-appstore" as const,
+      operation: "appstore.search-page",
+      endpoint: "https://apps.apple.com/us/iphone/search",
+      expectedContract: "serialized-server-data exists",
+      actualSignal: "script_missing",
+      statusCode: 200,
+      driftKind: "search_page_serialized_data_missing",
+    };
+
+    reportAppleContractChange({
+      ...common,
+      isTerminal: false,
+      recoveryOutcome: "recovered",
+    });
+    reportAppleContractChange({
+      ...common,
+      isTerminal: true,
+      recoveryOutcome: "unresolved",
+    });
+
+    expect(mockReportBugsnagError).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not dedupe distinct drift kinds from the same endpoint", () => {
+    const common = {
+      provider: "apple-appstore" as const,
+      operation: "appstore.search-page",
+      endpoint: "https://apps.apple.com/us/iphone/search",
+      expectedContract: "valid search response",
+      actualSignal: "shape_changed",
+      statusCode: 200,
+      isTerminal: false,
+      recoveryOutcome: "recovered",
+    };
+
+    reportAppleContractChange({ ...common, driftKind: "missing_shelves" });
+    reportAppleContractChange({ ...common, driftKind: "malformed_lockup" });
+
+    expect(mockReportBugsnagError).toHaveBeenCalledTimes(2);
   });
 });

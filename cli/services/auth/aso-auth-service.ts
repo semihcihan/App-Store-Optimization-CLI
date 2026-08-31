@@ -873,7 +873,35 @@ export class AsoAuthEngine {
       if (!this.shouldFallbackToLegacyFromSirp(error)) {
         throw error;
       }
-      if (error instanceof AppleAuthResponseError && error.reason === "unknown") {
+      const contractDrift =
+        error instanceof AppleAuthResponseError &&
+        error.reason === "unknown" &&
+        !isRetryableTransientStatusCode(error.status);
+      logger.debug(
+        `[aso-auth] SIRP failed, falling back to legacy: ${String(error)}`
+      );
+      try {
+        await this.loginWithLegacy(credentials, { maxAttempts: 1 });
+      } catch (fallbackError) {
+        if (contractDrift) {
+          reportAppleContractChange({
+            provider: "apple-auth",
+            operation: "sirp-fallback",
+            endpoint: `${APPLE_IDMSA_BASE_URL}/signin/complete`,
+            statusCode: error.status,
+            expectedContract:
+              "SIRP login failure is classified to a known Apple auth reason",
+            actualSignal: `unknown_reason status=${error.status}`,
+            error,
+            isTerminal: true,
+            driftKind: "sirp_unknown_failure_reason",
+            recoveryOutcome: "unresolved",
+            fallbackSource: "legacy-auth",
+          });
+        }
+        throw fallbackError;
+      }
+      if (contractDrift) {
         reportAppleContractChange({
           provider: "apple-auth",
           operation: "sirp-fallback",
@@ -884,13 +912,11 @@ export class AsoAuthEngine {
           actualSignal: `unknown_reason status=${error.status}`,
           error,
           isTerminal: false,
-          dedupeKey: "apple-auth-sirp-fallback-unknown-reason",
+          driftKind: "sirp_unknown_failure_reason",
+          recoveryOutcome: "recovered",
+          fallbackSource: "legacy-auth",
         });
       }
-      logger.debug(
-        `[aso-auth] SIRP failed, falling back to legacy: ${String(error)}`
-      );
-      await this.loginWithLegacy(credentials, { maxAttempts: 1 });
     }
   }
 
@@ -1391,7 +1417,9 @@ export class AsoAuthEngine {
             "Widget config response includes non-empty authServiceKey",
           actualSignal: "missing_auth_service_key",
           isTerminal: false,
-          dedupeKey: "apple-auth-widget-config-missing-auth-service-key",
+          driftKind: "widget_config_auth_service_key_missing",
+          recoveryOutcome: "recovered",
+          fallbackSource: "packaged-widget-key",
         });
       }
 
@@ -1847,7 +1875,9 @@ export class AsoAuthEngine {
         statusCode: webAuthResponse.status,
         expectedContract:
           "WebAuth handoff redirects to a searchads.apple.com destination",
-        actualSignal: `unexpected_location=${location || "unknown"}`,
+        actualSignal: `unexpected_redirect_destination hasLocation=${Boolean(
+          location
+        )}`,
         context: {
           iframeId,
         },

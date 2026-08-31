@@ -83,16 +83,26 @@ function parseSerializedData(raw: unknown): SerializedServerData | null {
   }
 }
 
-function mapLocalizedData(payload: SerializedServerData): LocalizedAppPageData | null {
+function mapLocalizedData(
+  payload: SerializedServerData
+): LocalizedAppPageData | null {
   const root = payload.data?.[0]?.data;
   const title = cleanText(root?.lockup?.title);
   const subtitle = cleanText(root?.lockup?.subtitle);
   const icon = readObject(root?.lockup?.icon);
   const ratingItem = root?.shelfMapping?.productRatings?.items?.[0];
   const ratingAverage = readFiniteNumber(ratingItem?.ratingAverage);
-  const totalNumberOfRatings = readFiniteNumber(ratingItem?.totalNumberOfRatings);
+  const totalNumberOfRatings = readFiniteNumber(
+    ratingItem?.totalNumberOfRatings
+  );
 
-  if (!title && !subtitle && !icon && ratingAverage == null && totalNumberOfRatings == null) {
+  if (
+    !title &&
+    !subtitle &&
+    !icon &&
+    ratingAverage == null &&
+    totalNumberOfRatings == null
+  ) {
     return null;
   }
 
@@ -112,7 +122,9 @@ export async function fetchAppStoreLocalizedAppData(
 ): Promise<LocalizedAppPageData | null> {
   const normalizedCountry = country.toUpperCase();
   const resolvedLanguage =
-    language == null ? getStorefrontDefaultLanguage(normalizedCountry) : language.trim();
+    language == null
+      ? getStorefrontDefaultLanguage(normalizedCountry)
+      : language.trim();
   const requestCountry = normalizedCountry.toLowerCase();
   const languageParam = resolvedLanguage ? `?l=${resolvedLanguage}` : "";
   const url = `${APP_STORE_BASE}/${requestCountry}/app/id${appId}${languageParam}`;
@@ -121,7 +133,7 @@ export async function fetchAppStoreLocalizedAppData(
     headers: {
       "User-Agent":
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2.1 Safari/605.1.15",
-          Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+      Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
       Host: "apps.apple.com",
       "Accept-Language": resolvedLanguage
         ? `${resolvedLanguage},en-US;q=0.9`
@@ -151,7 +163,8 @@ export async function fetchAppStoreLocalizedAppData(
         language: resolvedLanguage || "<none>",
       },
       isTerminal: false,
-      dedupeKey: "appstore-localized-page-payload-parse",
+      driftKind: "localized_page_payload_parse_failed",
+      recoveryOutcome: "optional_localization_unavailable",
     });
     return null;
   }
@@ -172,7 +185,8 @@ export async function fetchAppStoreLocalizedAppData(
         language: resolvedLanguage || "<none>",
       },
       isTerminal: false,
-      dedupeKey: "appstore-localized-page-shape-missing",
+      driftKind: "localized_page_mapping_missing",
+      recoveryOutcome: "optional_localization_unavailable",
     });
     return null;
   }
@@ -197,7 +211,11 @@ export async function fetchAppStoreAdditionalLocalizations(
   const localizedResults = await Promise.all(
     languages.map(async (language) => {
       try {
-        const localized = await fetchAppStoreLocalizedAppData(appId, country, language);
+        const localized = await fetchAppStoreLocalizedAppData(
+          appId,
+          country,
+          language
+        );
         if (!localized) return null;
         const name = cleanText(localized.title);
         const subtitle = cleanText(localized.subtitle);
@@ -215,7 +233,8 @@ export async function fetchAppStoreAdditionalLocalizations(
     })
   );
 
-  const additionalLocalizations: Record<string, AppLocalizationNameSubtitle> = {};
+  const additionalLocalizations: Record<string, AppLocalizationNameSubtitle> =
+    {};
   for (const entry of localizedResults) {
     if (!entry) continue;
     const [language, value] = entry;

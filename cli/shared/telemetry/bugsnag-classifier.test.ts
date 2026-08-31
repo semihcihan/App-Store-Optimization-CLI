@@ -49,53 +49,8 @@ describe("bugsnag-classifier", () => {
       telemetryHint: { isUserFault: true },
     });
 
-    expect(decision.report).toBe(true);
+    expect(decision.report).toBe(false);
     expect(decision.classification).toBe("user_fault");
-  });
-
-  it("suppresses dashboard api 4xx flow errors", () => {
-    const dashboardApiError = Object.assign(new Error("Unauthorized"), {
-      name: "DashboardApiError",
-      status: 401,
-      errorCode: "AUTH_REQUIRED",
-    });
-    const decision = classifyTelemetryError(dashboardApiError, {
-      method: "POST",
-      path: "/api/aso/auth/start",
-    });
-
-    expect(decision).toEqual({
-      report: false,
-      classification: "expected_flow",
-      reason: "dashboard_api_4xx",
-    });
-  });
-
-  it("does not suppress actionable dashboard timeout/network server errors", () => {
-    const timeoutError = Object.assign(new Error("Request timed out"), {
-      name: "DashboardApiError",
-      status: 500,
-      errorCode: "REQUEST_TIMEOUT",
-    });
-    const networkError = Object.assign(new Error("Network unavailable"), {
-      name: "DashboardApiError",
-      status: 500,
-      errorCode: "NETWORK_ERROR",
-    });
-
-    const timeoutDecision = classifyTelemetryError(timeoutError, {});
-    const networkDecision = classifyTelemetryError(networkError, {});
-
-    expect(timeoutDecision).toEqual({
-      report: true,
-      classification: "unknown",
-      reason: "default_report",
-    });
-    expect(networkDecision).toEqual({
-      report: true,
-      classification: "unknown",
-      reason: "default_report",
-    });
   });
 
   it("suppresses known Apple auth user faults", () => {
@@ -110,10 +65,13 @@ describe("bugsnag-classifier", () => {
   });
 
   it("classifies Apple 2FA verification delivery failures as user_fault", () => {
-    const error = Object.assign(new Error("Verification codes cannot be sent"), {
-      name: "AppleAuthResponseError",
-      reason: "verification_delivery_failed",
-    });
+    const error = Object.assign(
+      new Error("Verification codes cannot be sent"),
+      {
+        name: "AppleAuthResponseError",
+        reason: "verification_delivery_failed",
+      }
+    );
 
     const decision = classifyTelemetryError(error, {});
     expect(decision).toEqual({
@@ -139,47 +97,22 @@ describe("bugsnag-classifier", () => {
     });
   });
 
-  it("classifies dashboard auth status transport errors as user-fault noise", () => {
-    const decision = classifyTelemetryError(new TypeError("Failed to fetch"), {
-      surface: "aso-dashboard-ui",
-      method: "GET",
-      path: "/api/aso/auth/status",
-    });
-
-    expect(decision).toEqual({
-      report: false,
-      classification: "user_fault",
-      reason: "dashboard_auth_status_transport",
-    });
-  });
-
-  it("suppresses non-terminal Apple contract fallback diagnostics", () => {
-    const decision = classifyTelemetryError(new Error("primary parser failed"), {
-      telemetryHint: {
-        classification: "apple_contract_change",
-        upstreamProvider: "apple-appstore",
-        isTerminal: false,
-      },
-    });
-
-    expect(decision).toEqual({
-      report: false,
-      classification: "transient_non_terminal",
-      reason: "non_terminal_contract_fallback",
-    });
-  });
-
-  it("does not classify unrelated TypeError on auth status as noise", () => {
-    const decision = classifyTelemetryError(new TypeError("Cannot read properties"), {
-      surface: "aso-dashboard-ui",
-      method: "GET",
-      path: "/api/aso/auth/status",
-    });
+  it("reports recovered Apple contract drift", () => {
+    const decision = classifyTelemetryError(
+      new Error("primary parser failed"),
+      {
+        telemetryHint: {
+          classification: "apple_contract_change",
+          upstreamProvider: "apple-appstore",
+          isTerminal: false,
+        },
+      }
+    );
 
     expect(decision).toEqual({
       report: true,
-      classification: "unknown",
-      reason: "default_report",
+      classification: "apple_contract_change",
+      reason: "explicit_hint_classification",
     });
   });
 
@@ -198,11 +131,14 @@ describe("bugsnag-classifier", () => {
   });
 
   it("classifies transient Apple auth responses as terminal upstream failures", () => {
-    const error = Object.assign(new Error("Apple login failed with status 503"), {
-      name: "AppleAuthResponseError",
-      reason: "unknown",
-      status: 503,
-    });
+    const error = Object.assign(
+      new Error("Apple login failed with status 503"),
+      {
+        name: "AppleAuthResponseError",
+        reason: "unknown",
+        status: 503,
+      }
+    );
 
     const decision = classifyTelemetryError(error, {});
     expect(decision).toEqual({
@@ -242,16 +178,24 @@ describe("bugsnag-classifier", () => {
       "primary_app_setup_flow",
     ],
     [
-      new Error(
-        "Interactive terminal is required to enter Apple credentials."
-      ),
+      new Error("Interactive terminal is required to enter Apple credentials."),
       {},
       "cli_credentials_tty_required",
     ],
     [
-      new Error("All keywords failed (2): one:UPSTREAM_ERROR(400), two:BAD(403)"),
+      new Error(
+        "All keywords failed (2): one:UPSTREAM_ERROR(400), two:BAD(403)"
+      ),
       {},
       "all_keywords_failed_4xx",
+    ],
+    [
+      Object.assign(new Error("Only US is supported for now"), {
+        name: "UnsupportedCountryError",
+        code: "ASO_UNSUPPORTED_COUNTRY",
+      }),
+      {},
+      "cli_validation_error",
     ],
   ])("suppresses expected CLI noise: %s", (error, metadata, reason) => {
     const decision = classifyTelemetryError(error, metadata);
@@ -269,6 +213,17 @@ describe("bugsnag-classifier", () => {
     );
 
     expect(decision).toEqual({
+      report: true,
+      classification: "unknown",
+      reason: "default_report",
+    });
+  });
+
+  it.each([
+    new Error("Could not locate the bindings file for better_sqlite3.node"),
+    new Error("UNIQUE constraint failed: owned_apps.project_id"),
+  ])("keeps actionable SQLite failures reportable", (error) => {
+    expect(classifyTelemetryError(error, {})).toEqual({
       report: true,
       classification: "unknown",
       reason: "default_report",

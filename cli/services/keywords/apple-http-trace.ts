@@ -7,7 +7,6 @@ import {
   sanitizeTelemetryUrl,
   sanitizeTelemetryValue,
 } from "../../shared/telemetry/trace-utils";
-import { logger } from "../../utils/logger";
 
 export type AppleTraceProvider =
   | "apple-auth"
@@ -26,6 +25,9 @@ type AppleContractChangeParams = {
   error?: unknown;
   isTerminal?: boolean;
   dedupeKey?: string;
+  driftKind?: string;
+  recoveryOutcome?: string;
+  fallbackSource?: string;
   surface?: string;
 };
 
@@ -92,7 +94,9 @@ const isSensitiveKey = buildSensitiveKeyMatcher({
   exact: Array.from(SENSITIVE_KEY_EXACT),
 });
 
-function toRequestSnapshot(config?: AxiosRequestConfig): AppleHttpTrace["request"] {
+function toRequestSnapshot(
+  config?: AxiosRequestConfig
+): AppleHttpTrace["request"] {
   return {
     method: String(config?.method || "get").toUpperCase(),
     url: sanitizeTelemetryUrl(String(config?.url || ""), {
@@ -145,7 +149,10 @@ function truncateTraceValue(value: unknown, depth = 0): unknown {
     const limitedEntries = entries
       .slice(0, TRACE_OBJECT_MAX_KEYS)
       .map(([key, entry]) => [key, truncateTraceValue(entry, depth + 1)]);
-    const output = Object.fromEntries(limitedEntries) as Record<string, unknown>;
+    const output = Object.fromEntries(limitedEntries) as Record<
+      string,
+      unknown
+    >;
     if (entries.length > TRACE_OBJECT_MAX_KEYS) {
       output._truncatedKeys = entries.length - TRACE_OBJECT_MAX_KEYS;
     }
@@ -155,9 +162,7 @@ function truncateTraceValue(value: unknown, depth = 0): unknown {
   return value;
 }
 
-function toMetadataTrace(
-  entry: AppleHttpTraceStoreEntry
-): AppleHttpTrace {
+function toMetadataTrace(entry: AppleHttpTraceStoreEntry): AppleHttpTrace {
   const { traceId: _traceId, nonSuccess: _nonSuccess, ...trace } = entry;
   return truncateTraceValue(trace) as AppleHttpTrace;
 }
@@ -181,9 +186,14 @@ function pushTrace(trace: AppleHttpTrace): void {
   }
 }
 
-function normalizeContractSignaturePart(value: unknown, maxLength = 120): string {
+function normalizeContractSignaturePart(
+  value: unknown,
+  maxLength = 120
+): string {
   if (value == null) return "";
-  const normalized = String(value).trim().toLowerCase().replace(/\s+/g, " ");
+  const stringValue =
+    typeof value === "object" ? JSON.stringify(value) : String(value);
+  const normalized = stringValue.trim().toLowerCase().replace(/\s+/g, " ");
   if (normalized.length <= maxLength) return normalized;
   return normalized.slice(0, maxLength);
 }
@@ -200,26 +210,30 @@ function statusBucket(statusCode?: number): string {
 function buildContractChangeSignature(params: {
   provider: AppleTraceProvider;
   operation: string;
-  endpoint?: string;
-  expectedContract: string;
-  actualSignal: string;
+  endpoint?: unknown;
+  expectedContract: unknown;
+  actualSignal: unknown;
   statusCode?: number;
   dedupeKey?: string;
+  driftKind?: string;
+  recoveryOutcome?: string;
+  isTerminal?: boolean;
 }): string {
-  if (params.dedupeKey) {
-    return [
-      params.provider,
-      params.operation,
-      normalizeContractSignaturePart(params.dedupeKey, 200),
-    ].join("|");
-  }
+  const driftKind = normalizeContractSignaturePart(
+    params.driftKind ?? params.dedupeKey ?? params.actualSignal,
+    200
+  );
+  const recoveryOutcome = normalizeContractSignaturePart(
+    params.recoveryOutcome ??
+      (params.isTerminal === true ? "terminal" : "recovered")
+  );
   return [
     params.provider,
     params.operation,
     normalizeContractSignaturePart(params.endpoint),
-    normalizeContractSignaturePart(params.expectedContract),
-    normalizeContractSignaturePart(params.actualSignal),
+    driftKind,
     statusBucket(params.statusCode),
+    recoveryOutcome,
   ].join("|");
 }
 
@@ -242,6 +256,16 @@ function shouldReportContractChange(signature: string, now: number): boolean {
   return true;
 }
 
+function createContractChangeError(operation: string, source: unknown): Error {
+  const error = new Error(`Apple contract drift detected: ${operation}`);
+  if (!(source instanceof Error) || !source.stack) return error;
+  const stackFrames = source.stack.split("\n").slice(1);
+  if (stackFrames.length > 0) {
+    error.stack = `${error.name}: ${error.message}\n${stackFrames.join("\n")}`;
+  }
+  return error;
+}
+
 export function attachAppleHttpTracing(
   client: AxiosInstance,
   provider: AppleTraceProvider
@@ -260,7 +284,9 @@ export function attachAppleHttpTracing(
 
   client.interceptors.response.use(
     (response) => {
-      const startedAt = Number((response.config as any).__appleTraceStartedAt || 0);
+      const startedAt = Number(
+        (response.config as any).__appleTraceStartedAt || 0
+      );
       pushTrace({
         timestamp: new Date().toISOString(),
         provider,
@@ -286,7 +312,9 @@ export function attachAppleHttpTracing(
     },
     (error) => {
       if (axios.isAxiosError(error)) {
-        const startedAt = Number((error.config as any)?.__appleTraceStartedAt || 0);
+        const startedAt = Number(
+          (error.config as any)?.__appleTraceStartedAt || 0
+        );
         pushTrace({
           timestamp: new Date().toISOString(),
           provider,
@@ -346,7 +374,9 @@ export function withAppleHttpTraceContext(
         ? (params.context as any).status
         : undefined;
   const recentHttpTraces = recentTraceStore.map(toMetadataTrace);
-  const recentTraceIds = new Set(recentTraceStore.map((entry) => entry.traceId));
+  const recentTraceIds = new Set(
+    recentTraceStore.map((entry) => entry.traceId)
+  );
   const recentFailedHttpTraces = recentFailedTraceStore.map(toMetadataTrace);
   const extraRecentFailedHttpTraces = recentFailedTraceStore
     .filter((entry) => !recentTraceIds.has(entry.traceId))
@@ -378,43 +408,41 @@ export function withAppleHttpTraceContext(
 export function reportAppleContractChange(
   params: AppleContractChangeParams
 ): void {
-  if (params.isTerminal !== true) {
-    logger.debug(
-      "[apple-contract] non-terminal fallback",
-      truncateTraceValue(
-        sanitizeTelemetryValue(
-          {
-            provider: params.provider,
-            operation: params.operation,
-            endpoint: sanitizeTelemetryUrl(params.endpoint, {
-              isSensitiveKey,
-              baseUrl: "https://apple.local",
-            }),
-            expectedContract: params.expectedContract,
-            actualSignal: params.actualSignal,
-            statusCode: params.statusCode,
-            requestId: params.requestId,
-            context: params.context || {},
-          },
-          {
-            isSensitiveKey,
-            parseJsonStrings: true,
-          }
-        )
-      )
-    );
-    return;
-  }
+  const endpoint = sanitizeTelemetryUrl(params.endpoint, {
+    isSensitiveKey,
+    baseUrl: "https://apple.local",
+  });
+  const expectedContract = truncateTraceValue(
+    sanitizeTelemetryValue(params.expectedContract, {
+      isSensitiveKey,
+      parseJsonStrings: true,
+    })
+  );
+  const actualSignal = truncateTraceValue(
+    sanitizeTelemetryValue(params.actualSignal, {
+      isSensitiveKey,
+      parseJsonStrings: true,
+    })
+  );
+  const context = truncateTraceValue(
+    sanitizeTelemetryValue(params.context || {}, {
+      isSensitiveKey,
+      parseJsonStrings: true,
+    })
+  ) as Record<string, unknown>;
 
   const now = Date.now();
   const signature = buildContractChangeSignature({
     provider: params.provider,
     operation: params.operation,
-    endpoint: params.endpoint,
-    expectedContract: params.expectedContract,
-    actualSignal: params.actualSignal,
+    endpoint,
+    expectedContract,
+    actualSignal,
     statusCode: params.statusCode,
     dedupeKey: params.dedupeKey,
+    driftKind: params.driftKind,
+    recoveryOutcome: params.recoveryOutcome,
+    isTerminal: params.isTerminal,
   });
   if (!shouldReportContractChange(signature, now)) {
     return;
@@ -423,17 +451,20 @@ export function reportAppleContractChange(
   const source = `apple.contract.${params.provider}.${params.operation}`;
   const surface = params.surface ?? "aso-apple-api";
   const wrapped = withAppleHttpTraceContext(
-    params.error ?? new Error(`Apple contract drift detected: ${params.operation}`),
+    createContractChangeError(params.operation, params.error),
     {
       provider: params.provider,
       operation: params.operation,
       context: {
-        endpoint: params.endpoint,
-        expectedContract: params.expectedContract,
-        actualSignal: params.actualSignal,
+        ...context,
+        endpoint,
+        expectedContract,
+        actualSignal,
         statusCode: params.statusCode,
         requestId: params.requestId,
-        ...(params.context || {}),
+        driftKind: params.driftKind,
+        recoveryOutcome: params.recoveryOutcome,
+        fallbackSource: params.fallbackSource,
       },
       isTerminal: params.isTerminal,
     }
@@ -443,17 +474,23 @@ export function reportAppleContractChange(
     surface,
     source,
     operation: params.operation,
-    endpoint: params.endpoint,
+    endpoint,
     statusCode: params.statusCode,
     isTerminal: params.isTerminal ?? false,
+    driftKind: params.driftKind,
+    recoveryOutcome: params.recoveryOutcome,
+    fallbackSource: params.fallbackSource,
     appleContractChange: {
       provider: params.provider,
       operation: params.operation,
-      endpoint: params.endpoint,
-      expectedContract: params.expectedContract,
-      actualSignal: params.actualSignal,
+      endpoint,
+      expectedContract,
+      actualSignal,
       statusCode: params.statusCode,
       requestId: params.requestId,
+      driftKind: params.driftKind,
+      recoveryOutcome: params.recoveryOutcome,
+      fallbackSource: params.fallbackSource,
       signature,
       dedupeWindowMs: APPLE_CONTRACT_CHANGE_DEDUPE_WINDOW_MS,
     },

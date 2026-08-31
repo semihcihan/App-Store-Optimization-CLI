@@ -1,6 +1,5 @@
 type DashboardRuntimeConfig = {
   nodeEnv?: string;
-  bugsnagVerboseTraces?: boolean;
   bugsnagApiKey?: string;
 };
 
@@ -18,11 +17,6 @@ function getRuntimeNodeEnv(): string | undefined {
   return normalized.length > 0 ? normalized : undefined;
 }
 
-function getRuntimeBugsnagVerboseTraces(): boolean {
-  if (typeof window === "undefined") return false;
-  return window.__ASO_DASHBOARD_RUNTIME__?.bugsnagVerboseTraces === true;
-}
-
 function getRuntimeBugsnagApiKey(): string | undefined {
   if (typeof window === "undefined") return undefined;
   const apiKey = window.__ASO_DASHBOARD_RUNTIME__?.bugsnagApiKey;
@@ -34,10 +28,6 @@ function getRuntimeBugsnagApiKey(): string | undefined {
 export function isDashboardDevelopment(): boolean {
   const nodeEnv = getRuntimeNodeEnv();
   return nodeEnv === "development";
-}
-
-export function isDashboardVerboseTraceEnabled(): boolean {
-  return getRuntimeBugsnagVerboseTraces();
 }
 
 export function getDashboardBugsnagApiKey(): string | undefined {

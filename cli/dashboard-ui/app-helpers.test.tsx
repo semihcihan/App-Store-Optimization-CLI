@@ -20,15 +20,9 @@ import {
   getIconUrl,
   getNumberDelta,
   isAuthFlowErrorCode,
-  resetRecentDashboardApiTracesForTests,
   roundTo,
   toActionableErrorMessage,
 } from "./app-helpers";
-import { notifyDashboardError } from "./bugsnag";
-
-jest.mock("./bugsnag", () => ({
-  notifyDashboardError: jest.fn(),
-}));
 
 function jsonResponse(status: number, body: unknown): Response {
   return {
@@ -39,12 +33,10 @@ function jsonResponse(status: number, body: unknown): Response {
 }
 
 describe("app-helpers", () => {
-  const mockNotifyDashboardError = jest.mocked(notifyDashboardError);
   const originalDateNow = Date.now;
 
   beforeEach(() => {
     jest.clearAllMocks();
-    resetRecentDashboardApiTracesForTests();
     (window as any).__ASO_DASHBOARD_RUNTIME__ = undefined;
   });
 
@@ -98,7 +90,7 @@ describe("app-helpers", () => {
     ).toBe("fallback");
   });
 
-  it("handles API requests and forwards failures to dashboard notifier", async () => {
+  it("handles API requests without reporting server-owned failures", async () => {
     const fetchMock = jest.fn();
     global.fetch = fetchMock as typeof fetch;
     fetchMock.mockResolvedValueOnce(
@@ -120,124 +112,16 @@ describe("app-helpers", () => {
       errorCode: "AUTH_REQUIRED",
     });
 
-    expect(mockNotifyDashboardError).toHaveBeenCalledWith(
-      expect.any(Error),
-      expect.objectContaining({
-        method: "POST",
-        path: "/bad",
-        source: "dashboard-ui.api-request",
-        operation: "POST /bad",
-        isTerminal: true,
-        recentApiTraces: expect.arrayContaining([
-          expect.objectContaining({
-            method: "POST",
-            path: "/bad",
-            response: expect.objectContaining({
-              status: 401,
-              ok: false,
-              success: false,
-              errorCode: "AUTH_REQUIRED",
-            }),
-            error: expect.objectContaining({
-              name: "DashboardApiError",
-            }),
-          }),
-        ]),
-      })
-    );
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
-  it("records fetch transport failures without response metadata", async () => {
+  it("propagates dashboard transport failures without browser reporting", async () => {
     const fetchMock = jest.fn();
     global.fetch = fetchMock as typeof fetch;
     fetchMock.mockRejectedValueOnce(new TypeError("Load failed"));
 
     await expect(apiGet("/network-down")).rejects.toThrow("Load failed");
-
-    expect(mockNotifyDashboardError).toHaveBeenCalledWith(
-      expect.any(TypeError),
-      expect.objectContaining({
-        method: "GET",
-        path: "/network-down",
-        source: "dashboard-ui.api-request",
-        operation: "GET /network-down",
-        recentApiTraces: expect.arrayContaining([
-          expect.objectContaining({
-            method: "GET",
-            path: "/network-down",
-            error: expect.objectContaining({
-              name: "TypeError",
-              message: "Load failed",
-            }),
-          }),
-        ]),
-      })
-    );
-  });
-
-  it("keeps only failed traces by default and includes full trace history in verbose mode", async () => {
-    const fetchMock = jest.fn();
-    global.fetch = fetchMock as typeof fetch;
-
-    fetchMock.mockResolvedValueOnce(
-      jsonResponse(200, { success: true, data: { ok: true } })
-    );
-    await expect(apiGet<{ ok: boolean }>("/ok-1")).resolves.toEqual({ ok: true });
-
-    fetchMock.mockResolvedValueOnce(
-      jsonResponse(500, { success: false, error: "failed-1", errorCode: "INTERNAL_ERROR" })
-    );
-    await expect(apiGet("/err-1")).rejects.toBeInstanceOf(Error);
-
-    fetchMock.mockResolvedValueOnce(
-      jsonResponse(500, { success: false, error: "failed-2", errorCode: "INTERNAL_ERROR" })
-    );
-    await expect(apiGet("/err-2")).rejects.toBeInstanceOf(Error);
-
-    fetchMock.mockResolvedValueOnce(
-      jsonResponse(500, { success: false, error: "failed-3", errorCode: "INTERNAL_ERROR" })
-    );
-    await expect(apiGet("/err-3")).rejects.toBeInstanceOf(Error);
-
-    fetchMock.mockResolvedValueOnce(
-      jsonResponse(500, { success: false, error: "failed-4", errorCode: "INTERNAL_ERROR" })
-    );
-    await expect(apiGet("/err-4")).rejects.toBeInstanceOf(Error);
-
-    const defaultCall =
-      mockNotifyDashboardError.mock.calls[mockNotifyDashboardError.mock.calls.length - 1];
-    const defaultMetadata = defaultCall?.[1] as Record<string, unknown> | undefined;
-    const defaultTraces = (defaultMetadata?.recentApiTraces || []) as Array<Record<string, any>>;
-    expect(defaultTraces).toHaveLength(3);
-    expect(defaultTraces.every((trace) => trace.error || trace.response?.ok === false)).toBe(
-      true
-    );
-
-    (window as any).__ASO_DASHBOARD_RUNTIME__ = {
-      nodeEnv: "test",
-      bugsnagVerboseTraces: true,
-    };
-    mockNotifyDashboardError.mockClear();
-    resetRecentDashboardApiTracesForTests();
-
-    fetchMock.mockResolvedValueOnce(
-      jsonResponse(200, { success: true, data: { ok: true } })
-    );
-    await expect(apiGet<{ ok: boolean }>("/ok-verbose")).resolves.toEqual({ ok: true });
-
-    fetchMock.mockResolvedValueOnce(
-      jsonResponse(500, { success: false, error: "verbose-failed", errorCode: "INTERNAL_ERROR" })
-    );
-    await expect(apiGet("/err-verbose")).rejects.toBeInstanceOf(Error);
-
-    const verboseCall =
-      mockNotifyDashboardError.mock.calls[mockNotifyDashboardError.mock.calls.length - 1];
-    const verboseMetadata = verboseCall?.[1] as Record<string, unknown> | undefined;
-    const verboseTraces = (verboseMetadata?.recentApiTraces || []) as Array<Record<string, any>>;
-    expect(verboseTraces).toHaveLength(2);
-    expect(verboseTraces.map((trace) => trace.path)).toEqual(
-      expect.arrayContaining(["/ok-verbose", "/err-verbose"])
-    );
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it("copies text via clipboard API and textarea fallback", async () => {

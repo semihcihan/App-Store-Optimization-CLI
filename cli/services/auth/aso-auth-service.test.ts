@@ -346,6 +346,82 @@ describe("aso-auth-service sirp fallback policy", () => {
       maxAttempts: 1,
     });
   });
+
+  it("reports unknown SIRP contract drift after legacy recovery", async () => {
+    const engine = createAutoEngine();
+    const reportContractSpy = jest
+      .spyOn(appleHttpTrace, "reportAppleContractChange")
+      .mockImplementation(() => {});
+    engine.loginWithSirp = jest.fn().mockRejectedValue(
+      new AppleAuthResponseError({
+        message: "Unexpected SIRP response",
+        status: 400,
+        payload: {},
+        reason: "unknown",
+      })
+    );
+    engine.loginWithLegacy = jest.fn().mockResolvedValue(undefined);
+
+    await expect(engine.ensureAuthenticated(credentials)).resolves.toBeUndefined();
+    expect(reportContractSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        driftKind: "sirp_unknown_failure_reason",
+        recoveryOutcome: "recovered",
+        fallbackSource: "legacy-auth",
+        isTerminal: false,
+      })
+    );
+    reportContractSpy.mockRestore();
+  });
+
+  it("does not report transient SIRP failure as contract drift", async () => {
+    const engine = createAutoEngine();
+    const reportContractSpy = jest
+      .spyOn(appleHttpTrace, "reportAppleContractChange")
+      .mockImplementation(() => {});
+    engine.loginWithSirp = jest.fn().mockRejectedValue(
+      new AppleAuthResponseError({
+        message: "Service unavailable",
+        status: 503,
+        payload: {},
+        reason: "unknown",
+      })
+    );
+    engine.loginWithLegacy = jest.fn().mockResolvedValue(undefined);
+
+    await expect(engine.ensureAuthenticated(credentials)).resolves.toBeUndefined();
+    expect(reportContractSpy).not.toHaveBeenCalled();
+    reportContractSpy.mockRestore();
+  });
+
+  it("marks unknown SIRP drift terminal when legacy fallback fails", async () => {
+    const engine = createAutoEngine();
+    const reportContractSpy = jest
+      .spyOn(appleHttpTrace, "reportAppleContractChange")
+      .mockImplementation(() => {});
+    engine.loginWithSirp = jest.fn().mockRejectedValue(
+      new AppleAuthResponseError({
+        message: "Unexpected SIRP response",
+        status: 400,
+        payload: {},
+        reason: "unknown",
+      })
+    );
+    engine.loginWithLegacy = jest
+      .fn()
+      .mockRejectedValue(new Error("Legacy fallback failed"));
+
+    await expect(engine.ensureAuthenticated(credentials)).rejects.toThrow(
+      "Legacy fallback failed"
+    );
+    expect(reportContractSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        recoveryOutcome: "unresolved",
+        isTerminal: true,
+      })
+    );
+    reportContractSpy.mockRestore();
+  });
 });
 
 describe("aso-auth-service session reuse and keychain flow", () => {

@@ -132,4 +132,28 @@ describe("reportBugsnagError", () => {
       expect.any(Function)
     );
   });
+
+  it("delivers recovered Apple contract drift to Bugsnag", () => {
+    const error = new Error("recovered contract drift");
+    mockGetErrorBugsnagMetadata.mockReturnValue(undefined);
+
+    reportBugsnagError(error, {
+      telemetryHint: {
+        classification: "apple_contract_change",
+        upstreamProvider: "apple-appstore",
+        isTerminal: false,
+      },
+      recoveryOutcome: "recovered",
+    });
+
+    expect(mockNotifyBugsnagError).toHaveBeenCalledWith(
+      error,
+      expect.objectContaining({
+        isTerminal: false,
+        recoveryOutcome: "recovered",
+        telemetryClassification: "apple_contract_change",
+      }),
+      expect.any(Function)
+    );
+  });
 });

@@ -3,32 +3,12 @@ import {
   getErrorName,
   getErrorRecord,
   getErrorMessage,
-  getRequestPath,
-  normalizeOperationPath,
   toStatusCode,
   toStringValue,
   type AnyRecord,
 } from "./telemetry-helpers";
 
 const AUTH_REAUTH_REQUIRED_ERROR_CODE = "ASO_AUTH_REAUTH_REQUIRED";
-
-function isDashboardUiSurface(
-  metadata: AnyRecord,
-  hint: TelemetryHint | undefined
-): boolean {
-  const surface = toStringValue(metadata.surface) ?? hint?.surface;
-  return surface === "aso-dashboard-ui";
-}
-
-function isLikelyTransportError(error: unknown): boolean {
-  const message = (getErrorMessage(error) || "").toLowerCase();
-  return message !== "" && (
-    message.includes("failed to fetch") ||
-    message.includes("load failed") ||
-    message.includes("networkerror") ||
-    message.includes("network request failed")
-  );
-}
 
 function hasOnlyFourHundredKeywordFailures(
   error: unknown,
@@ -59,13 +39,20 @@ function hasOnlyFourHundredKeywordFailures(
   );
 }
 
-function classifyExpectedCliFlow(error: unknown): TelemetryDecision | undefined {
+function classifyExpectedCliFlow(
+  error: unknown
+): TelemetryDecision | undefined {
   const record = getErrorRecord(error);
   const name = getErrorName(error);
   const code = toStringValue(record?.code);
   const message = (getErrorMessage(error) || "").toLowerCase();
 
-  if (name === "CliValidationError" || code === "CLI_VALIDATION_ERROR") {
+  if (
+    name === "CliValidationError" ||
+    code === "CLI_VALIDATION_ERROR" ||
+    name === "UnsupportedCountryError" ||
+    code === "ASO_UNSUPPORTED_COUNTRY"
+  ) {
     return {
       report: false,
       classification: "validation_error",
@@ -97,7 +84,9 @@ function classifyExpectedCliFlow(error: unknown): TelemetryDecision | undefined 
     };
   }
   if (
-    message.includes("interactive terminal is required to enter apple credentials")
+    message.includes(
+      "interactive terminal is required to enter apple credentials"
+    )
   ) {
     return {
       report: false,
@@ -137,32 +126,6 @@ export function classifyKnownNoise(
       report: false,
       classification: "user_fault",
       reason: "mcp_parse_json_shape",
-    };
-  }
-
-  if (!isDashboardUiSurface(metadata, hint)) return undefined;
-  const path = getRequestPath(metadata);
-  const method = toStringValue(metadata.method)?.toUpperCase();
-  const normalizedPath = path ? normalizeOperationPath(path) : undefined;
-  if (
-    normalizedPath === "/api/aso/auth/status" &&
-    method === "GET" &&
-    isLikelyTransportError(error)
-  ) {
-    return {
-      report: false,
-      classification: "user_fault",
-      reason: "dashboard_auth_status_transport",
-    };
-  }
-  if (
-    normalizedPath === "/api/aso/apps/search" &&
-    message.includes("failed to search apps")
-  ) {
-    return {
-      report: false,
-      classification: "user_fault",
-      reason: "dashboard_apps_search_failed",
     };
   }
 

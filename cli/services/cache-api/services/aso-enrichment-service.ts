@@ -77,12 +77,23 @@ const MZSEARCH_PLATFORM_ID_JSON = 29;
 const STORE_FRONT_ID_BY_COUNTRY: Record<string, number> = {
   US: 143441,
 };
-const MZSEARCH_ORDER_URL = "https://search.itunes.apple.com/WebObjects/MZSearch.woa/wa/search";
+const MZSEARCH_ORDER_URL =
+  "https://search.itunes.apple.com/WebObjects/MZSearch.woa/wa/search";
 const APPSTORE_SEARCH_URL = "https://apps.apple.com/us/iphone/search";
 const INSUFFICIENT_DOCS_RETRY_COUNT = 1;
 const INSUFFICIENT_DOCS_RETRY_BACKOFF_MS = 150;
 const INCOMPLETE_TOP_DOC_LOOKUP_COOLDOWN_MS = 10 * 60 * 1000;
 const incompleteTopDocLookupCooldownUntilByAppId = new Map<string, number>();
+
+type SearchContractDrift = {
+  operation: "appstore.search-page" | "mzsearch.keyword-order";
+  endpoint: string;
+  expectedContract: string;
+  actualSignal: string;
+  driftKind: string;
+  statusCode?: number;
+  error?: unknown;
+};
 
 function isIncompleteTopDocLookupOnCooldown(
   appId: string,
@@ -146,7 +157,8 @@ function safeDaysSince(isoDate: string | undefined): number {
 
 function parseRatingCount(value: string | number | undefined): number {
   if (value == null) return 0;
-  if (typeof value === "number" && !Number.isNaN(value)) return Math.max(0, value);
+  if (typeof value === "number" && !Number.isNaN(value))
+    return Math.max(0, value);
   const s = String(value).trim().toUpperCase();
   if (!s) return 0;
   const num = parseFloat(s.replace(/[^0-9.]/g, ""));
@@ -175,7 +187,8 @@ function detectKeywordMatchType(
     return "titleAllWords";
 
   const normSubtitle = normalizeTextForKeywordMatch(subtitle || "");
-  if (normSubtitle && normSubtitle.includes(normKeyword)) return "subtitleExactPhrase";
+  if (normSubtitle && normSubtitle.includes(normKeyword))
+    return "subtitleExactPhrase";
 
   const combined = `${normTitle} ${normSubtitle}`.trim();
   if (combined.includes(normKeyword)) return "combinedPhrase";
@@ -192,7 +205,10 @@ function detectKeywordMatchType(
   return "none";
 }
 
-function detectBestKeywordMatchType(app: AsoAppDoc, keyword: string): KeywordMatchType {
+function detectBestKeywordMatchType(
+  app: AsoAppDoc,
+  keyword: string
+): KeywordMatchType {
   const localizations: Array<{ name: string; subtitle?: string }> = [
     { name: app.name, subtitle: app.subtitle },
   ];
@@ -206,7 +222,11 @@ function detectBestKeywordMatchType(app: AsoAppDoc, keyword: string): KeywordMat
   let bestMatch: KeywordMatchType = "none";
   let bestScore = 0;
   for (const localized of localizations) {
-    const match = detectKeywordMatchType(localized.name, localized.subtitle, keyword);
+    const match = detectKeywordMatchType(
+      localized.name,
+      localized.subtitle,
+      keyword
+    );
     const score = keywordMatchToScore(match);
     if (score > bestScore) {
       bestMatch = match;
@@ -219,7 +239,10 @@ function detectBestKeywordMatchType(app: AsoAppDoc, keyword: string): KeywordMat
   return bestMatch;
 }
 
-function detectTopKeywordMatchType(apps: AsoAppDoc[], keyword: string): KeywordMatchType {
+function detectTopKeywordMatchType(
+  apps: AsoAppDoc[],
+  keyword: string
+): KeywordMatchType {
   let topMatch: KeywordMatchType = "none";
   let topScore = 0;
   for (const app of apps) {
@@ -308,72 +331,86 @@ function getStoreFrontHeader(country: string): string {
 async function fetchPopularityOrderedIds(params: {
   keyword: string;
   country: string;
-}): Promise<string[] | null> {
-  const response = await asoAppleGet<MzSearchResponse>(
-    MZSEARCH_ORDER_URL,
-    {
-      operation: "mzsearch.keyword-order",
-      params: {
-        clientApplication: "Software",
-        term: params.keyword,
-      },
-      headers: {
-        "User-Agent": ASO_APPLE_WEB_USER_AGENT,
-        "Accept-Language": "en-US,en;q=0.9",
-        Cookie: "dslang=US-EN",
-        "x-apple-store-front": getStoreFrontHeader(params.country),
-      },
-      timeout: 30000,
-    }
-  );
+}): Promise<{ ids: string[] | null; drifts: SearchContractDrift[] }> {
+  const response = await asoAppleGet<MzSearchResponse>(MZSEARCH_ORDER_URL, {
+    operation: "mzsearch.keyword-order",
+    params: {
+      clientApplication: "Software",
+      term: params.keyword,
+    },
+    headers: {
+      "User-Agent": ASO_APPLE_WEB_USER_AGENT,
+      "Accept-Language": "en-US,en;q=0.9",
+      Cookie: "dslang=US-EN",
+      "x-apple-store-front": getStoreFrontHeader(params.country),
+    },
+    timeout: 30000,
+  });
 
   const bubbles = response.data?.pageData?.bubbles;
   if (!Array.isArray(bubbles)) {
-    reportAppleContractChange({
-      provider: "apple-appstore",
-      operation: "mzsearch.keyword-order",
-      endpoint: MZSEARCH_ORDER_URL,
-      statusCode: response.status,
-      expectedContract: "MZSearch response has pageData.bubbles[]",
-      actualSignal: `bubblesType=${typeof bubbles}`,
-      context: {
-        keyword: params.keyword,
-        country: params.country.toUpperCase(),
-      },
-      isTerminal: false,
-      dedupeKey: "mzsearch-keyword-order-bubbles-array",
-    });
-    return null;
+    return {
+      ids: null,
+      drifts: [
+        {
+          operation: "mzsearch.keyword-order",
+          endpoint: MZSEARCH_ORDER_URL,
+          statusCode: response.status,
+          expectedContract: "MZSearch response has pageData.bubbles[]",
+          actualSignal: `bubblesType=${typeof bubbles}`,
+          driftKind: "mzsearch_bubbles_not_array",
+        },
+      ],
+    };
   }
 
   for (const bubble of bubbles) {
     if (bubble?.name !== "software") continue;
     if (!Array.isArray(bubble.results)) {
-      reportAppleContractChange({
-        provider: "apple-appstore",
-        operation: "mzsearch.keyword-order",
-        endpoint: MZSEARCH_ORDER_URL,
-        statusCode: response.status,
-        expectedContract: "software bubble has results[] entries",
-        actualSignal: `softwareResultsType=${typeof bubble.results}`,
-        context: {
-          keyword: params.keyword,
-          country: params.country.toUpperCase(),
-        },
-        isTerminal: false,
-        dedupeKey: "mzsearch-keyword-order-software-results-array",
-      });
-      return null;
+      return {
+        ids: null,
+        drifts: [
+          {
+            operation: "mzsearch.keyword-order",
+            endpoint: MZSEARCH_ORDER_URL,
+            statusCode: response.status,
+            expectedContract: "software bubble has results[] entries",
+            actualSignal: `softwareResultsType=${typeof bubble.results}`,
+            driftKind: "mzsearch_software_results_not_array",
+          },
+        ],
+      };
     }
-    return (bubble.results || [])
+    const ids = bubble.results
       .map((result) => `${result.id || ""}`.trim())
       .filter(Boolean);
+    const malformedResultCount = bubble.results.length - ids.length;
+    return {
+      ids,
+      drifts:
+        malformedResultCount === 0
+          ? []
+          : [
+              {
+                operation: "mzsearch.keyword-order",
+                endpoint: MZSEARCH_ORDER_URL,
+                statusCode: response.status,
+                expectedContract:
+                  "software results[] entries include an app id",
+                actualSignal: `malformedResults=${malformedResultCount} totalResults=${bubble.results.length}`,
+                driftKind: "mzsearch_result_missing_id",
+              },
+            ],
+    };
   }
 
-  return [];
+  return { ids: [], drifts: [] };
 }
 
-function lockupToAppDoc(lockup: AmpSearchLockup, country: string): AsoAppDoc | null {
+function lockupToAppDoc(
+  lockup: AmpSearchLockup,
+  country: string
+): AsoAppDoc | null {
   const adamId = `${lockup?.adamId || ""}`.trim();
   if (!adamId) return null;
   const name = (lockup?.title ?? "").trim() || "Unknown";
@@ -420,7 +457,7 @@ type SearchPageData = {
   orderedAppIds: string[];
   appDocs: AsoAppDoc[];
   appCount: number | null;
-  contractIssue: Error | null;
+  drifts: SearchContractDrift[];
 };
 
 type ResolvedSearchData = {
@@ -455,27 +492,96 @@ async function fetchSearchPageData(params: {
     /<script[^>]*id="serialized-server-data"[^>]*>([\s\S]*?)<\/script>/i
   );
   if (!serializedDataMatch?.[1]) {
-    throw new Error("serialized-server-data script not found in search page");
+    return {
+      orderedAppIds: [],
+      appDocs: [],
+      appCount: null,
+      drifts: [
+        {
+          operation: "appstore.search-page",
+          endpoint: APPSTORE_SEARCH_URL,
+          statusCode: response.status,
+          expectedContract: "Search page includes serialized-server-data JSON",
+          actualSignal: "serialized_server_data_script_missing",
+          driftKind: "search_page_serialized_data_missing",
+        },
+      ],
+    };
   }
 
-  const parsed = JSON.parse(serializedDataMatch[1]) as AmpSearchResponse;
+  let parsed: AmpSearchResponse;
+  try {
+    parsed = JSON.parse(serializedDataMatch[1]) as AmpSearchResponse;
+  } catch (error) {
+    return {
+      orderedAppIds: [],
+      appDocs: [],
+      appCount: null,
+      drifts: [
+        {
+          operation: "appstore.search-page",
+          endpoint: APPSTORE_SEARCH_URL,
+          statusCode: response.status,
+          expectedContract: "serialized-server-data contains valid JSON",
+          actualSignal: "serialized_server_data_json_invalid",
+          driftKind: "search_page_serialized_json_invalid",
+          error,
+        },
+      ],
+    };
+  }
   const pageData = parsed.data?.[0]?.data;
   if (!pageData) {
-    throw new Error("Search page serialized data did not include data[0].data");
+    return {
+      orderedAppIds: [],
+      appDocs: [],
+      appCount: null,
+      drifts: [
+        {
+          operation: "appstore.search-page",
+          endpoint: APPSTORE_SEARCH_URL,
+          statusCode: response.status,
+          expectedContract: "serialized-server-data includes data[0].data",
+          actualSignal: "search_page_data_root_missing",
+          driftKind: "search_page_data_root_missing",
+        },
+      ],
+    };
   }
-  const contractIssues: string[] = [];
+  const drifts: SearchContractDrift[] = [];
   const shelves = pageData.shelves;
   if (!Array.isArray(shelves)) {
-    contractIssues.push("Search page serialized data did not include shelves[]");
+    drifts.push({
+      operation: "appstore.search-page",
+      endpoint: APPSTORE_SEARCH_URL,
+      statusCode: response.status,
+      expectedContract: "Search page serialized data includes shelves[]",
+      actualSignal: `shelvesType=${typeof shelves}`,
+      driftKind: "search_page_shelves_not_array",
+    });
   }
   const usableShelves = Array.isArray(shelves) ? shelves : [];
   const searchShelf = usableShelves.find(
     (shelf) => shelf?.contentType === "searchResult"
   );
   if (!searchShelf) {
-    contractIssues.push("Search page serialized data did not include searchResult shelf");
+    drifts.push({
+      operation: "appstore.search-page",
+      endpoint: APPSTORE_SEARCH_URL,
+      statusCode: response.status,
+      expectedContract: "Search page shelves include a searchResult shelf",
+      actualSignal: "search_result_shelf_missing",
+      driftKind: "search_page_search_shelf_missing",
+    });
   } else if (!Array.isArray(searchShelf.items)) {
-    contractIssues.push("Search page searchResult shelf did not include items[]");
+    drifts.push({
+      operation: "appstore.search-page",
+      endpoint: APPSTORE_SEARCH_URL,
+      statusCode: response.status,
+      expectedContract: "Search result shelf includes items[]",
+      actualSignal: `itemsType=${typeof searchShelf.items}`,
+      driftKind: "search_page_search_items_not_array",
+    });
   }
 
   const appDocs: AsoAppDoc[] = [];
@@ -495,24 +601,62 @@ async function fetchSearchPageData(params: {
   }
 
   const leadingOrderedIds: string[] = [];
+  let malformedLockupCount = 0;
   for (const item of searchShelf?.items ?? []) {
     if (!isAppLikeSearchResultItem(item)) {
       continue;
     }
     const lockup = item?.lockup;
-    if (!lockup) continue;
+    if (!lockup) {
+      malformedLockupCount += 1;
+      continue;
+    }
     const doc = lockupToAppDoc(lockup, params.country);
     if (doc) {
       leadingOrderedIds.push(doc.appId);
+    } else {
+      malformedLockupCount += 1;
     }
+  }
+  if (malformedLockupCount > 0) {
+    drifts.push({
+      operation: "appstore.search-page",
+      endpoint: APPSTORE_SEARCH_URL,
+      statusCode: response.status,
+      expectedContract: "App search result lockups include an adamId",
+      actualSignal: `malformedLockups=${malformedLockupCount}`,
+      driftKind: "search_page_lockup_missing_required_fields",
+    });
   }
 
   let tailIds: string[] = [];
   let appCount: number | null = null;
   if (pageData.nextPage) {
     if (!Array.isArray(pageData.nextPage.results)) {
-      contractIssues.push("Search page nextPage did not include results[]");
+      drifts.push({
+        operation: "appstore.search-page",
+        endpoint: APPSTORE_SEARCH_URL,
+        statusCode: response.status,
+        expectedContract: "Present nextPage includes results[]",
+        actualSignal: `nextPageResultsType=${typeof pageData.nextPage.results}`,
+        driftKind: "search_page_next_page_results_not_array",
+      });
     } else {
+      const malformedAppResultCount = pageData.nextPage.results.filter(
+        (item) =>
+          item?.type === "apps" &&
+          (typeof item.id !== "string" || item.id.trim() === "")
+      ).length;
+      if (malformedAppResultCount > 0) {
+        drifts.push({
+          operation: "appstore.search-page",
+          endpoint: APPSTORE_SEARCH_URL,
+          statusCode: response.status,
+          expectedContract: "nextPage app results include a non-empty id",
+          actualSignal: `malformedAppResults=${malformedAppResultCount} totalResults=${pageData.nextPage.results.length}`,
+          driftKind: "search_page_next_page_app_id_missing",
+        });
+      }
       tailIds = pageData.nextPage.results
         .filter((item) => item?.type === "apps")
         .map((item) => `${item.id || ""}`.trim())
@@ -521,41 +665,35 @@ async function fetchSearchPageData(params: {
     }
   }
   const orderedAppIds = [...new Set([...leadingOrderedIds, ...tailIds])];
-  if (orderedAppIds.length === 0) {
-    contractIssues.push("Search page serialized data did not return ordered app ids");
-  }
 
   return {
     orderedAppIds,
     appDocs,
     appCount,
-    contractIssue:
-      contractIssues.length > 0 ? new Error(contractIssues.join("; ")) : null,
+    drifts,
   };
 }
 
-function reportSearchPageContractIssue(params: {
+function reportSearchContractDrifts(params: {
   keyword: string;
   country: string;
-  error: unknown;
+  drifts: SearchContractDrift[];
+  recoveryOutcome: "recovered" | "unresolved";
+  fallbackSource?: "mzsearch";
 }): void {
-  const actualSignal =
-    params.error instanceof Error ? params.error.message : String(params.error);
-  reportAppleContractChange({
-    provider: "apple-appstore",
-    operation: "appstore.search-page",
-    endpoint: APPSTORE_SEARCH_URL,
-    expectedContract:
-      "Search page includes serialized-server-data with search result order and lockups",
-    actualSignal,
-    context: {
-      keyword: params.keyword,
-      country: params.country,
-    },
-    error: params.error,
-    isTerminal: false,
-    dedupeKey: "appstore-search-page-fallback",
-  });
+  for (const drift of params.drifts) {
+    reportAppleContractChange({
+      provider: "apple-appstore",
+      ...drift,
+      context: {
+        keyword: params.keyword,
+        country: params.country,
+      },
+      isTerminal: params.recoveryOutcome === "unresolved",
+      recoveryOutcome: params.recoveryOutcome,
+      fallbackSource: params.fallbackSource,
+    });
+  }
 }
 
 async function resolveSearchData(params: {
@@ -566,34 +704,34 @@ async function resolveSearchData(params: {
     orderedAppIds: [],
     appDocs: [],
     appCount: null,
-    contractIssue: null,
+    drifts: [],
   };
 
   try {
     primaryData = await fetchSearchPageData(params);
-    if (primaryData.contractIssue) {
-      reportSearchPageContractIssue({
-        keyword: params.keyword,
-        country: params.country,
-        error: primaryData.contractIssue,
-      });
-    }
   } catch (error) {
-    reportSearchPageContractIssue({
+    logger.debug("[aso-enrichment] search page request failed", {
       keyword: params.keyword,
       country: params.country,
-      error,
+      message: error instanceof Error ? error.message : String(error),
     });
   }
 
   const hasPrimaryOrder = primaryData.orderedAppIds.length > 0;
   const hasPrimaryDocs = primaryData.appDocs.length > 0;
-  const needsMzSearch = primaryData.appCount == null || !hasPrimaryOrder;
+  const hasConfirmedEmptyPrimary =
+    primaryData.appCount === 0 && primaryData.drifts.length === 0;
+  const needsMzSearch =
+    primaryData.appCount == null ||
+    (!hasPrimaryOrder && !hasConfirmedEmptyPrimary);
   let mzSearchIds: string[] | null = null;
+  const contractDrifts = [...primaryData.drifts];
 
   if (needsMzSearch) {
     try {
-      mzSearchIds = await fetchPopularityOrderedIds(params);
+      const mzSearch = await fetchPopularityOrderedIds(params);
+      mzSearchIds = mzSearch.ids;
+      contractDrifts.push(...mzSearch.drifts);
     } catch (error) {
       logger.debug("[aso-enrichment] MZSearch fallback failed", {
         keyword: params.keyword,
@@ -605,28 +743,26 @@ async function resolveSearchData(params: {
 
   const hasUsefulPrimaryData = hasPrimaryOrder || hasPrimaryDocs;
   if (hasUsefulPrimaryData && mzSearchIds?.length === 0) {
-    reportAppleContractChange({
-      provider: "apple-appstore",
+    contractDrifts.push({
       operation: "mzsearch.keyword-order",
       endpoint: MZSEARCH_ORDER_URL,
       expectedContract:
         "MZSearch returns software results when the primary App Store response contains apps",
       actualSignal: `primaryOrderedAppIds=${primaryData.orderedAppIds.length} primaryAppDocs=${primaryData.appDocs.length} mzSearchIds=0`,
-      context: {
-        keyword: params.keyword,
-        country: params.country,
-      },
-      isTerminal: false,
-      dedupeKey: "mzsearch-empty-contradicts-primary-results",
+      driftKind: "mzsearch_empty_contradicts_primary",
     });
     mzSearchIds = null;
   }
 
-  const orderedAppIds = hasPrimaryOrder
-    ? primaryData.orderedAppIds
-    : mzSearchIds;
+  const orderedAppIds =
+    hasPrimaryOrder || hasConfirmedEmptyPrimary
+      ? primaryData.orderedAppIds
+      : mzSearchIds;
   let appCount: number | null = null;
-  if (hasUsefulPrimaryData && primaryData.appCount != null) {
+  if (
+    (hasUsefulPrimaryData || hasConfirmedEmptyPrimary) &&
+    primaryData.appCount != null
+  ) {
     appCount = Math.max(
       primaryData.appCount,
       primaryData.orderedAppIds.length,
@@ -646,6 +782,16 @@ async function resolveSearchData(params: {
   } else if (mzSearchIds != null) {
     sourceMode = "mzsearch-fallback";
   }
+
+  const recoveryOutcome =
+    orderedAppIds != null && appCount != null ? "recovered" : "unresolved";
+  reportSearchContractDrifts({
+    keyword: params.keyword,
+    country: params.country,
+    drifts: contractDrifts,
+    recoveryOutcome,
+    ...(needsMzSearch ? { fallbackSource: "mzsearch" } : {}),
+  });
 
   return {
     orderedAppIds,
@@ -724,12 +870,17 @@ async function lookupDetailsForAppIds(params: {
         userRatingCount: parseRatingCount(doc.userRatingCount),
       });
       if (!doc.releaseDate || !doc.currentVersionReleaseDate) {
-        logger.debug("[aso-enrichment] lookup returned app with missing dates", {
-          appId: doc.appId,
-          country: params.country.toUpperCase(),
-          hasReleaseDate: Boolean(doc.releaseDate),
-          hasCurrentVersionReleaseDate: Boolean(doc.currentVersionReleaseDate),
-        });
+        logger.debug(
+          "[aso-enrichment] lookup returned app with missing dates",
+          {
+            appId: doc.appId,
+            country: params.country.toUpperCase(),
+            hasReleaseDate: Boolean(doc.releaseDate),
+            hasCurrentVersionReleaseDate: Boolean(
+              doc.currentVersionReleaseDate
+            ),
+          }
+        );
       }
     }
   } catch (error) {
@@ -768,10 +919,8 @@ async function buildAppDocsFromLookup(params: {
           params.country,
           defaultLanguage
         );
-        const additionalLocalizations = await fetchAppStoreAdditionalLocalizations(
-          id,
-          params.country
-        );
+        const additionalLocalizations =
+          await fetchAppStoreAdditionalLocalizations(id, params.country);
         const averageUserRating =
           details?.ratingAverage ?? lookupDoc.averageUserRating;
         const userRatingCount =
@@ -822,7 +971,9 @@ async function hydrateMissingAdditionalLocalizations(params: {
     return params.appDocs;
   }
 
-  const docsById = new Map(params.appDocs.map((doc) => [doc.appId, doc] as const));
+  const docsById = new Map(
+    params.appDocs.map((doc) => [doc.appId, doc] as const)
+  );
   await Promise.all(
     params.appIds.map(async (appId) => {
       const existing = docsById.get(appId);
@@ -833,10 +984,8 @@ async function hydrateMissingAdditionalLocalizations(params: {
       ) {
         return;
       }
-      const additionalLocalizations = await fetchAppStoreAdditionalLocalizations(
-        appId,
-        params.country
-      );
+      const additionalLocalizations =
+        await fetchAppStoreAdditionalLocalizations(appId, params.country);
       if (Object.keys(additionalLocalizations).length === 0) {
         return;
       }
@@ -850,10 +999,15 @@ async function hydrateMissingAdditionalLocalizations(params: {
   return params.appDocs.map((doc) => docsById.get(doc.appId) ?? doc);
 }
 
-function mergeAppDocsById(baseDocs: AsoAppDoc[], incomingDocs: AsoAppDoc[]): AsoAppDoc[] {
+function mergeAppDocsById(
+  baseDocs: AsoAppDoc[],
+  incomingDocs: AsoAppDoc[]
+): AsoAppDoc[] {
   if (incomingDocs.length === 0) return baseDocs;
   const merged = [...baseDocs];
-  const indexById = new Map(merged.map((doc, index) => [doc.appId, index] as const));
+  const indexById = new Map(
+    merged.map((doc, index) => [doc.appId, index] as const)
+  );
   for (const doc of incomingDocs) {
     const existingIndex = indexById.get(doc.appId);
     if (existingIndex == null) {
@@ -877,7 +1031,9 @@ function listIncompleteTopDifficultyDocIds(params: {
 }): string[] {
   const topIds = params.orderedAppIds.slice(0, TOP_DIFFICULTY_DOC_LIMIT);
   if (topIds.length === 0) return [];
-  const docsById = new Map(params.appDocs.map((doc) => [doc.appId, doc] as const));
+  const docsById = new Map(
+    params.appDocs.map((doc) => [doc.appId, doc] as const)
+  );
   return topIds.filter((id) => !hasCompleteDifficultyDoc(docsById.get(id)));
 }
 
@@ -887,20 +1043,28 @@ function reorderAppDocsForTopDifficultyIds(params: {
 }): AsoAppDoc[] {
   const topIds = params.orderedAppIds.slice(0, TOP_DIFFICULTY_DOC_LIMIT);
   if (topIds.length === 0) return params.appDocs;
-  const docsById = new Map(params.appDocs.map((doc) => [doc.appId, doc] as const));
+  const docsById = new Map(
+    params.appDocs.map((doc) => [doc.appId, doc] as const)
+  );
   const topDocs = topIds
     .map((id) => docsById.get(id))
     .filter((doc): doc is AsoAppDoc => doc != null);
   const includedTopIds = new Set(topDocs.map((doc) => doc.appId));
-  const remainingDocs = params.appDocs.filter((doc) => !includedTopIds.has(doc.appId));
+  const remainingDocs = params.appDocs.filter(
+    (doc) => !includedTopIds.has(doc.appId)
+  );
   return [...topDocs, ...remainingDocs];
 }
 
-function getDocsForDifficultyCount(orderedAppIds: string[], appDocs: AsoAppDoc[]): number {
+function getDocsForDifficultyCount(
+  orderedAppIds: string[],
+  appDocs: AsoAppDoc[]
+): number {
   const topIds = orderedAppIds.slice(0, TOP_DIFFICULTY_DOC_LIMIT);
   if (topIds.length === 0) return 0;
   const docsById = new Map(appDocs.map((doc) => [doc.appId, doc] as const));
-  return topIds.filter((id) => hasCompleteDifficultyDoc(docsById.get(id))).length;
+  return topIds.filter((id) => hasCompleteDifficultyDoc(docsById.get(id)))
+    .length;
 }
 
 async function backfillMissingTopDifficultyDocs(params: {
@@ -924,10 +1088,9 @@ async function backfillMissingTopDifficultyDocs(params: {
 
   if (params.cachedTopDocs && params.cachedTopDocs.length > 0) {
     const cachedById = new Map(
-      normalizeCountryOnAppDocs(params.country, params.cachedTopDocs).map((doc) => [
-        doc.appId,
-        doc,
-      ] as const)
+      normalizeCountryOnAppDocs(params.country, params.cachedTopDocs).map(
+        (doc) => [doc.appId, doc] as const
+      )
     );
     const cachedMissingDocs = missingTopIds
       .map((id) => cachedById.get(id))
@@ -1052,18 +1215,24 @@ export async function enrichKeyword(
 
   if (usedSearchPageDocs) {
     cachedTopDocs = options?.getAppDocs
-      ? normalizeCountryOnAppDocs(country, await options.getAppDocs(firstFiveIds))
+      ? normalizeCountryOnAppDocs(
+          country,
+          await options.getAppDocs(firstFiveIds)
+        )
       : [];
     const cachedByAppId = new Map(
       cachedTopDocs.map((d) => [d.appId, d] as const)
     );
-    const searchDocByAppId = new Map(appDocs.map((doc) => [doc.appId, doc] as const));
+    const searchDocByAppId = new Map(
+      appDocs.map((doc) => [doc.appId, doc] as const)
+    );
     const now = Date.now();
     const idsThatNeedLookup = firstFiveIds.filter((id) => {
       const searchDoc = searchDocByAppId.get(id);
       if (!searchDoc) return false;
       const c = cachedByAppId.get(id);
-      const hasStaleOrMissingCache = !c || Date.parse(c.expiresAt ?? "0") <= now;
+      const hasStaleOrMissingCache =
+        !c || Date.parse(c.expiresAt ?? "0") <= now;
       const hasIncompleteDifficultyFields =
         c != null && (!c.releaseDate || !c.currentVersionReleaseDate);
       if (!hasStaleOrMissingCache && !hasIncompleteDifficultyFields) {
@@ -1107,12 +1276,17 @@ export async function enrichKeyword(
             details.currentVersionReleaseDate ?? undefined;
           merged.userRatingCount = parseRatingCount(details.userRatingCount);
           if (!details.releaseDate || !details.currentVersionReleaseDate) {
-            logger.debug("[aso-enrichment] merged lookup details missing dates", {
-              appId: id,
-              country,
-              hasReleaseDate: Boolean(details.releaseDate),
-              hasCurrentVersionReleaseDate: Boolean(details.currentVersionReleaseDate),
-            });
+            logger.debug(
+              "[aso-enrichment] merged lookup details missing dates",
+              {
+                appId: id,
+                country,
+                hasReleaseDate: Boolean(details.releaseDate),
+                hasCurrentVersionReleaseDate: Boolean(
+                  details.currentVersionReleaseDate
+                ),
+              }
+            );
           }
         } else {
           logger.debug("[aso-enrichment] no lookup details for app", {
@@ -1145,7 +1319,10 @@ export async function enrichKeyword(
     orderedAppIds,
     appDocs,
   });
-  let docsForDifficultyCount = getDocsForDifficultyCount(orderedAppIds, appDocs);
+  let docsForDifficultyCount = getDocsForDifficultyCount(
+    orderedAppIds,
+    appDocs
+  );
 
   if (requiresTopDifficultyDocs(appCount) && missingTopIds.length > 0) {
     appDocs = await backfillMissingTopDifficultyDocs({
@@ -1179,7 +1356,10 @@ export async function enrichKeyword(
         orderedAppIds,
         appDocs,
       });
-      docsForDifficultyCount = getDocsForDifficultyCount(orderedAppIds, appDocs);
+      docsForDifficultyCount = getDocsForDifficultyCount(
+        orderedAppIds,
+        appDocs
+      );
     }
   }
 
@@ -1192,17 +1372,26 @@ export async function enrichKeyword(
   const docsForDifficulty = firstFiveIds
     .map((id) => appDocs.find((d) => d.appId === id))
     .filter((d): d is AsoAppDoc => d != null);
-  const keywordMatch = detectTopKeywordMatchType(docsForDifficulty, params.keyword);
-  const isBrandKeyword = detectIsBrandKeyword(params.keyword, docsForDifficulty);
+  const keywordMatch = detectTopKeywordMatchType(
+    docsForDifficulty,
+    params.keyword
+  );
+  const isBrandKeyword = detectIsBrandKeyword(
+    params.keyword,
+    docsForDifficulty
+  );
 
   if (appCount < TOP_DIFFICULTY_DOC_LIMIT) {
-    logger.debug("[aso-enrichment] returning fallback difficulty due to insufficient docs", {
-      keyword: params.keyword,
-      country,
-      appCount,
-      docsForDifficultyCount,
-      requiredDocsCount: TOP_DIFFICULTY_DOC_LIMIT,
-    });
+    logger.debug(
+      "[aso-enrichment] returning fallback difficulty due to insufficient docs",
+      {
+        keyword: params.keyword,
+        country,
+        appCount,
+        docsForDifficultyCount,
+        requiredDocsCount: TOP_DIFFICULTY_DOC_LIMIT,
+      }
+    );
     logger.debug("[aso-enrichment] enrich result", {
       keyword: params.keyword,
       country,
@@ -1233,15 +1422,18 @@ export async function enrichKeyword(
       docsForDifficultyCount,
     })
   ) {
-    logger.debug("[aso-enrichment] insufficient top docs for difficulty scoring", {
-      keyword: params.keyword,
-      country,
-      mode: sourceMode,
-      appCount,
-      docsForDifficultyCount,
-      expectedDocsForDifficultyCount: TOP_DIFFICULTY_DOC_LIMIT,
-      missingTopIds,
-    });
+    logger.debug(
+      "[aso-enrichment] insufficient top docs for difficulty scoring",
+      {
+        keyword: params.keyword,
+        country,
+        mode: sourceMode,
+        appCount,
+        docsForDifficultyCount,
+        expectedDocsForDifficultyCount: TOP_DIFFICULTY_DOC_LIMIT,
+        missingTopIds,
+      }
+    );
     throw new InsufficientDifficultyDocsError({
       keyword: params.keyword,
       country,

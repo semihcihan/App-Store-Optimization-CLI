@@ -11,8 +11,6 @@ import {
 
 const NOISE_CLASS_BY_REASON: Record<string, string> = {
   mcp_parse_json_shape: "mcp_parse_shape",
-  dashboard_auth_status_transport: "local_setup",
-  dashboard_apps_search_failed: "local_setup",
   explicit_hint_user_fault: "user_fault",
   credential_user_fault_message: "credential_user_fault",
   apple_auth_invalid_credentials: "credential_user_fault",

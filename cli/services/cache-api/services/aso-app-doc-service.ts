@@ -41,8 +41,21 @@ type AppStoreProductLookupPayload = {
     };
   };
   pageData?: {
+    componentName?: string;
     versionHistory?: AppStoreProductVersionHistoryItem[];
   };
+};
+
+type AppLookupDrift = {
+  expectedContract: string;
+  actualSignal: string;
+  driftKind: string;
+  statusCode?: number;
+};
+
+type AppLookupResult = {
+  doc: AsoAppDoc | null;
+  drift?: AppLookupDrift;
 };
 
 const APP_STORE_FRONT_ID_BY_COUNTRY: Record<string, string> = {
@@ -50,12 +63,17 @@ const APP_STORE_FRONT_ID_BY_COUNTRY: Record<string, string> = {
 };
 
 function getStoreFrontHeader(country: string): string {
-  const id = APP_STORE_FRONT_ID_BY_COUNTRY[country.toUpperCase()] ?? APP_STORE_FRONT_ID_BY_COUNTRY.US;
+  const id =
+    APP_STORE_FRONT_ID_BY_COUNTRY[country.toUpperCase()] ??
+    APP_STORE_FRONT_ID_BY_COUNTRY.US;
   return `${id}-1,29`;
 }
 
-function parseAppStorePayload(raw: unknown): AppStoreProductLookupPayload | null {
-  if (raw && typeof raw === "object") return raw as AppStoreProductLookupPayload;
+function parseAppStorePayload(
+  raw: unknown
+): AppStoreProductLookupPayload | null {
+  if (raw && typeof raw === "object")
+    return raw as AppStoreProductLookupPayload;
   if (typeof raw !== "string") return null;
 
   try {
@@ -71,6 +89,19 @@ function parseAppStorePayload(raw: unknown): AppStoreProductLookupPayload | null
       return null;
     }
   }
+}
+
+function isExpectedUnavailableAppLookupResponse(
+  raw: unknown,
+  payload: AppStoreProductLookupPayload | null
+): boolean {
+  if (payload?.pageData?.componentName === "unsupported_product_page") {
+    return true;
+  }
+  if (typeof raw !== "string") return false;
+  return /<key>\s*dialogId\s*<\/key>\s*<string>\s*itemNotAvailable\s*<\/string>/i.test(
+    raw
+  );
 }
 
 function readNumber(value: unknown): number {
@@ -92,9 +123,9 @@ function parseAppDocFromPayload(
   if (!results || typeof results !== "object") return null;
   const product =
     results[fallbackAppId] ??
-    (Object.values(results).find((value) => value && typeof value === "object") as
-      | Record<string, unknown>
-      | undefined);
+    (Object.values(results).find(
+      (value) => value && typeof value === "object"
+    ) as Record<string, unknown> | undefined);
   if (!product) return null;
 
   const appId =
@@ -118,7 +149,7 @@ function parseAppDocFromPayload(
   const versionHistory = payload.pageData?.versionHistory;
   const currentVersionReleaseDate =
     Array.isArray(versionHistory) && versionHistory.length > 0
-      ? versionHistory[0]?.releaseDate ?? null
+      ? (versionHistory[0]?.releaseDate ?? null)
       : null;
   const releaseDate =
     typeof product.releaseDate === "string" ? product.releaseDate : null;
@@ -140,7 +171,9 @@ function parseAppDocFromPayload(
       country,
       hasReleaseDate: Boolean(releaseDate),
       hasCurrentVersionReleaseDate: Boolean(currentVersionReleaseDate),
-      versionHistoryCount: Array.isArray(versionHistory) ? versionHistory.length : 0,
+      versionHistoryCount: Array.isArray(versionHistory)
+        ? versionHistory.length
+        : 0,
       productHasReleaseDateField: Object.prototype.hasOwnProperty.call(
         product,
         "releaseDate"
@@ -192,7 +225,9 @@ function parseItunesLookupResult(
   const name = readString(result.trackName) ?? "";
   const publisherName = readString(result.sellerName) ?? undefined;
   const releaseDate = readString(result.releaseDate);
-  const currentVersionReleaseDate = readString(result.currentVersionReleaseDate);
+  const currentVersionReleaseDate = readString(
+    result.currentVersionReleaseDate
+  );
   const iconUrl =
     readString(result.artworkUrl512) ??
     readString(result.artworkUrl100) ??
@@ -252,7 +287,9 @@ async function fetchItunesLookupAppDocs(params: {
     if (!response || !response.data || typeof response.data !== "object") {
       continue;
     }
-    const results = Array.isArray(response.data.results) ? response.data.results : [];
+    const results = Array.isArray(response.data.results)
+      ? response.data.results
+      : [];
     for (const result of results) {
       const doc = parseItunesLookupResult(result, country);
       if (!doc) continue;
@@ -271,7 +308,9 @@ function mergeFallbackDoc(
   return {
     ...existing,
     ...(existing.name.trim() === "" ? { name: fallback.name } : {}),
-    ...(existing.publisherName ? {} : { publisherName: fallback.publisherName }),
+    ...(existing.publisherName
+      ? {}
+      : { publisherName: fallback.publisherName }),
     ...(existing.releaseDate ? {} : { releaseDate: fallback.releaseDate }),
     ...(existing.currentVersionReleaseDate
       ? {}
@@ -282,11 +321,16 @@ function mergeFallbackDoc(
         ? existing.averageUserRating
         : fallback.averageUserRating,
     userRatingCount:
-      existing.userRatingCount > 0 ? existing.userRatingCount : fallback.userRatingCount,
+      existing.userRatingCount > 0
+        ? existing.userRatingCount
+        : fallback.userRatingCount,
   };
 }
 
-async function fetchAppDocById(country: string, appId: string): Promise<AsoAppDoc | null> {
+async function fetchAppDocById(
+  country: string,
+  appId: string
+): Promise<AppLookupResult> {
   let response;
   try {
     response = await asoAppleGet(
@@ -300,6 +344,7 @@ async function fetchAppDocById(country: string, appId: string): Promise<AsoAppDo
           Accept: "application/json,text/plain,*/*",
         },
         timeout: 30000,
+        validateStatus: (status) => status === 200 || status === 404,
       }
     );
   } catch (error) {
@@ -312,51 +357,72 @@ async function fetchAppDocById(country: string, appId: string): Promise<AsoAppDo
     throw error;
   }
 
+  if (response.status === 404) {
+    return { doc: null };
+  }
+
   const payload = parseAppStorePayload(response.data);
+  if (isExpectedUnavailableAppLookupResponse(response.data, payload)) {
+    return { doc: null };
+  }
   if (!payload) {
-    reportAppleContractChange({
-      provider: "apple-appstore",
-      operation: "appstore.app-lookup",
-      endpoint: "https://apps.apple.com/app/id{appId}",
-      statusCode: response.status,
-      expectedContract:
-        "App lookup response is JSON/object or HTML with serialized-server-data JSON",
-      actualSignal: `payload_parse_failed rawType=${typeof response.data}`,
-      context: {
-        appId,
-        country: country.toUpperCase(),
+    return {
+      doc: null,
+      drift: {
+        statusCode: response.status,
+        expectedContract:
+          "App lookup response is JSON/object or HTML with serialized-server-data JSON",
+        actualSignal: `payload_parse_failed rawType=${typeof response.data}`,
+        driftKind: "app_lookup_payload_parse_failed",
       },
-      isTerminal: false,
-      dedupeKey: "appstore-app-lookup-payload-parse",
-    });
-    logger.debug("[aso-app-lookup] unparseable payload", {
-      appId,
-      country: country.toUpperCase(),
-    });
-    return null;
+    };
   }
-
-  const parsedDoc = parseAppDocFromPayload(payload, appId, country.toUpperCase());
+  const parsedDoc = parseAppDocFromPayload(
+    payload,
+    appId,
+    country.toUpperCase()
+  );
   if (!parsedDoc) {
-    reportAppleContractChange({
-      provider: "apple-appstore",
-      operation: "appstore.app-lookup",
-      endpoint: "https://apps.apple.com/app/id{appId}",
-      statusCode: response.status,
-      expectedContract:
-        "App lookup payload has storePlatformData.product-dv.results with a product entry",
-      actualSignal: "missing_product_payload",
-      context: {
-        appId,
-        country: country.toUpperCase(),
+    return {
+      doc: null,
+      drift: {
+        statusCode: response.status,
+        expectedContract:
+          "App lookup payload has storePlatformData.product-dv.results with a product entry",
+        actualSignal: "missing_product_payload",
+        driftKind: "app_lookup_product_payload_missing",
       },
-      isTerminal: false,
-      dedupeKey: "appstore-app-lookup-missing-product",
-    });
-    return null;
+    };
   }
 
-  return parsedDoc;
+  return { doc: parsedDoc };
+}
+
+function reportAppLookupDrift(params: {
+  appId: string;
+  country: string;
+  drift: AppLookupDrift;
+  recovered: boolean;
+}): void {
+  reportAppleContractChange({
+    provider: "apple-appstore",
+    operation: "appstore.app-lookup",
+    endpoint: "https://apps.apple.com/app/id{appId}",
+    ...params.drift,
+    context: {
+      appId: params.appId,
+      country: params.country,
+    },
+    isTerminal: !params.recovered,
+    recoveryOutcome: params.recovered ? "recovered" : "unresolved",
+    fallbackSource: "itunes.lookup",
+  });
+  if (params.drift.driftKind === "app_lookup_payload_parse_failed") {
+    logger.debug("[aso-app-lookup] unparseable payload", {
+      appId: params.appId,
+      country: params.country,
+    });
+  }
 }
 
 export async function fetchAppStoreLookupAppDocs(params: {
@@ -366,10 +432,17 @@ export async function fetchAppStoreLookupAppDocs(params: {
   const country = normalizeCountry(params.country);
   assertSupportedCountry(country);
   if (params.appIds.length === 0) return [];
-  const uniqueIds = Array.from(new Set(params.appIds.map((id) => id.trim()).filter(Boolean)));
-  const docs = await Promise.all(uniqueIds.map((appId) => fetchAppDocById(country, appId)));
+  const uniqueIds = Array.from(
+    new Set(params.appIds.map((id) => id.trim()).filter(Boolean))
+  );
+  const lookupResults = await Promise.all(
+    uniqueIds.map((appId) => fetchAppDocById(country, appId))
+  );
   const byId = new Map(
-    docs.filter((doc): doc is AsoAppDoc => doc != null).map((doc) => [doc.appId, doc])
+    lookupResults
+      .map((result) => result.doc)
+      .filter((doc): doc is AsoAppDoc => doc != null)
+      .map((doc) => [doc.appId, doc])
   );
   const unresolvedIds = uniqueIds.filter((id) => {
     const doc = byId.get(id);
@@ -386,7 +459,19 @@ export async function fetchAppStoreLookupAppDocs(params: {
     const merged = mergeFallbackDoc(byId.get(id), fallback);
     byId.set(id, merged);
   }
-  const parsedDocs = uniqueIds.map((id) => byId.get(id)).filter((doc): doc is AsoAppDoc => doc != null);
+  lookupResults.forEach((result, index) => {
+    if (!result.drift) return;
+    const appId = uniqueIds[index];
+    reportAppLookupDrift({
+      appId,
+      country,
+      drift: result.drift,
+      recovered: byId.has(appId),
+    });
+  });
+  const parsedDocs = uniqueIds
+    .map((id) => byId.get(id))
+    .filter((doc): doc is AsoAppDoc => doc != null);
   logger.debug("[aso-app-lookup] lookup batch summary", {
     country: country.toUpperCase(),
     requestedCount: uniqueIds.length,
@@ -398,10 +483,7 @@ export async function fetchAppStoreLookupAppDocs(params: {
       return Boolean(doc?.releaseDate && doc?.currentVersionReleaseDate);
     }).length,
   });
-  return normalizeCountryOnAppDocs(
-    country,
-    parsedDocs
-  );
+  return normalizeCountryOnAppDocs(country, parsedDocs);
 }
 
 export async function getAsoAppDocs(params: {
@@ -439,13 +521,15 @@ export async function getAsoAppDocs(params: {
       country,
       appIds: missingIds,
     });
-    const fetched = normalizeCountryOnAppDocs(country, fetchedRaw).map((doc) => ({
-      ...doc,
-      expiresAt:
-        doc.releaseDate && doc.currentVersionReleaseDate
-          ? doc.expiresAt ?? computeAppExpiryIsoForApp()
-          : undefined,
-    }));
+    const fetched = normalizeCountryOnAppDocs(country, fetchedRaw).map(
+      (doc) => ({
+        ...doc,
+        expiresAt:
+          doc.releaseDate && doc.currentVersionReleaseDate
+            ? (doc.expiresAt ?? computeAppExpiryIsoForApp())
+            : undefined,
+      })
+    );
     for (const doc of fetched) {
       resultById.set(doc.appId, doc);
     }

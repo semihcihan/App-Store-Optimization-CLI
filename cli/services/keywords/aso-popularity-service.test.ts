@@ -1,10 +1,9 @@
 import { jest } from "@jest/globals";
-import {
-  asoPopularityService,
-} from "./aso-popularity-service";
+import { asoPopularityService } from "./aso-popularity-service";
 import { asoAuthService } from "../auth/aso-auth-service";
 import { requestPopularitiesWithKwsRetry } from "./aso-apple-popularity-client";
 import { getConfiguredAsoAdamId } from "./aso-adam-id-service";
+import { reportAppleContractChange } from "./apple-http-trace";
 
 jest.mock("../auth/aso-auth-service", () => ({
   asoAuthService: {
@@ -20,10 +19,15 @@ jest.mock("./aso-apple-popularity-client", () => ({
 jest.mock("./aso-adam-id-service", () => ({
   getConfiguredAsoAdamId: jest.fn(),
 }));
+jest.mock("./apple-http-trace", () => ({
+  reportAppleContractChange: jest.fn(),
+  withAppleHttpTraceContext: jest.fn((error: Error) => error),
+}));
 
 const mockRequestPopularitiesWithKwsRetry = jest.mocked(
   requestPopularitiesWithKwsRetry
 );
+const mockReportAppleContractChange = jest.mocked(reportAppleContractChange);
 
 describe("AsoPopularityService", () => {
   beforeEach(() => {
@@ -145,7 +149,9 @@ describe("AsoPopularityService", () => {
 
     it("reauthenticates when getCookieHeader returns empty and retries", async () => {
       jest.mocked(asoAuthService.getCookieHeader).mockReturnValue("");
-      jest.mocked(asoAuthService.reAuthenticate).mockResolvedValue("new-cookie");
+      jest
+        .mocked(asoAuthService.reAuthenticate)
+        .mockResolvedValue("new-cookie");
       mockRequestPopularitiesWithKwsRetry.mockResolvedValue({
         statusCode: 200,
         attempts: 1,
@@ -188,9 +194,9 @@ describe("AsoPopularityService", () => {
           attempts: 1,
           data: { status: "success", data: [{ name: "y", popularity: 2 }] },
         });
-      jest.mocked(asoAuthService.reAuthenticate).mockResolvedValue(
-        "refreshed-cookie"
-      );
+      jest
+        .mocked(asoAuthService.reAuthenticate)
+        .mockResolvedValue("refreshed-cookie");
 
       const result = await asoPopularityService.fetchKeywordPopularities(["y"]);
 
@@ -211,9 +217,9 @@ describe("AsoPopularityService", () => {
           attempts: 1,
           data: {},
         });
-      jest.mocked(asoAuthService.reAuthenticate).mockResolvedValue(
-        "refreshed-cookie"
-      );
+      jest
+        .mocked(asoAuthService.reAuthenticate)
+        .mockResolvedValue("refreshed-cookie");
 
       await expect(
         asoPopularityService.fetchKeywordPopularities(["y"])
@@ -330,10 +336,11 @@ describe("AsoPopularityService", () => {
           data: { status: "error" },
         });
 
-      const result = await asoPopularityService.fetchKeywordPopularitiesWithFailures([
-        "good",
-        "bad",
-      ]);
+      const result =
+        await asoPopularityService.fetchKeywordPopularitiesWithFailures([
+          "good",
+          "bad",
+        ]);
 
       expect(result.popularities).toEqual({ good: 25 });
       expect(result.failedKeywords).toHaveLength(1);
@@ -355,6 +362,69 @@ describe("AsoPopularityService", () => {
         expect.any(String),
         { maxAttempts: 1 }
       );
+    });
+
+    it("reports malformed success data and fails every unresolved keyword", async () => {
+      mockRequestPopularitiesWithKwsRetry.mockResolvedValue({
+        statusCode: 200,
+        attempts: 1,
+        data: { status: "success", data: undefined },
+      });
+
+      const result =
+        await asoPopularityService.fetchKeywordPopularitiesWithFailures([
+          "one",
+          "two",
+        ]);
+
+      expect(result.popularities).toEqual({});
+      expect(result.failedKeywords.map((entry) => entry.keyword)).toEqual([
+        "one",
+        "two",
+      ]);
+      expect(mockReportAppleContractChange).toHaveBeenCalledWith(
+        expect.objectContaining({
+          driftKind: "popularity_data_not_array",
+          recoveryOutcome: "unresolved",
+          isTerminal: true,
+        })
+      );
+    });
+
+    it("retains valid popularity items while reporting malformed and missing terms", async () => {
+      mockRequestPopularitiesWithKwsRetry.mockResolvedValue({
+        statusCode: 200,
+        attempts: 1,
+        data: {
+          status: "success",
+          data: [
+            { name: "good", popularity: 25 },
+            { name: "bad", popularity: "unexpected" as never },
+          ],
+        },
+      });
+
+      const result =
+        await asoPopularityService.fetchKeywordPopularitiesWithFailures([
+          "good",
+          "bad",
+        ]);
+
+      expect(result.popularities).toEqual({ good: 25 });
+      expect(result.failedKeywords).toEqual([
+        expect.objectContaining({
+          keyword: "bad",
+          reasonCode: "APPLE_CONTRACT_DRIFT",
+        }),
+      ]);
+      expect(mockReportAppleContractChange).toHaveBeenCalledWith(
+        expect.objectContaining({
+          driftKind: "popularity_item_malformed",
+          recoveryOutcome: "unresolved",
+          isTerminal: true,
+        })
+      );
+      expect(mockReportAppleContractChange).toHaveBeenCalledTimes(1);
     });
   });
 });

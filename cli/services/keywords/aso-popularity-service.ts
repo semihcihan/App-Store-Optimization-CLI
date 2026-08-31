@@ -179,7 +179,11 @@ export class AsoPopularityService {
       terms: string[],
       stageLabel: string,
       options?: { maxAttempts?: number }
-    ): Promise<{ statusCode: number; data: PopularityResponse; attempts: number }> => {
+    ): Promise<{
+      statusCode: number;
+      data: PopularityResponse;
+      attempts: number;
+    }> => {
       logger.debug(
         `[aso-popularity] sending ${stageLabel} request cookieHeaderLength=${cookieHeader.length} terms=${terms.length}`
       );
@@ -231,10 +235,34 @@ export class AsoPopularityService {
       requestId: normalized.requestId,
     });
 
+    const toContractFailure = (
+      keyword: string,
+      response: {
+        statusCode: number;
+        data: PopularityResponse;
+        attempts?: number;
+      }
+    ): FailedKeyword => ({
+      keyword,
+      stage: "popularity",
+      reasonCode: "APPLE_CONTRACT_DRIFT",
+      message: "Apple popularity response did not include a usable result",
+      statusCode: response.statusCode,
+      retryable: false,
+      attempts: response.attempts ?? 1,
+      requestId: response.data.requestID,
+    });
+
     const parseSuccessPopularities = (
-      response: { statusCode: number; data: PopularityResponse }
-    ): Record<string, number> => {
+      response: {
+        statusCode: number;
+        data: PopularityResponse;
+        attempts?: number;
+      },
+      requestedTerms: string[]
+    ): KeywordPopularityResult => {
       const result: Record<string, number> = {};
+      const resolvedKeywords = new Set<string>();
       if (!Array.isArray(response.data.data)) {
         reportAppleContractChange({
           provider: "apple-search-ads",
@@ -246,27 +274,47 @@ export class AsoPopularityService {
             "Successful popularity response includes data[] entries with { name, popularity }",
           actualSignal: `status=${String(response.data.status || "unknown")} dataType=${typeof response.data.data}`,
           context: {
-            termsCount: sanitizedKeywords.length,
+            termsCount: requestedTerms.length,
             hasErrorArray: Array.isArray(response.data.error?.errors),
           },
-          isTerminal: false,
-          dedupeKey: "keywords-popularities-response-data-array",
+          isTerminal: true,
+          driftKind: "popularity_data_not_array",
+          recoveryOutcome: "unresolved",
         });
-        return result;
+        return {
+          popularities: result,
+          failedKeywords: requestedTerms.map((term) =>
+            toContractFailure(sanitizedToOriginal.get(term) ?? term, response)
+          ),
+        };
       }
 
       let invalidItemCount = 0;
       for (const item of response.data.data || []) {
-        if (!item || typeof item.name !== "string") {
+        if (
+          !item ||
+          typeof item.name !== "string" ||
+          (item.popularity !== null &&
+            (typeof item.popularity !== "number" ||
+              !Number.isFinite(item.popularity)))
+        ) {
           invalidItemCount += 1;
           continue;
         }
-        if (item.popularity === null) continue;
-        const originalKeyword = sanitizedToOriginal.get(item.name);
+        const originalKeyword = sanitizedToOriginal.get(
+          sanitizeKeyword(item.name)
+        );
         if (originalKeyword) {
-          result[originalKeyword] = item.popularity;
+          resolvedKeywords.add(originalKeyword);
+          if (item.popularity !== null) {
+            result[originalKeyword] = item.popularity;
+          }
         }
       }
+      const failedKeywords = requestedTerms
+        .map((term) => sanitizedToOriginal.get(term) ?? term)
+        .filter((keyword) => !resolvedKeywords.has(keyword))
+        .map((keyword) => toContractFailure(keyword, response));
       if (invalidItemCount > 0) {
         reportAppleContractChange({
           provider: "apple-search-ads",
@@ -276,21 +324,46 @@ export class AsoPopularityService {
           requestId: response.data.requestID,
           expectedContract:
             "Popularity data[] items include a string name and numeric popularity|null",
-          actualSignal: `invalid_items=${invalidItemCount}`,
+          actualSignal: `invalidItems=${invalidItemCount} missingTerms=${failedKeywords.length}`,
           context: {
-            termsCount: sanitizedKeywords.length,
+            termsCount: requestedTerms.length,
             returnedItems: response.data.data.length,
           },
-          isTerminal: false,
-          dedupeKey: "keywords-popularities-response-invalid-items",
+          isTerminal: failedKeywords.length > 0,
+          driftKind: "popularity_item_malformed",
+          recoveryOutcome:
+            failedKeywords.length > 0 ? "unresolved" : "retained_valid_data",
         });
       }
-      return result;
+      if (failedKeywords.length > 0 && invalidItemCount === 0) {
+        reportAppleContractChange({
+          provider: "apple-search-ads",
+          operation: "keywords-popularities-response",
+          endpoint: APPLE_POPULARITY_URL,
+          statusCode: response.statusCode,
+          requestId: response.data.requestID,
+          expectedContract:
+            "Successful popularity response includes one usable result per requested term",
+          actualSignal: `requestedTerms=${requestedTerms.length} resolvedTerms=${requestedTerms.length - failedKeywords.length} missingTerms=${failedKeywords.length}`,
+          context: {
+            termsCount: requestedTerms.length,
+            returnedItems: response.data.data.length,
+          },
+          isTerminal: true,
+          driftKind: "popularity_requested_terms_missing",
+          recoveryOutcome: "unresolved",
+        });
+      }
+      return { popularities: result, failedKeywords };
     };
 
     const toFailureFromResponse = (
       keyword: string,
-      response: { statusCode: number; data: PopularityResponse; attempts: number }
+      response: {
+        statusCode: number;
+        data: PopularityResponse;
+        attempts: number;
+      }
     ): FailedKeyword => {
       const messageCode = firstMessageCode(response.data);
       const message = firstMessage(response.data);
@@ -317,7 +390,10 @@ export class AsoPopularityService {
       return toFailedKeyword(keyword, normalized);
     };
 
-    const toFailureFromError = (keyword: string, error: unknown): FailedKeyword => {
+    const toFailureFromError = (
+      keyword: string,
+      error: unknown
+    ): FailedKeyword => {
       const normalized = normalizeAppleUpstreamError({
         error,
         operation: "keywords-popularities-request",
@@ -352,7 +428,10 @@ export class AsoPopularityService {
           }
         );
       }
-      if (response.statusCode === 403 && messageCode === KWS_NO_ORG_CONTENT_PROVIDERS) {
+      if (
+        response.statusCode === 403 &&
+        messageCode === KWS_NO_ORG_CONTENT_PROVIDERS
+      ) {
         logger.debug(
           `[aso-popularity] KWS_NO_ORG_CONTENT_PROVIDERS requestID=${
             response.data.requestID || "none"
@@ -360,7 +439,8 @@ export class AsoPopularityService {
         );
       }
       if (sanitizedKeywords.length === 1) {
-        const keyword = sanitizedToOriginal.get(sanitizedKeywords[0]) ?? sanitizedKeywords[0];
+        const keyword =
+          sanitizedToOriginal.get(sanitizedKeywords[0]) ?? sanitizedKeywords[0];
         return {
           popularities: {},
           failedKeywords: [toFailureFromResponse(keyword, response)],
@@ -381,7 +461,15 @@ export class AsoPopularityService {
             singleResponse.statusCode === 200 &&
             singleResponse.data.status === "success"
           ) {
-            popularities[keyword] = parseSuccessPopularities(singleResponse)[keyword] ?? 1;
+            const parsed = parseSuccessPopularities(singleResponse, [term]);
+            Object.assign(popularities, parsed.popularities);
+            failedKeywords.push(...parsed.failedKeywords);
+            if (
+              parsed.failedKeywords.length === 0 &&
+              popularities[keyword] == null
+            ) {
+              popularities[keyword] = 1;
+            }
           } else {
             failedKeywords.push(toFailureFromResponse(keyword, singleResponse));
           }
@@ -395,10 +483,7 @@ export class AsoPopularityService {
       };
     }
 
-    return {
-      popularities: parseSuccessPopularities(response),
-      failedKeywords: [],
-    };
+    return parseSuccessPopularities(response, sanitizedKeywords);
   }
 
   async fetchKeywordPopularities(

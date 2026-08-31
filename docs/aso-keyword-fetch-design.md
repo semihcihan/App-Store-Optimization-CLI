@@ -1,10 +1,12 @@
 # ASO Keyword Fetch Design
 
 ## Scope
+
 Design for `aso keywords` (including `--stdout`) and dashboard keyword-add flow: lookup, popularity, enrichment, and persistence.
 Also covers MCP keyword evaluation entrypoint (`aso_evaluate_keywords`) that evaluates explicit keywords + CLI invocation.
 
 ## Constraints
+
 - Storefront: `US` only.
 - US locale set for difficulty localization enrichment:
   - default: `en-US`
@@ -15,6 +17,7 @@ Also covers MCP keyword evaluation entrypoint (`aso_evaluate_keywords`) that eva
 - App Store metadata keyword field is comma-separated and limited to `100` characters, so terms should be compactly separated (example: `love,couple`).
 
 ## Responsibility Split
+
 - Domain policy (`cli/domain/keywords/*`, `cli/domain/errors/*`): shared keyword normalization/country policy (`US`), request limits, and dashboard-safe error/message mapping used by CLI + dashboard server + dashboard UI.
 - CLI pipeline (`cli/services/keywords/keyword-pipeline-service.ts`): single orchestrator for stage-1 lookup/popularity, enrichment, order refresh, startup refresh, and failed-keyword retry.
 - MCP server (`cli/mcp/index.ts`): validate explicit `keywords` input (max 100), call `aso keywords "<comma-separated-keywords>" --stdout` with resolved thresholds, and return only accepted rows from CLI output `items`.
@@ -24,6 +27,7 @@ Also covers MCP keyword evaluation entrypoint (`aso_evaluate_keywords`) that eva
 - Shared domain policy (`cli/shared/*`): keyword normalization/TTL policy, freshness validation, resilience config, and upstream error normalization used by both `keywords` and `cache-api` layers.
 
 ## Pipeline
+
 1. Normalize (`trim + lowercase + dedupe`).
 2. When `--exclude-existing` is set, resolve the target app (`--app-id` or default `research`), remove keywords already present in `app_keywords` for `(appId, country)`, and add those rows to `filteredOut(already_associated)`.
 3. `POST /aso/cache-lookup` to get hits/misses.
@@ -50,9 +54,11 @@ Also covers MCP keyword evaluation entrypoint (`aso_evaluate_keywords`) that eva
 9. Persist terminal popularity/enrichment failures in `aso_keyword_failures`.
    - Dashboard background enrichment safety: if the background enrichment call throws before emitting per-keyword failures, unresolved pending keywords are recorded as terminal `enrichment` failures so they are retryable in UI.
 10. Apply optional max-difficulty filter after difficulty is known:
-   - rows above threshold are marked `filteredOut(high_difficulty)` and excluded from accepted `items`.
+
+- rows above threshold are marked `filteredOut(high_difficulty)` and excluded from accepted `items`.
 
 ## Machine-Friendly `--stdout` Contract
+
 - `aso keywords "<comma-separated-keywords>" --stdout` is keyword-only and intended for agents/machine calls.
 - Optional filters are available directly on CLI:
   - `--min-popularity`
@@ -82,16 +88,20 @@ Also covers MCP keyword evaluation entrypoint (`aso_evaluate_keywords`) that eva
   - failure envelope: non-zero
 
 ## Auth-Only Command
+
 - `aso auth` performs only Apple Search Ads reauthentication.
 - It does not run keyword lookup, enrichment, dashboard startup, or Primary App ID resolution.
 
 ## Credential Reset Command
+
 - `aso reset-credentials` clears saved Apple Search Ads credentials/cookies only.
 - It does not run dashboard startup, keyword lookup, or reauthentication.
 
 ## Enrichment Strategy
+
 - Primary source: App Store search-page `serialized-server-data`, parsed independently for search-shelf order, lockup documents, and the complete result count/order exposed by `nextPage`.
 - MZSearch fills only missing fields: it supplies count when `nextPage` is absent, and supplies order only when the primary response has no usable order. MZSearch never replaces an available primary order or primary lockup document.
+- Search-page and MZSearch parsing retain usable data while collecting compact contract-drift signals. Fallbacks resolve first; genuine drift is then reported as recovered or unresolved, while transport failures remain outside the contract-drift path.
 - When MZSearch supplies a non-empty count, `appCount` is clamped to at least the known primary-order length. An empty MZSearch fallback is contradictory and remains unresolved when the primary response contains apps; it resolves to zero only when the primary response also contains no apps. An unresolved count remains nullable during order refresh so persistence can retain the last complete stored count instead of writing zero.
 - App detail sources:
   - App Store lookup payloads for competitor docs and release-date fields.
@@ -102,12 +112,14 @@ Also covers MCP keyword evaluation entrypoint (`aso_evaluate_keywords`) that eva
 - Difficulty score uses top-result competitiveness signals plus app-count normalization.
 
 ### Difficulty Calculation
+
 - For non-competitive keywords (`appCount < 5`), we return baseline values:
   - `difficultyScore = 1`
   - `minDifficultyScore = 1`
 - For competitive keywords (`appCount >= 5`), enrichment requires complete top-5 docs; if still incomplete after backfill + one retry, enrichment fails with `INSUFFICIENT_DOCS` instead of persisting fallback scores.
 
 Per-app competitive score (for each of top 5 apps):
+
 - `normalizedRatingCount = clamp(userRatingCount / 10000, 0, 1)`
 - `normalizedAvgRating`: starts above rating `3`, scales toward `5`, and is damped for low rating counts (`<= 20`).
 - `normalizedAge = 1 - clamp(daysSinceLastRelease / 365, 0, 1)`
@@ -124,6 +136,7 @@ Per-app competitive score (for each of top 5 apps):
   - `appCompetitiveScore = (0.2*normalizedRatingCount + 0.1*normalizedAvgRating + 0.1*normalizedAge + 0.3*keywordScore + 0.3*normalizedRatingPerDay) / 1.0`
 
 Keyword-level difficulty:
+
 - `competitiveScores = top5.map(appCompetitiveScore)`
 - `keywordMatch = best(top5.map(detectBestKeywordMatchType))` using `keywordMatchToScore` rank, persisted as enum value (not numeric score).
 - `avgCompetitive = average(competitiveScores)`
@@ -141,6 +154,7 @@ Keyword-level difficulty:
 - `minDifficultyScore = minCompetitive * 100`
 
 ### Difficulty Lab Tool
+
 - Local script `npm run difficulty:lab` (or `node scripts/difficulty-lab.js`) runs quick difficulty experiments with explicit inputs.
 - Input scenarios are explicit per-app fields:
   - `appCount` (same value across rows; keyword-level total competing app count)
@@ -163,6 +177,7 @@ Keyword-level difficulty:
     - `simulated` (same weights, no top-5 fallback gate)
 
 ## Persistence Model
+
 - Local DB (`~/.aso/aso-db.sqlite`): `owned_apps`, `owned_app_country_ratings`, `aso_keywords`, `aso_apps`, `app_keywords`.
 - Full local SQLite schema reference (all tables + field types): `docs/aso-local-sqlite-schema.md`.
 - Failure DB table: `aso_keyword_failures` keyed by `(country, normalized_keyword)` for current failed state.
@@ -191,6 +206,7 @@ Keyword-level difficulty:
 - Dashboard keyword favorites are app-scoped and live in `app_keywords.is_favorite`.
 
 ## Expiration and Refresh
+
 - TTLs are env-configurable and split by data volatility:
   - `ASO_KEYWORD_ORDER_TTL_HOURS` (default `24`): keyword order/rank data (`orderedAppIds`, `appCount`).
   - `ASO_POPULARITY_CACHE_TTL_HOURS` (default `720`): popularity + difficulty lifecycle (`30` days).
@@ -202,6 +218,7 @@ Keyword-level difficulty:
 - Missing/expired app docs trigger hydration.
 
 ## API Surface
+
 - `POST /aso/cache-lookup`
 - `POST /aso/enrich`
 - `POST /aso/app-docs` (max `50` IDs)
@@ -218,6 +235,7 @@ Keyword-level difficulty:
   - Updates app-scoped `app_keywords.is_favorite` only for that keyword association.
 
 ## MCP Surface
+
 - Tool: `aso_evaluate_keywords`
 - Country: always `US` (country is not user-configurable at MCP level)
 - Input: required `keywords` array (strings). Each item can be a single-word or long-tail phrase. Comma-separated entries are normalized and split.
@@ -233,6 +251,7 @@ Keyword-level difficulty:
   - `isBrandKeyword`: `true` when classified as brand, otherwise `false`.
 
 ## Key Decisions
+
 - Popularity stays in CLI because it depends on local Search Ads auth + Primary App ID context.
 - Enrichment/cache stays backend-side for deterministic reuse.
 - Two-stage flow keeps dashboard latency low while preserving full enrichment asynchronously.
