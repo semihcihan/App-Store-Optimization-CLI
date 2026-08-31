@@ -53,7 +53,7 @@ Runtime flow contracts across CLI commands, local dashboard API, and ASO service
 5. Enrich required keywords (`/aso/enrich`) and persist enriched keywords + competitor app docs.
    - Search-page bundle results are excluded from top-app difficulty input; only app-like results feed top-id difficulty hydration.
    - For top difficulty docs, enrichment fetches configured additional locales for the country and stores locale-keyed `name/subtitle` under competitor docs (`aso_apps.additionalLocalizations`) for per-localization keyword matching.
-   - Top-id doc hydration uses App Store lookup first, then iTunes Lookup fallback when release-date fields remain missing/incomplete for those IDs.
+   - Top-id doc hydration uses App Store lookup first, then iTunes Lookup fallback when results are malformed or release-date fields remain incomplete. Expected-unavailable App Store results do not fall back.
    - For `appCount>=5`, enrichment backfills missing top ids from cache/lookup and retries unresolved ids once; if still incomplete, keyword enrichment fails with `INSUFFICIENT_DOCS` instead of persisting fallback score `1`.
    - When the same top app id keeps returning incomplete lookup docs, enrichment applies a short in-process cooldown before trying that id again for nearby keywords.
    - During enrichment, brand classification is computed as `isBrandKeyword` from top-doc publisher signals (`publisherName`) after hydration/backfill; this is a flag only and does not adjust difficulty scores.

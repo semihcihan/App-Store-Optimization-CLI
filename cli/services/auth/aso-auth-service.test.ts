@@ -273,6 +273,7 @@ describe("aso-auth-service legacy parity edge handling", () => {
       })
     ).rejects.toMatchObject({
       name: "AppleAuthResponseError",
+      reason: "account_setup_required",
     });
     await expect(
       (engine as any).handlePostLoginResponse({
@@ -333,6 +334,28 @@ describe("aso-auth-service sirp fallback policy", () => {
     expect(engine.loginWithLegacy).not.toHaveBeenCalled();
   });
 
+  it("does not fallback or report drift for the known account setup response", async () => {
+    const engine = createAutoEngine();
+    const reportContractSpy = jest
+      .spyOn(appleHttpTrace, "reportAppleContractChange")
+      .mockImplementation(() => {});
+    engine.loginWithSirp = jest.fn(async () =>
+      engine.handlePostLoginResponse({
+        status: 500,
+        data: {},
+        headers: { "set-cookie": ["itctx=some-value; Path=/"] },
+      })
+    );
+    engine.loginWithLegacy = jest.fn().mockResolvedValue(undefined);
+
+    await expect(engine.ensureAuthenticated(credentials)).rejects.toMatchObject({
+      reason: "account_setup_required",
+    });
+    expect(engine.loginWithLegacy).not.toHaveBeenCalled();
+    expect(reportContractSpy).not.toHaveBeenCalled();
+    reportContractSpy.mockRestore();
+  });
+
   it("falls back once to legacy for unknown SIRP failures", async () => {
     const engine = createAutoEngine();
     engine.loginWithSirp = jest
@@ -352,12 +375,11 @@ describe("aso-auth-service sirp fallback policy", () => {
     const reportContractSpy = jest
       .spyOn(appleHttpTrace, "reportAppleContractChange")
       .mockImplementation(() => {});
-    engine.loginWithSirp = jest.fn().mockRejectedValue(
-      new AppleAuthResponseError({
-        message: "Unexpected SIRP response",
+    engine.loginWithSirp = jest.fn(async () =>
+      engine.handlePostLoginResponse({
         status: 400,
-        payload: {},
-        reason: "unknown",
+        data: {},
+        headers: {},
       })
     );
     engine.loginWithLegacy = jest.fn().mockResolvedValue(undefined);
@@ -371,6 +393,35 @@ describe("aso-auth-service sirp fallback policy", () => {
         isTerminal: false,
       })
     );
+    expect(reportContractSpy).toHaveBeenCalledTimes(1);
+    reportContractSpy.mockRestore();
+  });
+
+  it("does not manually report propagated terminal drift in explicit SIRP mode", async () => {
+    const engine = new AsoAuthEngine(
+      { request: jest.fn() } as any,
+      "sirp"
+    ) as any;
+    engine.resolveWidgetKey = jest.fn().mockResolvedValue("widget-key");
+    engine.bootstrapAuthRequestContext = jest.fn().mockResolvedValue({
+      frameId: "frame-id",
+      state: "state-id",
+    });
+    engine.loginWithSirp = jest.fn(async () =>
+      engine.handlePostLoginResponse({
+        status: 400,
+        data: {},
+        headers: {},
+      })
+    );
+    const reportContractSpy = jest
+      .spyOn(appleHttpTrace, "reportAppleContractChange")
+      .mockImplementation(() => {});
+
+    await expect(engine.ensureAuthenticated(credentials)).rejects.toMatchObject({
+      reason: "unknown",
+    });
+    expect(reportContractSpy).not.toHaveBeenCalled();
     reportContractSpy.mockRestore();
   });
 

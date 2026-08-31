@@ -455,6 +455,7 @@ function isAppLikeSearchResultItem(item: {
 
 type SearchPageData = {
   orderedAppIds: string[];
+  leadingOrderUsable: boolean;
   appDocs: AsoAppDoc[];
   appCount: number | null;
   drifts: SearchContractDrift[];
@@ -494,6 +495,7 @@ async function fetchSearchPageData(params: {
   if (!serializedDataMatch?.[1]) {
     return {
       orderedAppIds: [],
+      leadingOrderUsable: false,
       appDocs: [],
       appCount: null,
       drifts: [
@@ -515,6 +517,7 @@ async function fetchSearchPageData(params: {
   } catch (error) {
     return {
       orderedAppIds: [],
+      leadingOrderUsable: false,
       appDocs: [],
       appCount: null,
       drifts: [
@@ -534,6 +537,7 @@ async function fetchSearchPageData(params: {
   if (!pageData) {
     return {
       orderedAppIds: [],
+      leadingOrderUsable: false,
       appDocs: [],
       appCount: null,
       drifts: [
@@ -602,7 +606,10 @@ async function fetchSearchPageData(params: {
 
   const leadingOrderedIds: string[] = [];
   let malformedLockupCount = 0;
-  for (const item of searchShelf?.items ?? []) {
+  const searchShelfItems = Array.isArray(searchShelf?.items)
+    ? searchShelf.items
+    : [];
+  for (const item of searchShelfItems) {
     if (!isAppLikeSearchResultItem(item)) {
       continue;
     }
@@ -665,9 +672,32 @@ async function fetchSearchPageData(params: {
     }
   }
   const orderedAppIds = [...new Set([...leadingOrderedIds, ...tailIds])];
+  const hasStructurallyUsableSearchShelf = Array.isArray(searchShelf?.items);
+  const hasTailWithoutLeadingOrder =
+    leadingOrderedIds.length === 0 && tailIds.length > 0;
+  if (
+    hasStructurallyUsableSearchShelf &&
+    malformedLockupCount === 0 &&
+    hasTailWithoutLeadingOrder
+  ) {
+    drifts.push({
+      operation: "appstore.search-page",
+      endpoint: APPSTORE_SEARCH_URL,
+      statusCode: response.status,
+      expectedContract:
+        "A non-empty nextPage result follows a usable leading search order",
+      actualSignal: `leadingOrderedIds=0 tailIds=${tailIds.length}`,
+      driftKind: "search_page_tail_without_leading_order",
+    });
+  }
+  const leadingOrderUsable =
+    hasStructurallyUsableSearchShelf &&
+    malformedLockupCount === 0 &&
+    !hasTailWithoutLeadingOrder;
 
   return {
     orderedAppIds,
+    leadingOrderUsable,
     appDocs,
     appCount,
     drifts,
@@ -702,6 +732,7 @@ async function resolveSearchData(params: {
 }): Promise<ResolvedSearchData> {
   let primaryData: SearchPageData = {
     orderedAppIds: [],
+    leadingOrderUsable: false,
     appDocs: [],
     appCount: null,
     drifts: [],
@@ -717,11 +748,16 @@ async function resolveSearchData(params: {
     });
   }
 
-  const hasPrimaryOrder = primaryData.orderedAppIds.length > 0;
+  const hasAnyPrimaryIds = primaryData.orderedAppIds.length > 0;
+  const hasPrimaryOrder =
+    primaryData.leadingOrderUsable && hasAnyPrimaryIds;
   const hasPrimaryDocs = primaryData.appDocs.length > 0;
   const hasConfirmedEmptyPrimary =
-    primaryData.appCount === 0 && primaryData.drifts.length === 0;
+    primaryData.leadingOrderUsable &&
+    primaryData.appCount === 0 &&
+    primaryData.drifts.length === 0;
   const needsMzSearch =
+    !primaryData.leadingOrderUsable ||
     primaryData.appCount == null ||
     (!hasPrimaryOrder && !hasConfirmedEmptyPrimary);
   let mzSearchIds: string[] | null = null;
@@ -741,7 +777,7 @@ async function resolveSearchData(params: {
     }
   }
 
-  const hasUsefulPrimaryData = hasPrimaryOrder || hasPrimaryDocs;
+  const hasUsefulPrimaryData = hasAnyPrimaryIds || hasPrimaryDocs;
   if (hasUsefulPrimaryData && mzSearchIds?.length === 0) {
     contractDrifts.push({
       operation: "mzsearch.keyword-order",
@@ -759,17 +795,17 @@ async function resolveSearchData(params: {
       ? primaryData.orderedAppIds
       : mzSearchIds;
   let appCount: number | null = null;
-  if (
-    (hasUsefulPrimaryData || hasConfirmedEmptyPrimary) &&
-    primaryData.appCount != null
-  ) {
+  if (primaryData.leadingOrderUsable && primaryData.appCount != null) {
     appCount = Math.max(
       primaryData.appCount,
       primaryData.orderedAppIds.length,
       mzSearchIds?.length ?? 0
     );
   } else if (mzSearchIds != null) {
-    appCount = Math.max(primaryData.orderedAppIds.length, mzSearchIds.length);
+    appCount = Math.max(
+      hasPrimaryOrder ? primaryData.orderedAppIds.length : 0,
+      mzSearchIds.length
+    );
   }
 
   let sourceMode: ResolvedSearchData["sourceMode"] = "partial-unresolved";

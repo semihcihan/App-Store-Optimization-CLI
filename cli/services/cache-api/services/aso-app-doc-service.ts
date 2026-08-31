@@ -53,10 +53,10 @@ type AppLookupDrift = {
   statusCode?: number;
 };
 
-type AppLookupResult = {
-  doc: AsoAppDoc | null;
-  drift?: AppLookupDrift;
-};
+type AppLookupResult =
+  | { kind: "found"; doc: AsoAppDoc }
+  | { kind: "unavailable"; doc: null }
+  | { kind: "drift"; doc: null; drift: AppLookupDrift };
 
 const APP_STORE_FRONT_ID_BY_COUNTRY: Record<string, string> = {
   US: "143441",
@@ -358,15 +358,16 @@ async function fetchAppDocById(
   }
 
   if (response.status === 404) {
-    return { doc: null };
+    return { kind: "unavailable", doc: null };
   }
 
   const payload = parseAppStorePayload(response.data);
   if (isExpectedUnavailableAppLookupResponse(response.data, payload)) {
-    return { doc: null };
+    return { kind: "unavailable", doc: null };
   }
   if (!payload) {
     return {
+      kind: "drift",
       doc: null,
       drift: {
         statusCode: response.status,
@@ -384,6 +385,7 @@ async function fetchAppDocById(
   );
   if (!parsedDoc) {
     return {
+      kind: "drift",
       doc: null,
       drift: {
         statusCode: response.status,
@@ -395,7 +397,7 @@ async function fetchAppDocById(
     };
   }
 
-  return { doc: parsedDoc };
+  return { kind: "found", doc: parsedDoc };
 }
 
 function reportAppLookupDrift(params: {
@@ -444,7 +446,13 @@ export async function fetchAppStoreLookupAppDocs(params: {
       .filter((doc): doc is AsoAppDoc => doc != null)
       .map((doc) => [doc.appId, doc])
   );
+  const expectedUnavailableIds = new Set(
+    uniqueIds.filter(
+      (_id, index) => lookupResults[index]?.kind === "unavailable"
+    )
+  );
   const unresolvedIds = uniqueIds.filter((id) => {
+    if (expectedUnavailableIds.has(id)) return false;
     const doc = byId.get(id);
     if (!doc) return true;
     return !doc.releaseDate || !doc.currentVersionReleaseDate;
@@ -460,7 +468,7 @@ export async function fetchAppStoreLookupAppDocs(params: {
     byId.set(id, merged);
   }
   lookupResults.forEach((result, index) => {
-    if (!result.drift) return;
+    if (result.kind !== "drift") return;
     const appId = uniqueIds[index];
     reportAppLookupDrift({
       appId,

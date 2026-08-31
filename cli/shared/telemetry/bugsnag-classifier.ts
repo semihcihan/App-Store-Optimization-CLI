@@ -72,6 +72,10 @@ const APPLE_AUTH_USER_FAULT_REASONS = new Set([
   "verification_delivery_failed",
 ]);
 
+const APPLE_AUTH_EXPECTED_FLOW_REASONS = new Set([
+  "account_setup_required",
+]);
+
 function getTelemetryHint(metadata: AnyRecord): TelemetryHint | undefined {
   const hint = toRecord(metadata.telemetryHint);
   if (!hint) return undefined;
@@ -163,6 +167,13 @@ function classifyKnownFlow(
   }
   if (isAppleAuthResponseErrorLike(error)) {
     const reason = toStringValue((error as AnyRecord).reason);
+    if (reason && APPLE_AUTH_EXPECTED_FLOW_REASONS.has(reason)) {
+      return {
+        report: false,
+        classification: "expected_flow",
+        reason: `apple_auth_${reason}`,
+      };
+    }
     if (reason && APPLE_AUTH_USER_FAULT_REASONS.has(reason)) {
       return {
         report: false,

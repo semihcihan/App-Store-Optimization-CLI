@@ -384,6 +384,94 @@ describe("aso-enrichment-service", () => {
     );
   });
 
+  it("uses MZSearch order when nextPage tail IDs accompany a missing leading shelf", async () => {
+    mockedAsoAppleGet
+      .mockResolvedValueOnce({
+        data: buildSearchHtmlForIds(["2"], ["tail-3"], {
+          shelfContentType: "featured",
+        }),
+      } as never)
+      .mockResolvedValueOnce({
+        data: {
+          pageData: {
+            bubbles: [
+              {
+                name: "software",
+                results: [
+                  { id: "1" },
+                  { id: "2" },
+                  { id: "tail-3" },
+                ],
+              },
+            ],
+          },
+        },
+      } as never);
+
+    const result = await refreshKeywordOrder({
+      keyword: "tail-only primary",
+      country: "US",
+    });
+
+    expect(result.appCount).toBe(3);
+    expect(result.orderedAppIds).toEqual(["1", "2", "tail-3"]);
+    expect(result.appDocs).toEqual([
+      expect.objectContaining({ appId: "2", name: "App 2" }),
+    ]);
+    expect(mockedAsoAppleGet).toHaveBeenCalledTimes(2);
+    expect(mockedReportAppleContractChange).toHaveBeenCalledWith(
+      expect.objectContaining({
+        driftKind: "search_page_search_shelf_missing",
+        recoveryOutcome: "recovered",
+        fallbackSource: "mzsearch",
+        isTerminal: false,
+      })
+    );
+  });
+
+  it("uses MZSearch order when nextPage tail IDs accompany malformed leading items", async () => {
+    const html = `<script id="serialized-server-data">${JSON.stringify({
+      data: [
+        {
+          data: {
+            shelves: [{ contentType: "searchResult", items: {} }],
+            nextPage: { results: [{ id: "tail-2", type: "apps" }] },
+          },
+        },
+      ],
+    })}</script>`;
+    mockedAsoAppleGet
+      .mockResolvedValueOnce({ data: html, status: 200 } as never)
+      .mockResolvedValueOnce({
+        data: {
+          pageData: {
+            bubbles: [
+              {
+                name: "software",
+                results: [{ id: "1" }, { id: "tail-2" }],
+              },
+            ],
+          },
+        },
+      } as never);
+
+    const result = await refreshKeywordOrder({
+      keyword: "malformed leading order",
+      country: "US",
+    });
+
+    expect(result.appCount).toBe(2);
+    expect(result.orderedAppIds).toEqual(["1", "tail-2"]);
+    expect(mockedReportAppleContractChange).toHaveBeenCalledWith(
+      expect.objectContaining({
+        driftKind: "search_page_search_items_not_array",
+        recoveryOutcome: "recovered",
+        fallbackSource: "mzsearch",
+        isTerminal: false,
+      })
+    );
+  });
+
   it("uses MZSearch for the complete result when the primary response has no usable data", async () => {
     mockedAsoAppleGet
       .mockResolvedValueOnce({

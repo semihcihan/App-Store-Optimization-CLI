@@ -201,16 +201,13 @@ describe("aso-app-doc-service", () => {
   ])(
     "treats %s as an expected unavailable app result",
     async (_name, data, status) => {
-      mockedAsoAppleGet
-        .mockResolvedValueOnce({ data, status } as never)
-        .mockResolvedValueOnce({
-          data: { resultCount: 0, results: [] },
-        } as never);
+      mockedAsoAppleGet.mockResolvedValueOnce({ data, status } as never);
 
       await expect(
         fetchAppStoreLookupAppDocs({ country: "US", appIds: ["404"] })
       ).resolves.toEqual([]);
 
+      expect(mockedAsoAppleGet).toHaveBeenCalledTimes(1);
       expect(mockedReportAppleContractChange).not.toHaveBeenCalled();
     }
   );

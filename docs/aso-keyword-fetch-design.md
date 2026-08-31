@@ -100,12 +100,12 @@ Also covers MCP keyword evaluation entrypoint (`aso_evaluate_keywords`) that eva
 ## Enrichment Strategy
 
 - Primary source: App Store search-page `serialized-server-data`, parsed independently for search-shelf order, lockup documents, and the complete result count/order exposed by `nextPage`.
-- MZSearch fills only missing fields: it supplies count when `nextPage` is absent, and supplies order only when the primary response has no usable order. MZSearch never replaces an available primary order or primary lockup document.
+- MZSearch fills only missing fields: it supplies count when `nextPage` is absent, and supplies order when the leading primary search shelf is missing or malformed. Tail-only IDs are not considered a usable primary order. MZSearch never replaces an available primary order or primary lockup document.
 - Search-page and MZSearch parsing retain usable data while collecting compact contract-drift signals. Fallbacks resolve first; genuine drift is then reported as recovered or unresolved, while transport failures remain outside the contract-drift path.
 - When MZSearch supplies a non-empty count, `appCount` is clamped to at least the known primary-order length. An empty MZSearch fallback is contradictory and remains unresolved when the primary response contains apps; it resolves to zero only when the primary response also contains no apps. An unresolved count remains nullable during order refresh so persistence can retain the last complete stored count instead of writing zero.
 - App detail sources:
   - App Store lookup payloads for competitor docs and release-date fields.
-  - iTunes Lookup fallback (`itunes.apple.com/lookup`) for top-app IDs that are missing or incomplete from App Store lookup, so release-date fields can still be hydrated for difficulty scoring.
+  - iTunes Lookup fallback (`itunes.apple.com/lookup`) for top-app IDs whose App Store lookup result is malformed or incomplete, so release-date fields can still be hydrated for difficulty scoring. Expected-unavailable results do not use this fallback.
   - Localized app-page `serialized-server-data` JSON for `title`, `subtitle`, `icon`, `ratingAverage`, `totalNumberOfRatings`.
   - During enrichment, top difficulty docs aggregate additional locale `name/subtitle` into `aso_apps.additionalLocalizations` for per-localization keyword matching.
   - When search-page lockups are sparse, enrichment preserves the available primary documents and backfills only missing top ids from cached competitor docs and App Lookup before difficulty scoring.

@@ -64,6 +64,20 @@ describe("bugsnag-classifier", () => {
     expect(decision.classification).toBe("user_fault");
   });
 
+  it("suppresses known Apple account setup responses as expected flow", () => {
+    const error = Object.assign(new Error("Account setup required"), {
+      name: "AppleAuthResponseError",
+      reason: "account_setup_required",
+      status: 500,
+    });
+
+    expect(classifyTelemetryError(error, {})).toEqual({
+      report: false,
+      classification: "expected_flow",
+      reason: "apple_auth_account_setup_required",
+    });
+  });
+
   it("classifies Apple 2FA verification delivery failures as user_fault", () => {
     const error = Object.assign(
       new Error("Verification codes cannot be sent"),

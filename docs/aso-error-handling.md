@@ -35,7 +35,7 @@ Define failure boundaries, retry rules, and recovery behavior across CLI, dashbo
 - Popularity batch isolation requests (`one keyword per request` after a terminal batch failure) run single-attempt (`maxAttempts=1`) to avoid retry multiplication.
 - Enrichment applies one bounded retry/backoff cycle for competitive keywords when top-5 difficulty docs are incomplete (`reasonCode=INSUFFICIENT_DOCS` when still unresolved).
 - Enrichment applies a short in-process cooldown for top-app IDs that still return incomplete lookup docs, so nearby keywords do not repeat the same expensive lookup loop immediately.
-- App-doc hydration now falls back to iTunes Lookup for IDs that App Store lookup leaves missing/incomplete, reducing false `INSUFFICIENT_DOCS` failures caused by lookup payload gaps.
+- App-doc hydration falls back to iTunes Lookup for malformed or incomplete App Store lookup results, but not for endpoint-specific unavailable results.
 - Startup refresh manager retries each unit once for transient non-auth failures; it does not retry exhausted `All keywords failed (...)` batch failures, and auth-required failures are terminal for the current run and stop remaining batches.
 - Startup refresh auth failures are exposed as structured refresh-status state so the dashboard can prompt for reauthentication instead of silently stopping.
 - Dashboard keyword mutation auth failures reuse the same dashboard reauthentication UX: add-keyword, retry-failed, and startup refresh each get one automatic auth-start attempt, then shared browser prompt / retry handling if user input is needed. Add-keyword and retry-failed resume the original dashboard mutation once after auth succeeds.
@@ -91,8 +91,9 @@ Define failure boundaries, retry rules, and recovery behavior across CLI, dashbo
   - App lookup payload parsing
   - Localized app-page `serialized-server-data` parsing (title/subtitle/rating/ratingCount)
 - A missing search-page `nextPage` is an expected partial-response fallback, not contract drift; usable primary order and lockups are retained while MZSearch is queried only for count. Other malformed or missing search-page structures remain reportable.
+- `nextPage` tail IDs do not make a missing or malformed leading search shelf usable. In that case, usable documents are retained while MZSearch supplies the complete order and count.
 - Structurally valid empty search results are expected results, not drift. Missing/malformed shelves, lockups, present `nextPage.results`, MZSearch bubbles/results, and popularity payloads remain reportable while usable entries are retained.
-- App lookup `404`, `itemNotAvailable` plist, and `unsupported_product_page` responses are endpoint-specific unavailable results, not drift. Other malformed successful app-lookup payloads are reported after the iTunes Lookup fallback outcome is known.
+- App lookup `404`, `itemNotAvailable` plist, and `unsupported_product_page` responses are endpoint-specific unavailable results: they are not drift, do not fall back to iTunes Lookup, and do not produce cacheable documents. Other malformed successful app-lookup payloads are reported after the iTunes Lookup fallback outcome is known.
 - An empty MZSearch fallback contradicting non-empty primary order/documents is reported as contract drift and leaves count unresolved; empty MZSearch resolves to zero only when primary also contains no apps.
 - Contract-drift events are deduped for `15` minutes per unique signature (`provider + operation + endpoint + drift kind + status bucket + recovery outcome`) to reduce alert spam without allowing a recovered occurrence to suppress a later terminal occurrence.
 - Transport failures (`429`, `5xx`, timeout, and network failures) never enter the contract-drift reporter. Retries and fallback resolution determine whether they remain non-terminal or become a separately classified terminal upstream failure.
@@ -113,6 +114,8 @@ Define failure boundaries, retry rules, and recovery behavior across CLI, dashbo
 - CLI telemetry suppresses expected setup/auth outcomes (reauthentication required, missing/inaccessible Primary App ID, interactive-TTY requirements), all-keyword `4xx` failures, unsupported Node runtimes, and closed stdout/stderr pipes.
 - Transient Apple auth responses (`429`/`5xx`) are reported once as terminal upstream failures rather than both upstream failures and contract drift.
 - Apple auth `401` responses carrying Apple service code `-20101` are classified as `invalid_credentials` (`user_fault`) instead of contract drift.
+- Apple auth responses carrying the known `itctx` account-access condition are classified as `account_setup_required` (`expected_flow`), do not attempt legacy fallback, and are not reported as contract drift.
+- Unknown auth responses that propagate are reported once by the outer CLI/server boundary. SIRP drift is reported manually only when legacy fallback recovers it or replaces it with a different failure.
 - Apple 2FA challenge payloads with service code `-28248` (verification code delivery unavailable) are classified as verification-delivery `user_fault` instead of contract drift.
 - Apple HTTP trace metadata attached to Bugsnag is size-bounded (string/array/object/depth truncation) so contract-drift events retain actionable metadata instead of being dropped for oversized payloads.
 - All-keyword failure telemetry preserves every status code separately from the five-item message preview. Suppression applies only when every failure is confirmed `4xx`; mixed or unknown statuses remain reportable.

@@ -49,6 +49,7 @@ type AppleAuthFailureReason =
   | "two_factor_required"
   | "upgrade_required"
   | "verification_delivery_failed"
+  | "account_setup_required"
   | "unknown";
 
 export class AppleAuthResponseError extends Error {
@@ -657,6 +658,41 @@ function inferAppleAuthFailureReason(
   return "unknown";
 }
 
+function isUnknownAuthContractDrift(
+  error: unknown
+): error is AppleAuthResponseError {
+  return (
+    error instanceof AppleAuthResponseError &&
+    error.reason === "unknown" &&
+    !isRetryableTransientStatusCode(error.status)
+  );
+}
+
+function reportSirpFallbackContractDrift(params: {
+  error: AppleAuthResponseError;
+  recoveryOutcome: "recovered" | "unresolved";
+}): void {
+  const recovered = params.recoveryOutcome === "recovered";
+  reportAppleContractChange({
+    provider: "apple-auth",
+    operation: "sirp-fallback",
+    endpoint: `${APPLE_IDMSA_BASE_URL}/signin/complete`,
+    statusCode: params.error.status,
+    expectedContract:
+      "Apple sign-in response maps to a known authentication outcome",
+    actualSignal: `unknown_reason status=${params.error.status} bodyType=${typeof params.error.payload}`,
+    context: {
+      authMethod: "sirp",
+      payloadSummary: summarizeAppleErrorPayload(params.error.payload),
+    },
+    error: params.error,
+    isTerminal: !recovered,
+    driftKind: "sirp_unknown_failure_reason",
+    recoveryOutcome: params.recoveryOutcome,
+    fallbackSource: "legacy-auth",
+  });
+}
+
 export function getTwoFactorVerificationErrorMessage(payload: unknown): string {
   const error = getFirstAppleServiceError(payload);
   if (!error) return "Verification failed. Please try again.";
@@ -873,10 +909,7 @@ export class AsoAuthEngine {
       if (!this.shouldFallbackToLegacyFromSirp(error)) {
         throw error;
       }
-      const contractDrift =
-        error instanceof AppleAuthResponseError &&
-        error.reason === "unknown" &&
-        !isRetryableTransientStatusCode(error.status);
+      const contractDrift = isUnknownAuthContractDrift(error);
       logger.debug(
         `[aso-auth] SIRP failed, falling back to legacy: ${String(error)}`
       );
@@ -884,37 +917,17 @@ export class AsoAuthEngine {
         await this.loginWithLegacy(credentials, { maxAttempts: 1 });
       } catch (fallbackError) {
         if (contractDrift) {
-          reportAppleContractChange({
-            provider: "apple-auth",
-            operation: "sirp-fallback",
-            endpoint: `${APPLE_IDMSA_BASE_URL}/signin/complete`,
-            statusCode: error.status,
-            expectedContract:
-              "SIRP login failure is classified to a known Apple auth reason",
-            actualSignal: `unknown_reason status=${error.status}`,
+          reportSirpFallbackContractDrift({
             error,
-            isTerminal: true,
-            driftKind: "sirp_unknown_failure_reason",
             recoveryOutcome: "unresolved",
-            fallbackSource: "legacy-auth",
           });
         }
         throw fallbackError;
       }
       if (contractDrift) {
-        reportAppleContractChange({
-          provider: "apple-auth",
-          operation: "sirp-fallback",
-          endpoint: `${APPLE_IDMSA_BASE_URL}/signin/complete`,
-          statusCode: error.status,
-          expectedContract:
-            "SIRP login failure is classified to a known Apple auth reason",
-          actualSignal: `unknown_reason status=${error.status}`,
+        reportSirpFallbackContractDrift({
           error,
-          isTerminal: false,
-          driftKind: "sirp_unknown_failure_reason",
           recoveryOutcome: "recovered",
-          fallbackSource: "legacy-auth",
         });
       }
     }
@@ -1214,7 +1227,7 @@ export class AsoAuthEngine {
             "Apple ID is not enabled for App Store Connect. Sign in on the web once and verify account access.",
           status: response.status,
           payload: response.data,
-          reason: "unknown",
+          reason: "account_setup_required",
         }),
         "signin-complete",
         {
@@ -1223,27 +1236,8 @@ export class AsoAuthEngine {
       );
     }
 
-    const bodyType = typeof response.data;
     const reason = inferAppleAuthFailureReason(response.status, response.data);
-    if (
-      reason === "unknown" &&
-      !isRetryableTransientStatusCode(response.status)
-    ) {
-      reportAppleContractChange({
-        provider: "apple-auth",
-        operation: "signin-complete",
-        endpoint: `${APPLE_IDMSA_BASE_URL}/signin`,
-        statusCode: response.status,
-        expectedContract:
-          "Apple sign-in response maps to known outcomes (200, 403, 409, 412 or known payload reason)",
-        actualSignal: `unexpected_status=${response.status} bodyType=${bodyType}`,
-        context: {
-          payloadSummary: summarizeAppleErrorPayload(response.data),
-        },
-        isTerminal: true,
-        dedupeKey: "apple-auth-signin-complete-unknown-reason",
-      });
-    }
+    const bodyType = typeof response.data;
     throw this.withAppleAuthTrace(
       new AppleAuthResponseError({
         message: `Apple login failed with status ${response.status} (responseType=${bodyType})`,
