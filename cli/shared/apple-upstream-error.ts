@@ -1,7 +1,7 @@
 import axios from "axios";
 import { getErrorBugsnagMetadata } from "../services/telemetry/bugsnag-metadata";
 import {
-  isKnownTransientStatusCode,
+  isRetryableTransientStatusCode,
   isTransientTransportFailure,
 } from "./aso-transient-error";
 
@@ -97,9 +97,13 @@ function normalizeReasonCode(rawCode: string | undefined, fallback: string): str
   return normalized || fallback;
 }
 
-function inferRetryable(statusCode: number | undefined, message: string): boolean {
-  if (isKnownTransientStatusCode(statusCode)) return true;
-  if (isTransientTransportFailure({ message })) return true;
+function inferRetryable(
+  statusCode: number | undefined,
+  message: string,
+  code: string | undefined
+): boolean {
+  if (isRetryableTransientStatusCode(statusCode)) return true;
+  if (isTransientTransportFailure({ code, message })) return true;
   const lower = message.toLowerCase();
   return RETRYABLE_MESSAGE_SNIPPETS.some((snippet) => lower.includes(snippet));
 }
@@ -122,6 +126,10 @@ export function normalizeAppleUpstreamError(
   let reasonCode: string | undefined;
   let message = "";
   let requestId = params.requestId;
+  const errorCode =
+    typeof (params.error as any)?.code === "string"
+      ? (params.error as any).code
+      : undefined;
 
   if (axios.isAxiosError(params.error)) {
     statusCode =
@@ -157,7 +165,7 @@ export function normalizeAppleUpstreamError(
   }
 
   const normalizedReasonCode = normalizeReasonCode(reasonCode, defaultReasonCode);
-  const retryable = inferRetryable(statusCode, message);
+  const retryable = inferRetryable(statusCode, message, errorCode);
 
   return {
     reasonCode: normalizedReasonCode,

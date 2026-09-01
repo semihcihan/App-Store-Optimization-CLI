@@ -125,6 +125,17 @@ function isAppleAuthResponseErrorLike(error: unknown): boolean {
   return toStringValue(record?.name) === "AppleAuthResponseError";
 }
 
+function hasOnlyRetryableKeywordFailures(error: unknown): boolean {
+  const record = getErrorRecord(error);
+  if (toStringValue(record?.name) !== "AllKeywordsFailedError") return false;
+  const retryable = record?.keywordFailureRetryable;
+  return (
+    Array.isArray(retryable) &&
+    retryable.length > 0 &&
+    retryable.every((value) => value === true)
+  );
+}
+
 function isLikelyCredentialUserFault(error: unknown): boolean {
   if (!(error instanceof Error)) return false;
   const message = error.message.toLowerCase();
@@ -195,7 +206,6 @@ function classifyKnownFlow(
       reason: `apple_auth_${reason ?? "unknown"}`,
     };
   }
-
   if (hint?.isTerminal === false) {
     return {
       report: false,
@@ -208,6 +218,13 @@ function classifyKnownFlow(
       report: true,
       classification: "upstream_terminal_failure",
       reason: "explicit_hint_terminal_upstream",
+    };
+  }
+  if (hasOnlyRetryableKeywordFailures(error)) {
+    return {
+      report: true,
+      classification: "upstream_terminal_failure",
+      reason: "all_keywords_failed_retryable_upstream",
     };
   }
 

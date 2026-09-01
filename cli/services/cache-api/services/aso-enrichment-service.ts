@@ -465,6 +465,7 @@ type ResolvedSearchData = {
   orderedAppIds: string[] | null;
   appDocs: AsoAppDoc[];
   appCount: number | null;
+  unresolvedSourceError?: unknown;
   sourceMode:
     | "search-page"
     | "search-page+mzsearch-count"
@@ -730,6 +731,7 @@ async function resolveSearchData(params: {
   keyword: string;
   country: string;
 }): Promise<ResolvedSearchData> {
+  let primarySourceError: unknown;
   let primaryData: SearchPageData = {
     orderedAppIds: [],
     leadingOrderUsable: false,
@@ -741,6 +743,7 @@ async function resolveSearchData(params: {
   try {
     primaryData = await fetchSearchPageData(params);
   } catch (error) {
+    primarySourceError = error;
     logger.debug("[aso-enrichment] search page request failed", {
       keyword: params.keyword,
       country: params.country,
@@ -761,6 +764,7 @@ async function resolveSearchData(params: {
     primaryData.appCount == null ||
     (!hasPrimaryOrder && !hasConfirmedEmptyPrimary);
   let mzSearchIds: string[] | null = null;
+  let mzSearchSourceError: unknown;
   const contractDrifts = [...primaryData.drifts];
 
   if (needsMzSearch) {
@@ -769,6 +773,7 @@ async function resolveSearchData(params: {
       mzSearchIds = mzSearch.ids;
       contractDrifts.push(...mzSearch.drifts);
     } catch (error) {
+      mzSearchSourceError = error;
       logger.debug("[aso-enrichment] MZSearch fallback failed", {
         keyword: params.keyword,
         country: params.country,
@@ -821,6 +826,10 @@ async function resolveSearchData(params: {
 
   const recoveryOutcome =
     orderedAppIds != null && appCount != null ? "recovered" : "unresolved";
+  const unresolvedSourceError =
+    recoveryOutcome === "unresolved"
+      ? mzSearchSourceError ?? primarySourceError
+      : undefined;
   reportSearchContractDrifts({
     keyword: params.keyword,
     country: params.country,
@@ -833,6 +842,9 @@ async function resolveSearchData(params: {
     orderedAppIds,
     appDocs: primaryData.appDocs,
     appCount,
+    ...(unresolvedSourceError !== undefined
+      ? { unresolvedSourceError }
+      : {}),
     sourceMode,
   };
 }
@@ -1214,6 +1226,12 @@ export async function enrichKeyword(
     keyword: normalizedKeyword,
     country,
   });
+  if (
+    (resolved.orderedAppIds == null || resolved.appCount == null) &&
+    resolved.unresolvedSourceError !== undefined
+  ) {
+    throw resolved.unresolvedSourceError;
+  }
   if (resolved.orderedAppIds == null) {
     throw new Error(
       `Unable to resolve App Store order for keyword="${params.keyword}" country="${country}"`

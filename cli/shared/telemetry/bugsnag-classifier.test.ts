@@ -267,6 +267,7 @@ describe("bugsnag-classifier", () => {
       {
         name: "AllKeywordsFailedError",
         keywordFailureStatusCodes: [400, 400, 400, 400, 400, 503],
+        keywordFailureRetryable: [false, false, false, false, false, true],
       }
     );
 
@@ -284,7 +285,8 @@ describe("bugsnag-classifier", () => {
       ),
       {
         name: "AllKeywordsFailedError",
-        keywordFailureStatusCodes: [400, 400, 400, 400, 400, 429],
+        keywordFailureStatusCodes: [400, 400, 400, 400, 400, 422],
+        keywordFailureRetryable: [false, false, false, false, false, false],
       }
     );
 
@@ -294,6 +296,30 @@ describe("bugsnag-classifier", () => {
       reason: "all_keywords_failed_4xx",
     });
   });
+
+  it.each([
+    [[429], [true]],
+    [[503], [true]],
+    [[null], [true]],
+  ])(
+    "classifies retryable keyword failures as terminal upstream failures",
+    (statusCodes, retryable) => {
+      const error = Object.assign(
+        new Error("All keywords failed (1): one:UPSTREAM_ERROR"),
+        {
+          name: "AllKeywordsFailedError",
+          keywordFailureStatusCodes: statusCodes,
+          keywordFailureRetryable: retryable,
+        }
+      );
+
+      expect(classifyTelemetryError(error, {})).toEqual({
+        report: true,
+        classification: "upstream_terminal_failure",
+        reason: "all_keywords_failed_retryable_upstream",
+      });
+    }
+  );
 
   it("adds decision metadata to report payloads", () => {
     const metadata = withTelemetryDecisionMetadata(

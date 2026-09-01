@@ -545,6 +545,35 @@ describe("aso-enrichment-service", () => {
     expect(mockedReportAppleContractChange).not.toHaveBeenCalled();
   });
 
+  it("rethrows the final source error when both search sources fail during enrichment", async () => {
+    const primaryError = Object.assign(
+      new Error("Request failed with status code 429"),
+      {
+        isAxiosError: true,
+        response: { status: 429, data: {} },
+      }
+    );
+    const fallbackError = Object.assign(
+      new Error("Request failed with status code 503"),
+      {
+        isAxiosError: true,
+        response: { status: 503, data: {} },
+      }
+    );
+    mockedAsoAppleGet
+      .mockRejectedValueOnce(primaryError)
+      .mockRejectedValueOnce(fallbackError);
+
+    await expect(
+      enrichKeyword({
+        keyword: "rate limited",
+        country: "US",
+        popularity: 50,
+      })
+    ).rejects.toBe(fallbackError);
+    expect(mockedReportAppleContractChange).not.toHaveBeenCalled();
+  });
+
   it.each([
     [
       "invalid serialized JSON",

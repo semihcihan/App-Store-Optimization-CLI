@@ -649,6 +649,7 @@ describe("keyword-pipeline-service", () => {
       name: AllKeywordsFailedError.name,
       message: expect.stringContaining("All keywords failed"),
       keywordFailureStatusCodes: [500],
+      keywordFailureRetryable: [true],
     });
     expect(listKeywordFailures("US")).toHaveLength(1);
 

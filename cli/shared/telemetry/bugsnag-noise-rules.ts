@@ -7,6 +7,7 @@ import {
   toStringValue,
   type AnyRecord,
 } from "./telemetry-helpers";
+import { isRetryableTransientStatusCode } from "../aso-transient-error";
 
 const AUTH_REAUTH_REQUIRED_ERROR_CODE = "ASO_AUTH_REAUTH_REQUIRED";
 
@@ -21,7 +22,12 @@ function hasOnlyFourHundredKeywordFailures(
       structuredStatuses.length > 0 &&
       structuredStatuses.every((value) => {
         const status = toStatusCode(value);
-        return status != null && status >= 400 && status < 500;
+        return (
+          status != null &&
+          status >= 400 &&
+          status < 500 &&
+          !isRetryableTransientStatusCode(status)
+        );
       })
     );
   }
@@ -35,7 +41,12 @@ function hasOnlyFourHundredKeywordFailures(
   return (
     failureCount > 0 &&
     statuses.length === failureCount &&
-    statuses.every((status) => status >= 400 && status < 500)
+    statuses.every(
+      (status) =>
+        status >= 400 &&
+        status < 500 &&
+        !isRetryableTransientStatusCode(status)
+    )
   );
 }
 

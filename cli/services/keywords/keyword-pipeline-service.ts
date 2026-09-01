@@ -107,6 +107,7 @@ function summarizeFailedKeywords(failures: FailedKeyword[]): string {
 
 export class AllKeywordsFailedError extends Error {
   readonly keywordFailureStatusCodes: Array<number | null>;
+  readonly keywordFailureRetryable: boolean[];
 
   constructor(failures: FailedKeyword[]) {
     super(
@@ -117,6 +118,9 @@ export class AllKeywordsFailedError extends Error {
     this.name = "AllKeywordsFailedError";
     this.keywordFailureStatusCodes = failures.map(
       (failure) => failure.statusCode ?? null
+    );
+    this.keywordFailureRetryable = failures.map(
+      (failure) => failure.retryable
     );
   }
 }

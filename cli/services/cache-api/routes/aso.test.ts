@@ -137,6 +137,38 @@ describe("ASO routes", () => {
     });
   });
 
+  it("preserves transient upstream metadata for an enrichment failure", async () => {
+    mockEnrichKeyword.mockRejectedValueOnce(
+      Object.assign(new Error("Request failed with status code 503"), {
+        isAxiosError: true,
+        code: "ERR_BAD_RESPONSE",
+        response: { status: 503, data: {} },
+      })
+    );
+    const repository = {
+      upsertMany: jest.fn(),
+    };
+
+    const result = await enrichAsoKeywords(
+      {
+        country: "US",
+        items: [{ keyword: "unavailable", popularity: 50 }],
+      },
+      { repository: repository as any }
+    );
+
+    expect(result.items).toEqual([]);
+    expect(result.failedKeywords).toEqual([
+      expect.objectContaining({
+        keyword: "unavailable",
+        stage: "enrichment",
+        reasonCode: "ERR_BAD_RESPONSE",
+        statusCode: 503,
+        retryable: true,
+      }),
+    ]);
+  });
+
   it("surfaces INSUFFICIENT_DOCS as a retryable per-keyword enrichment failure", async () => {
     mockEnrichKeyword.mockImplementation(async ({ keyword, popularity }) => {
       if (keyword === "needs-retry") {
