@@ -51,6 +51,7 @@ Also covers MCP keyword evaluation entrypoint (`aso_evaluate_keywords`) that eva
 8. For order-only keywords, refresh `orderedAppIds` + `appCount` without refetching popularity.
    - This step does not upsert competitor app docs; any app metadata returned during order refresh is transient and competitor docs are hydrated by app-doc read flows (`/api/aso/top-apps`, `/api/aso/apps`, `/api/aso/apps/search`) when missing/expired.
    - Dashboard top-apps order refresh opts into preserving keyword `updated_at`; startup and pipeline order refreshes keep `updated_at` tied to the actual order refresh.
+   - If both order and count remain unresolved, skip the write so the stale order stays eligible for retry and no fresh position snapshot is recorded.
 9. Persist terminal popularity/enrichment failures in `aso_keyword_failures`.
    - Dashboard background enrichment safety: if the background enrichment call throws before emitting per-keyword failures, unresolved pending keywords are recorded as terminal `enrichment` failures so they are retryable in UI.
 10. Apply optional max-difficulty filter after difficulty is known:
@@ -102,7 +103,7 @@ Also covers MCP keyword evaluation entrypoint (`aso_evaluate_keywords`) that eva
 - Primary source: App Store search-page `serialized-server-data`, parsed independently for search-shelf order, lockup documents, and the complete result count/order exposed by `nextPage`.
 - MZSearch fills only missing fields: it supplies count when `nextPage` is absent, and supplies order when the leading primary search shelf is missing or malformed. Tail-only IDs are not considered a usable primary order. MZSearch never replaces an available primary order or primary lockup document.
 - Search-page and MZSearch parsing retain usable data while collecting compact contract-drift signals. Fallbacks resolve first; genuine drift is then reported as recovered or unresolved, while transport failures remain outside the contract-drift path.
-- When MZSearch supplies a non-empty count, `appCount` is clamped to at least the known primary-order length. An empty MZSearch fallback is contradictory and remains unresolved when the primary response contains apps; it resolves to zero only when the primary response also contains no apps. An unresolved count remains nullable during order refresh so persistence can retain the last complete stored count instead of writing zero.
+- When MZSearch supplies a non-empty count, `appCount` is clamped to at least the known primary-order length. An empty MZSearch fallback is contradictory and remains unresolved when the primary response contains apps; it resolves to zero only when the primary response also contains no apps. A single unresolved field remains nullable during order refresh so persistence can retain its last complete stored value instead of writing zero; when both count and order are unresolved, persistence is skipped.
 - App detail sources:
   - App Store lookup payloads for competitor docs and release-date fields.
   - iTunes Lookup fallback (`itunes.apple.com/lookup`) for top-app IDs whose App Store lookup result is malformed or incomplete, so release-date fields can still be hydrated for difficulty scoring. Expected-unavailable results do not use this fallback.

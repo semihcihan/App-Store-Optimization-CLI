@@ -64,6 +64,8 @@ Define failure boundaries, retry rules, and recovery behavior across CLI, dashbo
   - On hydration failure, keep cached owned row and continue serving `/api/apps`.
 - Dashboard app search (`GET /api/aso/apps/search`):
   - Empty search terms return an empty list.
+  - If order resolution fails but search documents remain usable, return them in their source sequence.
+  - Unusable search results return an empty list without an operational warning.
   - If search-order lookup fails, numeric app-id input can still hydrate via direct lookup.
   - If final hydration fails, return `NETWORK_ERROR`.
 - CLI keyword fetch:

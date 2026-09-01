@@ -653,6 +653,12 @@ export class KeywordPipelineService {
         continue;
       }
       if (!updatedOrder) continue;
+      if (
+        updatedOrder.appCount == null &&
+        updatedOrder.orderedAppIds == null
+      ) {
+        continue;
+      }
       const positionCapturedAt = new Date().toISOString();
       const refreshedItem: AsoKeywordItem = {
         keyword: existing.keyword,

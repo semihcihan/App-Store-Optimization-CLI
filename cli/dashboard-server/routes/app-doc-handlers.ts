@@ -28,7 +28,6 @@ import {
 const ASO_APP_DOCS_MAX_BATCH_SIZE = 50;
 const ASO_APP_SEARCH_DEFAULT_LIMIT = 20;
 const ASO_APP_SEARCH_MAX_LIMIT = 50;
-const ASO_APP_SEARCH_FALLBACK_WARNING = "Search failed";
 const SENSOR_TOWER_METRICS_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
 function isSensorTowerMetricsFresh(fetchedAt: string, nowMs: number): boolean {
@@ -131,7 +130,6 @@ export function createAppDocHandlers(deps: AsoRouteDeps) {
     }> = [];
     try {
       const orderData = await refreshAsoKeywordOrderLocal(country, term);
-      orderedAppIds = orderData.orderedAppIds ?? [];
       searchPageAppDocs = [];
       for (const doc of orderData.appDocs ?? []) {
         const appId = `${doc.appId ?? ""}`.trim();
@@ -149,6 +147,8 @@ export function createAppDocHandlers(deps: AsoRouteDeps) {
               : undefined,
         });
       }
+      orderedAppIds =
+        orderData.orderedAppIds ?? searchPageAppDocs.map((doc) => doc.appId);
     } catch (error) {
       deps.reportDashboardError(error, {
         method: "GET",
@@ -162,20 +162,6 @@ export function createAppDocHandlers(deps: AsoRouteDeps) {
     const docsById = new Map(
       searchPageAppDocs.map((doc) => [doc.appId, doc] as const)
     );
-    const orderOnlyFallback =
-      orderedAppIds.length > 0 && searchPageAppDocs.length === 0;
-
-    if (orderOnlyFallback) {
-      deps.sendJson(res, 200, {
-        success: true,
-        data: {
-          term,
-          appDocs: [],
-          warning: ASO_APP_SEARCH_FALLBACK_WARNING,
-        },
-      });
-      return;
-    }
 
     const appDocs: Array<{
       appId: string;

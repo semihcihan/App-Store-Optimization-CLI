@@ -1534,7 +1534,53 @@ describe("dashboard server routes", () => {
     });
   });
 
-  it("returns no app candidates when only fallback ordered ids are available", async () => {
+  it("returns retained search documents when order resolution fails", async () => {
+    mockRefreshAsoKeywordOrderLocal.mockResolvedValue({
+      keyword: "focus",
+      normalizedKeyword: "focus",
+      appCount: null,
+      orderedAppIds: null,
+      appDocs: [
+        {
+          appId: "a2",
+          country: "US",
+          name: "Focus Two",
+          iconArtwork: { url: "https://example.com/a2.png" },
+        },
+        {
+          appId: "a1",
+          country: "US",
+          name: "Focus One",
+          icon: { template: "https://example.com/a1/{w}x{h}.{f}" },
+        },
+      ],
+    } as any);
+
+    const response = await request({
+      method: "GET",
+      path: "/api/aso/apps/search?country=US&term=focus&limit=10",
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json?.data).toEqual({
+      term: "focus",
+      appDocs: [
+        {
+          appId: "a2",
+          name: "Focus Two",
+          iconArtwork: { url: "https://example.com/a2.png" },
+        },
+        {
+          appId: "a1",
+          name: "Focus One",
+          icon: { template: "https://example.com/a1/{w}x{h}.{f}" },
+        },
+      ],
+    });
+    expect(mockGetAsoAppDocsLocal).not.toHaveBeenCalled();
+  });
+
+  it("returns an empty search result without a warning when documents are unavailable", async () => {
     mockRefreshAsoKeywordOrderLocal.mockResolvedValue({
       keyword: "focus",
       normalizedKeyword: "focus",
@@ -1552,7 +1598,6 @@ describe("dashboard server routes", () => {
     expect(response.json?.data).toEqual({
       term: "focus",
       appDocs: [],
-      warning: "Search failed",
     });
     expect(mockGetAsoAppDocsLocal).not.toHaveBeenCalled();
   });

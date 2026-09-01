@@ -173,7 +173,7 @@ Runtime flow contracts across CLI commands, local dashboard API, and ASO service
   - refresh stale `kind=owned` rows when `owned_app_country_ratings.last_fetched_at` exceeds `ASO_OWNED_APP_DOC_REFRESH_MAX_AGE_HOURS` (default `24`) using localized app-page `serialized-server-data` JSON.
 - `GET /api/aso/top-apps`: read ordered IDs from keyword; when keyword order TTL is stale, refresh order first without changing the keyword `updated_at`, then return competitor docs and hydrate missing/expired competitor docs.
 - `GET /api/aso/apps`: competitor-doc endpoint for requested IDs (`aso_apps` only), hydrate missing/expired competitor docs (or force with `refresh=true`).
-- `GET /api/aso/apps/search`: resolve ordered IDs for a free-text term and hydrate competitor docs for the top IDs.
+- `GET /api/aso/apps/search`: return primary search documents in resolved order; when order resolution fails, return retained documents in their source sequence, or an ordinary empty list if none remain.
 
 ## Flow E1: Top-App Market Metrics
 - `GET /api/aso/top-apps` reads Sensor Tower metrics only after the displayed top-app documents have been resolved; no startup or background flow reads or refreshes this cache.

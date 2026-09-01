@@ -32,7 +32,7 @@ Apple upstream fetch surfaces used by ASO keyword enrichment and dashboard app h
 1. Parse App Store search-page order, lockup documents, and `nextPage` count independently.
 2. Use MZSearch only for unresolved fields: count when `nextPage` is absent; order and count when the leading primary order is unavailable or malformed. Tail-only primary IDs are retained as evidence but are not treated as complete order. Clamp a non-empty fallback count to at least a usable primary-order length; treat an empty fallback as unresolved when primary contains apps.
 3. Preserve primary lockup documents, match them to the resolved order, and hydrate only missing top competitor docs through cache/App Lookup.
-4. If fallback count/order remains unresolved during order refresh, retain the last complete stored field rather than writing zero or an empty ranking.
+4. During order refresh, retain the last complete stored field when only count or order remains unresolved. If both remain unresolved, skip persistence so the order TTL and position history are not advanced.
 
 ### 2) Owned app refresh chain
 

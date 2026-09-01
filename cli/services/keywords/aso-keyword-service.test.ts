@@ -252,6 +252,50 @@ describe("keyword-pipeline-service", () => {
     );
   });
 
+  it("does not persist a completely unresolved order refresh", async () => {
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date("2026-04-13T00:00:00.000Z"));
+    upsertKeywords("US", [
+      {
+        keyword: "unresolved refresh",
+        popularity: 50,
+        difficultyScore: 10,
+        minDifficultyScore: 5,
+        appCount: 240,
+        keywordMatch: "titleExactPhrase",
+        orderedAppIds: ["old-1", "old-2"],
+        updatedAt: "2026-04-01T00:00:00.000Z",
+        orderExpiresAt: "2000-01-01T00:00:00.000Z",
+        popularityExpiresAt: "2099-01-01T00:00:00.000Z",
+      },
+    ]);
+    createAppKeyword("old-1", "unresolved refresh", "US");
+
+    mockRefreshAsoKeywordOrderLocal.mockResolvedValue({
+      keyword: "unresolved refresh",
+      normalizedKeyword: "unresolved refresh",
+      appCount: null,
+      orderedAppIds: null,
+    });
+
+    const refreshed = await keywordPipelineService.refreshOrder("US", [
+      "unresolved refresh",
+    ]);
+
+    expect(refreshed).toEqual([]);
+    expect(getKeyword("US", "unresolved refresh")).toEqual(
+      expect.objectContaining({
+        appCount: 240,
+        orderedAppIds: ["old-1", "old-2"],
+        updatedAt: "2026-04-01T00:00:00.000Z",
+        orderExpiresAt: "2000-01-01T00:00:00.000Z",
+      })
+    );
+    expect(
+      listAppKeywordPositionHistory("old-1", "unresolved refresh", "US")
+    ).toEqual([]);
+  });
+
   it("returns partial success and persists failed keywords", async () => {
     mockLookupAsoCacheLocal.mockResolvedValue({
       hits: [],
