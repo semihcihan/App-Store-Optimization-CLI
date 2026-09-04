@@ -441,16 +441,16 @@ function lockupToAppDoc(
   };
 }
 
-function isAppLikeSearchResultItem(item: {
+function isConsumedAppSearchResultItem(item: {
   $kind?: string;
   resultType?: string;
 }): boolean {
   const kind = (item.$kind ?? "").trim();
   const resultType = (item.resultType ?? "").trim().toLowerCase();
-  if (kind === "BundleSearchResult" || resultType === "bundle") {
-    return false;
-  }
-  return true;
+  return (
+    (kind === "AppSearchResult" && resultType === "content") ||
+    (kind === "AppEventSearchResult" && resultType === "appevent")
+  );
 }
 
 type SearchPageData = {
@@ -594,7 +594,7 @@ async function fetchSearchPageData(params: {
   for (const shelf of usableShelves) {
     if (!Array.isArray(shelf?.items)) continue;
     for (const item of shelf.items) {
-      if (!isAppLikeSearchResultItem(item)) continue;
+      if (!isConsumedAppSearchResultItem(item)) continue;
       const lockup = item?.lockup;
       if (!lockup) continue;
       const doc = lockupToAppDoc(lockup, params.country);
@@ -611,7 +611,7 @@ async function fetchSearchPageData(params: {
     ? searchShelf.items
     : [];
   for (const item of searchShelfItems) {
-    if (!isAppLikeSearchResultItem(item)) {
+    if (!isConsumedAppSearchResultItem(item)) {
       continue;
     }
     const lockup = item?.lockup;

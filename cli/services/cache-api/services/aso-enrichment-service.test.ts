@@ -69,10 +69,8 @@ function buildSearchHtmlForIds(
   }
 ): string {
   const items = ids.map((id, index) => ({
-    ...(options?.kindsById?.[id] ? { $kind: options.kindsById[id] } : {}),
-    ...(options?.resultTypesById?.[id]
-      ? { resultType: options.resultTypesById[id] }
-      : {}),
+    $kind: options?.kindsById?.[id] ?? "AppSearchResult",
+    resultType: options?.resultTypesById?.[id] ?? "content",
     lockup: {
       adamId: id,
       title: `App ${id}`,
@@ -305,6 +303,86 @@ describe("aso-enrichment-service", () => {
         operation: "mzsearch.keyword-order",
       })
     );
+  });
+
+  it("ignores unsupported and mismatched rows outside the consumed app contract", async () => {
+    const html = `<script id="serialized-server-data">${JSON.stringify({
+      data: [
+        {
+          data: {
+            shelves: [
+              {
+                contentType: "searchResult",
+                items: [
+                  {
+                    $kind: "AppSearchResult",
+                    resultType: "content",
+                    lockup: { adamId: "app-1", title: "App 1" },
+                  },
+                  {
+                    $kind: "EditorialSearchResult",
+                    resultType: "editorial",
+                  },
+                  {
+                    $kind: "AppSearchResult",
+                    resultType: "futurePromo",
+                  },
+                  {
+                    $kind: "BundleSearchResult",
+                    resultType: "content",
+                    lockup: {
+                      adamId: "mismatched-bundle",
+                      title: "Mismatched Bundle",
+                    },
+                  },
+                  {
+                    $kind: "FuturePromoSearchResult",
+                    resultType: "content",
+                    lockup: {
+                      adamId: "mismatched-future",
+                      title: "Mismatched Future Result",
+                    },
+                  },
+                  {
+                    $kind: "AppEventSearchResult",
+                    resultType: "content",
+                    lockup: {
+                      adamId: "mismatched-event",
+                      title: "Mismatched Event",
+                    },
+                  },
+                  {
+                    $kind: "AppEventSearchResult",
+                    resultType: "appEvent",
+                    lockup: { adamId: "app-2", title: "App 2" },
+                  },
+                  {
+                    $kind: "BundleSearchResult",
+                    resultType: "bundle",
+                  },
+                ],
+              },
+            ],
+            nextPage: { results: [{ id: "app-3", type: "apps" }] },
+          },
+        },
+      ],
+    })}</script>`;
+    mockedAsoAppleGet.mockResolvedValueOnce({ data: html, status: 200 } as never);
+
+    const result = await refreshKeywordOrder({
+      keyword: "mixed result types",
+      country: "US",
+    });
+
+    expect(result.appCount).toBe(3);
+    expect(result.orderedAppIds).toEqual(["app-1", "app-2", "app-3"]);
+    expect(result.appDocs).toEqual([
+      expect.objectContaining({ appId: "app-1" }),
+      expect.objectContaining({ appId: "app-2" }),
+    ]);
+    expect(mockedAsoAppleGet).toHaveBeenCalledTimes(1);
+    expect(mockedReportAppleContractChange).not.toHaveBeenCalled();
   });
 
   it("fails enrichment when empty MZSearch cannot corroborate a partial primary count", async () => {
@@ -603,7 +681,13 @@ describe("aso-enrichment-service", () => {
               shelves: [
                 {
                   contentType: "searchResult",
-                  items: [{ lockup: { title: "Missing id" } }],
+                  items: [
+                    {
+                      $kind: "AppSearchResult",
+                      resultType: "content",
+                      lockup: { title: "Missing id" },
+                    },
+                  ],
                 },
               ],
               nextPage: { results: [] },
