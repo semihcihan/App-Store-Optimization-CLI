@@ -129,7 +129,12 @@ export function createAppDocHandlers(deps: AsoRouteDeps) {
       iconArtwork?: { url?: string; [key: string]: unknown };
     }> = [];
     try {
-      const orderData = await refreshAsoKeywordOrderLocal(country, term);
+      const orderData = isNumericTerm
+        ? {
+            appDocs: await fetchAsoAppDocsFromApi(country, [term]),
+            orderedAppIds: [term],
+          }
+        : await refreshAsoKeywordOrderLocal(country, term);
       searchPageAppDocs = [];
       for (const doc of orderData.appDocs ?? []) {
         const appId = `${doc.appId ?? ""}`.trim();
@@ -155,7 +160,7 @@ export function createAppDocHandlers(deps: AsoRouteDeps) {
         path: "/api/aso/apps/search",
         country,
         term,
-        context: "apps-search-order",
+        context: isNumericTerm ? "apps-search-lookup" : "apps-search-order",
       });
     }
 

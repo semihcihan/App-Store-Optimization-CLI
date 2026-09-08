@@ -174,6 +174,7 @@ Runtime flow contracts across CLI commands, local dashboard API, and ASO service
 - `GET /api/aso/top-apps`: read ordered IDs from keyword; when keyword order TTL is stale, refresh order first without changing the keyword `updated_at`, then return competitor docs and hydrate missing/expired competitor docs.
 - `GET /api/aso/apps`: competitor-doc endpoint for requested IDs (`aso_apps` only), hydrate missing/expired competitor docs (or force with `refresh=true`).
 - `GET /api/aso/apps/search`: return primary search documents in resolved order; when order resolution fails, return retained documents in their source sequence, or an ordinary empty list if none remain.
+  - Numeric terms use direct app metadata lookup for the requested country instead of keyword search, returning the app name and artwork. Missing or failed lookups retain an ID-only candidate so the app can still be added.
 
 ## Flow E1: Top-App Market Metrics
 - `GET /api/aso/top-apps` reads Sensor Tower metrics only after the displayed top-app documents have been resolved; no startup or background flow reads or refreshes this cache.

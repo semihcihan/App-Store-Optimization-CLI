@@ -1510,13 +1510,15 @@ describe("dashboard server routes", () => {
     expect(mockRefreshAsoKeywordOrderLocal).toHaveBeenCalledWith("US", "focus");
     expect(mockGetAsoAppDocsLocal).not.toHaveBeenCalled();
 
-    mockRefreshAsoKeywordOrderLocal.mockResolvedValueOnce({
-      keyword: "123",
-      normalizedKeyword: "123",
-      appCount: 0,
-      orderedAppIds: [],
-      appDocs: [],
-    } as any);
+    mockRefreshAsoKeywordOrderLocal.mockClear();
+    mockGetAsoAppDocsLocal.mockResolvedValueOnce([
+      {
+        appId: "123",
+        country: "US",
+        name: "Focus App",
+        iconArtwork: { url: "https://example.com/123.png" },
+      },
+    ] as any);
 
     const searchById = await request({
       method: "GET",
@@ -1528,11 +1530,38 @@ describe("dashboard server routes", () => {
       appDocs: [
         {
           appId: "123",
-          name: "123",
+          name: "Focus App",
+          iconArtwork: { url: "https://example.com/123.png" },
         },
       ],
     });
+    expect(mockGetAsoAppDocsLocal).toHaveBeenCalledWith("US", ["123"]);
+    expect(mockRefreshAsoKeywordOrderLocal).not.toHaveBeenCalled();
   });
+
+  it.each(["unavailable", "failed"])(
+    "retains an app-id candidate when metadata lookup is %s",
+    async (outcome) => {
+      if (outcome === "failed") {
+        mockGetAsoAppDocsLocal.mockRejectedValueOnce(new Error("Lookup failed"));
+      } else {
+        mockGetAsoAppDocsLocal.mockResolvedValueOnce([]);
+      }
+
+      const response = await request({
+        method: "GET",
+        path: "/api/aso/apps/search?country=GB&term=123",
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.json?.data).toEqual({
+        term: "123",
+        appDocs: [{ appId: "123", name: "123" }],
+      });
+      expect(mockGetAsoAppDocsLocal).toHaveBeenCalledWith("GB", ["123"]);
+      expect(mockRefreshAsoKeywordOrderLocal).not.toHaveBeenCalled();
+    }
+  );
 
   it("returns retained search documents when order resolution fails", async () => {
     mockRefreshAsoKeywordOrderLocal.mockResolvedValue({
