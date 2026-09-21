@@ -92,9 +92,9 @@ Define failure boundaries, retry rules, and recovery behavior across CLI, dashbo
   - MZSearch order payload parsing
   - App lookup payload parsing
   - Localized app-page `serialized-server-data` parsing (title/subtitle/rating/ratingCount)
-- A missing search-page `nextPage` is an expected partial-response fallback, not contract drift; usable primary order and lockups are retained while MZSearch is queried only for count. Other malformed or missing search-page structures remain reportable.
+- A missing search-page `nextPage` is an expected partial-response fallback, not contract drift; usable primary lockups and their order are retained while unseen MZSearch IDs extend the primary prefix and supply the complete count. Other malformed or missing search-page structures remain reportable.
 - `nextPage` tail IDs do not make a missing or malformed leading search shelf usable. In that case, usable documents are retained while MZSearch supplies the complete order and count.
-- Search-page contract drift is evaluated only for app-bearing rows the runtime consumes. Editorial, bundle, and unknown result types are ignored rather than reported, retained, or allowed to invalidate usable order.
+- Search-page contract drift is evaluated only for organic app-bearing rows the runtime consumes. `AppSearchResult/content` and `AppEventSearchResult/appEvent` both represent one app slot and are deduplicated by app ID. Explicit ads, editorial, bundle, and unknown result types are ignored rather than reported, retained, or allowed to invalidate usable order.
 - Structurally valid empty search results are expected results, not drift. Missing/malformed shelves, lockups, present `nextPage.results`, MZSearch bubbles/results, and popularity payloads remain reportable while usable entries are retained.
 - App lookup `404`, `itemNotAvailable` plist, and `unsupported_product_page` responses are endpoint-specific unavailable results: they are not drift, do not fall back to iTunes Lookup, and do not produce cacheable documents. Other malformed successful app-lookup payloads are reported after the iTunes Lookup fallback outcome is known.
 - An empty MZSearch fallback contradicting non-empty primary order/documents is reported as contract drift and leaves count unresolved; empty MZSearch resolves to zero only when primary also contains no apps.

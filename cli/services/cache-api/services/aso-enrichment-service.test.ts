@@ -165,10 +165,25 @@ describe("aso-enrichment-service", () => {
     );
   });
 
-  it("keeps primary order and documents when nextPage is missing and uses only the MZSearch count", async () => {
+  it("extends the authoritative primary order with unseen MZSearch ids", async () => {
+    const primaryIds = Array.from({ length: 12 }, (_, index) => `${index + 1}`);
+    const mzSearchIds = [
+      "2",
+      "1",
+      ...primaryIds.slice(2),
+      "13",
+      "14",
+      "15",
+      "16",
+      "6743622661",
+      "18",
+      "19",
+      "20",
+    ];
+    const expectedIds = [...primaryIds, ...mzSearchIds.slice(primaryIds.length)];
     mockedAsoAppleGet
       .mockResolvedValueOnce({
-        data: buildSearchHtmlForIds(["html-1", "html-2"], [], {
+        data: buildSearchHtmlForIds(primaryIds, [], {
           includeNextPage: false,
         }),
       } as never)
@@ -178,7 +193,7 @@ describe("aso-enrichment-service", () => {
             bubbles: [
               {
                 name: "software",
-                results: [{ id: "1" }, { id: "2" }, { id: "3" }],
+                results: mzSearchIds.map((id) => ({ id })),
               },
             ],
           },
@@ -190,16 +205,16 @@ describe("aso-enrichment-service", () => {
       country: "US",
     });
 
-    expect(result).toEqual({
-      keyword: "dust remover",
-      normalizedKeyword: "dust remover",
-      appCount: 3,
-      orderedAppIds: ["html-1", "html-2"],
-      appDocs: [
-        expect.objectContaining({ appId: "html-1", name: "App html-1" }),
-        expect.objectContaining({ appId: "html-2", name: "App html-2" }),
-      ],
-    });
+    expect(result.appCount).toBe(20);
+    expect(result.orderedAppIds).toEqual(expectedIds);
+    expect(result.orderedAppIds?.slice(0, primaryIds.length)).toEqual(
+      primaryIds
+    );
+    expect(result.orderedAppIds?.indexOf("6743622661")).toBe(16);
+    expect(result.appDocs).toHaveLength(12);
+    expect(result.appDocs[0]).toEqual(
+      expect.objectContaining({ appId: "1", name: "App 1" })
+    );
     expect(mockedAsoAppleGet).toHaveBeenNthCalledWith(
       2,
       "https://search.itunes.apple.com/WebObjects/MZSearch.woa/wa/search",
@@ -305,7 +320,7 @@ describe("aso-enrichment-service", () => {
     );
   });
 
-  it("ignores unsupported and mismatched rows outside the consumed app contract", async () => {
+  it("counts an app-event once and ignores explicit ads and unsupported rows", async () => {
     const html = `<script id="serialized-server-data">${JSON.stringify({
       data: [
         {
@@ -318,6 +333,11 @@ describe("aso-enrichment-service", () => {
                     $kind: "AppSearchResult",
                     resultType: "content",
                     lockup: { adamId: "app-1", title: "App 1" },
+                  },
+                  {
+                    $kind: "AdSearchResult",
+                    resultType: "ad",
+                    lockup: { adamId: "paid-ad", title: "Paid Ad" },
                   },
                   {
                     $kind: "EditorialSearchResult",
@@ -363,7 +383,12 @@ describe("aso-enrichment-service", () => {
                 ],
               },
             ],
-            nextPage: { results: [{ id: "app-3", type: "apps" }] },
+            nextPage: {
+              results: [
+                { id: "app-2", type: "apps" },
+                { id: "app-3", type: "apps" },
+              ],
+            },
           },
         },
       ],

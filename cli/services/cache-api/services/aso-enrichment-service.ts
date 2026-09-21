@@ -469,10 +469,25 @@ type ResolvedSearchData = {
   sourceMode:
     | "search-page"
     | "search-page+mzsearch-count"
+    | "search-page+mzsearch-tail"
     | "search-page-docs+mzsearch-order"
     | "mzsearch-fallback"
     | "partial-unresolved";
 };
+
+function appendUnseenFallbackIds(
+  primaryIds: string[],
+  fallbackIds: string[]
+): string[] {
+  const seenIds = new Set(primaryIds);
+  const mergedIds = [...primaryIds];
+  for (const id of fallbackIds) {
+    if (seenIds.has(id)) continue;
+    seenIds.add(id);
+    mergedIds.push(id);
+  }
+  return mergedIds;
+}
 
 async function fetchSearchPageData(params: {
   keyword: string;
@@ -795,20 +810,37 @@ async function resolveSearchData(params: {
     mzSearchIds = null;
   }
 
-  const orderedAppIds =
-    hasPrimaryOrder || hasConfirmedEmptyPrimary
-      ? primaryData.orderedAppIds
-      : mzSearchIds;
+  const mzSearchCanSupplyOrder = mzSearchIds != null && !hasPrimaryOrder;
+  const mzSearchCanExtendPrimaryOrder =
+    mzSearchIds != null &&
+    hasPrimaryOrder &&
+    primaryData.appCount == null &&
+    mzSearchIds.length >= primaryData.orderedAppIds.length;
+  let orderedAppIds: string[] | null;
+  if (hasConfirmedEmptyPrimary) {
+    orderedAppIds = primaryData.orderedAppIds;
+  } else if (mzSearchCanExtendPrimaryOrder) {
+    orderedAppIds = appendUnseenFallbackIds(
+      primaryData.orderedAppIds,
+      mzSearchIds ?? []
+    );
+  } else if (hasPrimaryOrder) {
+    orderedAppIds = primaryData.orderedAppIds;
+  } else {
+    orderedAppIds = mzSearchIds;
+  }
   let appCount: number | null = null;
   if (primaryData.leadingOrderUsable && primaryData.appCount != null) {
     appCount = Math.max(
       primaryData.appCount,
       primaryData.orderedAppIds.length,
+      orderedAppIds?.length ?? 0,
       mzSearchIds?.length ?? 0
     );
   } else if (mzSearchIds != null) {
     appCount = Math.max(
       hasPrimaryOrder ? primaryData.orderedAppIds.length : 0,
+      orderedAppIds?.length ?? 0,
       mzSearchIds.length
     );
   }
@@ -816,11 +848,13 @@ async function resolveSearchData(params: {
   let sourceMode: ResolvedSearchData["sourceMode"] = "partial-unresolved";
   if (!needsMzSearch) {
     sourceMode = "search-page";
-  } else if (hasPrimaryOrder && mzSearchIds != null) {
+  } else if (mzSearchCanExtendPrimaryOrder) {
+    sourceMode = "search-page+mzsearch-tail";
+  } else if (hasPrimaryOrder) {
     sourceMode = "search-page+mzsearch-count";
-  } else if (hasPrimaryDocs && mzSearchIds != null) {
+  } else if (hasPrimaryDocs && mzSearchCanSupplyOrder) {
     sourceMode = "search-page-docs+mzsearch-order";
-  } else if (mzSearchIds != null) {
+  } else if (mzSearchCanSupplyOrder) {
     sourceMode = "mzsearch-fallback";
   }
 
