@@ -1,3 +1,7 @@
+import { isFreshAsoAppDoc } from "../shared/aso-app-doc-validity";
+
+export { isFreshAsoAppDoc };
+
 export function chunkArray<T>(items: T[], size: number): T[][] {
   if (items.length === 0) return [];
   const chunkSize = Math.max(1, Math.floor(size));
@@ -6,19 +10,6 @@ export function chunkArray<T>(items: T[], size: number): T[][] {
     result.push(items.slice(i, i + chunkSize));
   }
   return result;
-}
-
-export function isFreshAsoAppDoc(
-  doc: {
-    expiresAt?: string;
-    releaseDate?: string | null;
-    currentVersionReleaseDate?: string | null;
-  },
-  nowMs: number = Date.now()
-): boolean {
-  const ts = Date.parse(doc.expiresAt ?? "0");
-  if (!Number.isFinite(ts) || ts <= nowMs) return false;
-  return Boolean(doc.releaseDate && doc.currentVersionReleaseDate);
 }
 
 export function getMissingOrExpiredAppIds(

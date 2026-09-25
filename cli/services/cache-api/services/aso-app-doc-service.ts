@@ -5,6 +5,7 @@ import { asoAppleGet } from "./aso-apple-client";
 import { logger } from "../../../utils/logger";
 import { reportAppleContractChange } from "../../keywords/apple-http-trace";
 import { ASO_APPLE_WEB_USER_AGENT } from "../../../shared/aso-apple-http";
+import { isFreshAsoAppDoc } from "../../../shared/aso-app-doc-validity";
 import {
   assertSupportedCountry,
   normalizeCountry,
@@ -519,7 +520,12 @@ export async function getAsoAppDocs(params: {
         country,
         await params.repository.getAppDocs({ country, appIds })
       );
-  const resultById = new Map(cached.map((doc) => [doc.appId, doc]));
+  const nowMs = Date.now();
+  const resultById = new Map(
+    cached
+      .filter((doc) => isFreshAsoAppDoc(doc, nowMs))
+      .map((doc) => [doc.appId, doc])
+  );
   const missingIds = forceLookup
     ? appIds
     : appIds.filter((id) => !resultById.has(id));

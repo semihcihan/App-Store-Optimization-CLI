@@ -254,6 +254,8 @@ describe("aso-app-doc-service", () => {
           name: "Cached",
           averageUserRating: 4,
           userRatingCount: 10,
+          releaseDate: "2024-01-01",
+          currentVersionReleaseDate: "2025-01-01",
           expiresAt: "2099-01-01T00:00:00.000Z",
         },
       ]) as unknown as AsoCacheRepository["getAppDocs"],
@@ -305,6 +307,78 @@ describe("aso-app-doc-service", () => {
       expect.objectContaining({ appId: "1", country: "US", name: "Cached" }),
       expect.objectContaining({ appId: "2", country: "US", name: "Fetched" }),
     ]);
+  });
+
+  it("refreshes expired cached docs while reusing fresh docs", async () => {
+    const repository = createRepository({
+      getAppDocs: jest.fn(async () => [
+        {
+          appId: "1",
+          country: "US",
+          name: "Fresh Cached",
+          averageUserRating: 4.1,
+          userRatingCount: 100,
+          releaseDate: "2024-01-01",
+          currentVersionReleaseDate: "2025-01-01",
+          expiresAt: "2099-01-01T00:00:00.000Z",
+        },
+        {
+          appId: "2",
+          country: "US",
+          name: "Stale Cached",
+          averageUserRating: 4.2,
+          userRatingCount: 200,
+          releaseDate: "2024-01-01",
+          currentVersionReleaseDate: "2025-01-01",
+          iconArtwork: { url: "https://example.com/old.png" },
+          expiresAt: "2020-01-01T00:00:00.000Z",
+        },
+      ]) as unknown as AsoCacheRepository["getAppDocs"],
+    });
+    mockedAsoAppleGet.mockResolvedValueOnce({
+      data: {
+        storePlatformData: {
+          "product-dv": {
+            results: {
+              "2": {
+                id: "2",
+                name: "Current Name",
+                releaseDate: "2024-01-01",
+                artwork: { url: "https://example.com/current.png" },
+              },
+            },
+          },
+        },
+        pageData: {
+          versionHistory: [{ releaseDate: "2025-01-01" }],
+        },
+      },
+    } as never);
+
+    const result = await getAsoAppDocs({
+      country: "US",
+      appIds: ["1", "2"],
+      repository,
+    });
+
+    expect(mockedAsoAppleGet).toHaveBeenCalledTimes(1);
+    expect(mockedAsoAppleGet).toHaveBeenCalledWith(
+      "https://apps.apple.com/app/id2",
+      expect.any(Object)
+    );
+    expect(result).toEqual([
+      expect.objectContaining({ appId: "1", name: "Fresh Cached" }),
+      expect.objectContaining({
+        appId: "2",
+        name: "Current Name",
+        iconArtwork: { url: "https://example.com/current.png" },
+      }),
+    ]);
+    expect(repository.upsertMany).toHaveBeenCalledWith({
+      country: "US",
+      items: [],
+      appDocs: [expect.objectContaining({ appId: "2", name: "Current Name" })],
+    });
   });
 
   it("bypasses cache and refetches all requested docs when forceLookup is true", async () => {

@@ -201,6 +201,7 @@ Keyword-level difficulty:
 - MCP `aso_evaluate_keywords` does not write directly; it delegates to the CLI command path above.
 - Dashboard keyword reads include app-associated failures even when no `aso_keywords` cache row exists yet, marking those rows as failed for retry UX.
 - Cache API repository is SQLite-backed and reuses local DB tables for keyword/app-doc cache lookups.
+- App-doc reads reuse cached records only while their expiry and required release dates are valid; missing or stale records are refreshed through App Lookup. Numeric dashboard app searches use the same cache read path.
 - No separate JSON cache file is used for ASO keyword/app-doc cache state.
 - Rank delta baseline lives in `app_keywords.previous_position`.
 - Rank history snapshots live in `app_keyword_position_history` and are appended on order writes for associated app-keyword rows.
