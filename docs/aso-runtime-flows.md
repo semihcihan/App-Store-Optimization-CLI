@@ -128,6 +128,8 @@ Runtime flow contracts across CLI commands, local dashboard API, and ASO service
 4. The request is foreground/synchronous so the dashboard can reload the affected rows and report aggregate success/failure counts.
 5. Auth-required responses use the shared dashboard reauthentication flow and resume the same selected-keyword request once after auth succeeds.
 
+Known issue to fix: If a user starts a force refresh for a set of `x` keywords, then starts another for `y` different keywords before the first finishes, the dashboard shows `x+y` keywords in progress but appears to refresh only the first `x`. When that request finishes, it reports `x` keywords refreshed. Reproduce by starting the second force refresh while the first is active. Both sets should be processed as one combined refresh, with the final result accounting for all `x+y` keywords and any failures.
+
 ## Flow C0: Dashboard Primary App Setup
 1. Plain `aso` starts the dashboard immediately; it does not block startup on a terminal-only Primary App ID prompt.
 2. If Primary App ID is already configured (`--primary-app-id` save, env, or saved local value), dashboard setup is skipped unless a later API call proves that the configured ID is inaccessible for the current Apple Ads account.
