@@ -6,6 +6,92 @@
   --ok: color-mix(in oklab, var(--secondary) 68%, white);
   --danger: var(--destructive);
   --onboarding-green: #16a34a;
+  --package-update-background: #f4ba54;
+  --package-update-foreground: #211708;
+}
+
+.main:has(.package-update-banner) {
+  grid-template-rows: auto auto auto minmax(0, 1fr);
+}
+
+.package-update-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 18px;
+  border-radius: var(--radius);
+  color: var(--package-update-foreground);
+  background: var(--package-update-background);
+  border-left: 6px solid var(--package-update-foreground);
+}
+
+.package-update-banner strong,
+.package-update-banner span {
+  display: block;
+}
+
+.package-update-banner strong {
+  font-size: 14px;
+}
+
+.package-update-banner span {
+  margin-top: 5px;
+  font-size: 12px;
+}
+
+.package-update-banner .package-update-action {
+  flex-shrink: 0;
+  background: var(--package-update-foreground);
+  color: var(--package-update-background);
+  border-color: var(--package-update-foreground);
+}
+
+.package-update-banner .package-update-action:hover:not(:disabled) {
+  background: var(--package-update-foreground);
+  color: var(--package-update-background);
+  border-color: var(--package-update-foreground);
+  filter: brightness(1.2);
+}
+
+.dialog-card.package-update-dialog {
+  width: min(640px, 100%);
+}
+
+.package-update-content {
+  line-height: 1.65;
+}
+
+.package-update-command {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 14px;
+  background: var(--background);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.package-update-command code {
+  flex: 1;
+  overflow-wrap: anywhere;
+}
+
+.package-update-feedback {
+  min-height: 1.65em;
+  color: var(--muted-foreground);
+}
+
+@media (max-width: 980px) {
+  .main:has(.package-update-banner) {
+    grid-template-rows: auto auto auto auto;
+  }
+
+  .package-update-banner {
+    flex-wrap: wrap;
+    gap: 10px;
+  }
 }
 
 * {

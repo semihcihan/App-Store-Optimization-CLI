@@ -3,7 +3,7 @@ import axios from "axios";
 import fs from "fs";
 import path from "path";
 import os from "os";
-import { checkVersionUpdateSync } from "./version-check-service";
+import { checkVersionUpdateSync, getPackageUpdateStatus } from "./version-check-service";
 
 jest.mock("axios");
 jest.mock("fs");
@@ -326,6 +326,62 @@ describe("version-check-service", () => {
       await new Promise((resolve) => setTimeout(resolve, 100));
 
       expect(mockAxios.get).toHaveBeenCalled();
+    });
+  });
+
+  describe("getPackageUpdateStatus", () => {
+    it("returns a fresh registry result on the first dashboard visit", async () => {
+      mockFs.existsSync.mockReturnValue(false);
+      mockAxios.get.mockResolvedValue({ data: { version: "0.0.21" } });
+
+      expect(await getPackageUpdateStatus()).toEqual({
+        currentVersion: "0.0.19",
+        latestVersion: "0.0.21",
+        updateAvailable: true,
+        updateCommand: "npm install -g aso-cli@latest",
+      });
+      expect(console.log).not.toHaveBeenCalled();
+    });
+
+    it.each(["0.0.18", "0.0.19"])("hides updates when latest is %s", async (latestVersion) => {
+      mockFs.existsSync.mockReturnValue(true);
+      mockFs.readFileSync.mockReturnValue(JSON.stringify({ latestVersion, lastCheckDate: new Date().toISOString() }));
+      expect((await getPackageUpdateStatus()).updateAvailable).toBe(false);
+      expect(mockAxios.get).not.toHaveBeenCalled();
+    });
+
+    it("shares a registry request with the CLI and concurrent dashboard requests", async () => {
+      mockFs.existsSync.mockReturnValue(false);
+      mockAxios.get.mockResolvedValue({ data: { version: "0.0.21" } });
+      checkVersionUpdateSync();
+      const results = await Promise.all([getPackageUpdateStatus(), getPackageUpdateStatus()]);
+      expect(mockAxios.get).toHaveBeenCalledTimes(1);
+      expect(results.every((result) => result.latestVersion === "0.0.21")).toBe(true);
+    });
+
+    it("retains a stale cached update when the registry is unavailable", async () => {
+      mockFs.existsSync.mockReturnValue(true);
+      mockFs.readFileSync.mockReturnValue(JSON.stringify({ latestVersion: "0.0.20", lastCheckDate: "2020-01-01" }));
+      mockAxios.get.mockRejectedValue(new Error("offline"));
+      const result = await getPackageUpdateStatus();
+      expect(result.latestVersion).toBe("0.0.20");
+      expect(result.updateAvailable).toBe(true);
+    });
+
+    it.each([null, {}, { latestVersion: 123 }, { latestVersion: "garbage", lastCheckDate: "2020-01-01" }])("ignores malformed cache %j and tolerates offline checks", async (cache) => {
+      mockFs.existsSync.mockReturnValue(true);
+      mockFs.readFileSync.mockReturnValue(JSON.stringify(cache));
+      mockAxios.get.mockRejectedValue(new Error("offline"));
+      const result = await getPackageUpdateStatus();
+      expect(result.latestVersion).toBeNull();
+      expect(result.updateAvailable).toBe(false);
+    });
+
+    it("does not save malformed registry versions", async () => {
+      mockFs.existsSync.mockReturnValue(false);
+      mockAxios.get.mockResolvedValue({ data: { version: { bad: true } } });
+      expect((await getPackageUpdateStatus()).latestVersion).toBeNull();
+      expect(mockFs.writeFileSync).not.toHaveBeenCalled();
     });
   });
 });

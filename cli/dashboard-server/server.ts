@@ -57,6 +57,7 @@ import {
 } from "./apps-handler";
 import { fetchOwnedAppSnapshotsFromApi } from "./owned-app-details";
 import { ASO_ENV } from "../shared/aso-env";
+import { getPackageUpdateStatus } from "../services/runtime/version-check-service";
 import {
   formatDashboardHttpUrl,
   getDashboardBrowserUrl,
@@ -500,6 +501,12 @@ export function createServerRequestHandler(): http.RequestListener {
 
       if (req.method === "GET" && pathname === "/health") {
         sendJson(res, 200, { success: true });
+        return;
+      }
+
+      if (req.method === "GET" && pathname === "/api/dashboard/version") {
+        res.setHeader("Cache-Control", "no-store");
+        sendJson(res, 200, { success: true, data: await getPackageUpdateStatus() });
         return;
       }
 
