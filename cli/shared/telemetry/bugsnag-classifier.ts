@@ -20,6 +20,7 @@ import { isRetryableTransientStatusCode } from "../aso-transient-error";
 export type TelemetryClassification =
   | "actionable_bug"
   | "apple_contract_change"
+  | "upstream_unexpected_content"
   | "upstream_terminal_failure"
   | "user_fault"
   | "expected_flow"
@@ -50,6 +51,7 @@ export type TelemetryDecision = {
 const REPORTABLE_CLASSIFICATIONS = new Set<TelemetryClassification>([
   "actionable_bug",
   "apple_contract_change",
+  "upstream_unexpected_content",
   "upstream_terminal_failure",
   "unknown",
 ]);
@@ -72,9 +74,7 @@ const APPLE_AUTH_USER_FAULT_REASONS = new Set([
   "verification_delivery_failed",
 ]);
 
-const APPLE_AUTH_EXPECTED_FLOW_REASONS = new Set([
-  "account_setup_required",
-]);
+const APPLE_AUTH_EXPECTED_FLOW_REASONS = new Set(["account_setup_required"]);
 
 function getTelemetryHint(metadata: AnyRecord): TelemetryHint | undefined {
   const hint = toRecord(metadata.telemetryHint);

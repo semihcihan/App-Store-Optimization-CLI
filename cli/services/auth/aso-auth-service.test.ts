@@ -318,7 +318,7 @@ describe("aso-auth-service sirp fallback policy", () => {
 
   it("does not fallback to legacy for invalid credentials", async () => {
     const engine = createAutoEngine();
-    engine.loginWithSirp = jest.fn().mockRejectedValue(
+    engine.requestSirpSignIn = jest.fn().mockRejectedValue(
       new AppleAuthResponseError({
         message: "Invalid Apple ID credentials",
         status: 403,
@@ -339,7 +339,7 @@ describe("aso-auth-service sirp fallback policy", () => {
     const reportContractSpy = jest
       .spyOn(appleHttpTrace, "reportAppleContractChange")
       .mockImplementation(() => {});
-    engine.loginWithSirp = jest.fn(async () =>
+    engine.requestSirpSignIn = jest.fn(async () =>
       engine.handlePostLoginResponse({
         status: 500,
         data: {},
@@ -356,11 +356,16 @@ describe("aso-auth-service sirp fallback policy", () => {
     reportContractSpy.mockRestore();
   });
 
-  it("falls back once to legacy for unknown SIRP failures", async () => {
+  it("falls back once to legacy for an unsupported SIRP challenge", async () => {
     const engine = createAutoEngine();
-    engine.loginWithSirp = jest
-      .fn()
-      .mockRejectedValue(new Error("SIRP transport error"));
+    engine.requestSirpSignIn = jest.fn().mockRejectedValue(
+      new AppleAuthResponseError({
+        message: "SIRP init returned an unsupported challenge payload",
+        status: 200,
+        payload: {},
+        reason: "unknown",
+      })
+    );
     engine.loginWithLegacy = jest.fn().mockResolvedValue(undefined);
 
     await expect(engine.ensureAuthenticated(credentials)).resolves.toBeUndefined();
@@ -375,7 +380,7 @@ describe("aso-auth-service sirp fallback policy", () => {
     const reportContractSpy = jest
       .spyOn(appleHttpTrace, "reportAppleContractChange")
       .mockImplementation(() => {});
-    engine.loginWithSirp = jest.fn(async () =>
+    engine.requestSirpSignIn = jest.fn(async () =>
       engine.handlePostLoginResponse({
         status: 400,
         data: {},
@@ -407,7 +412,7 @@ describe("aso-auth-service sirp fallback policy", () => {
       frameId: "frame-id",
       state: "state-id",
     });
-    engine.loginWithSirp = jest.fn(async () =>
+    engine.requestSirpSignIn = jest.fn(async () =>
       engine.handlePostLoginResponse({
         status: 400,
         data: {},
@@ -425,12 +430,12 @@ describe("aso-auth-service sirp fallback policy", () => {
     reportContractSpy.mockRestore();
   });
 
-  it("does not report transient SIRP failure as contract drift", async () => {
+  it("preserves transient SIRP failure without legacy fallback or contract drift", async () => {
     const engine = createAutoEngine();
     const reportContractSpy = jest
       .spyOn(appleHttpTrace, "reportAppleContractChange")
       .mockImplementation(() => {});
-    engine.loginWithSirp = jest.fn().mockRejectedValue(
+    engine.requestSirpSignIn = jest.fn().mockRejectedValue(
       new AppleAuthResponseError({
         message: "Service unavailable",
         status: 503,
@@ -440,8 +445,128 @@ describe("aso-auth-service sirp fallback policy", () => {
     );
     engine.loginWithLegacy = jest.fn().mockResolvedValue(undefined);
 
-    await expect(engine.ensureAuthenticated(credentials)).resolves.toBeUndefined();
+    await expect(engine.ensureAuthenticated(credentials)).rejects.toMatchObject(
+      { status: 503 }
+    );
+    expect(engine.loginWithLegacy).not.toHaveBeenCalled();
     expect(reportContractSpy).not.toHaveBeenCalled();
+    reportContractSpy.mockRestore();
+  });
+
+  it.each([
+    new Error("socket disconnected"),
+    new TypeError("invalid local state"),
+  ])(
+    "preserves transport and internal errors without legacy fallback: %s",
+    async (error) => {
+      const engine = createAutoEngine();
+      engine.requestSirpSignIn = jest.fn().mockRejectedValue(error);
+      engine.loginWithLegacy = jest.fn();
+      await expect(engine.ensureAuthenticated(credentials)).rejects.toBe(error);
+      expect(engine.loginWithLegacy).not.toHaveBeenCalled();
+    }
+  );
+
+  it.each([
+    { status: 409, stage: "handleTwoFactor" },
+    { status: 409, stage: "establishAppAdsSession" },
+    { status: 200, stage: "establishAppAdsSession" },
+    { status: 409, stage: "extractSessionHeaders" },
+  ])(
+    "preserves $stage failure after accepted SRP status $status",
+    async ({ status, stage }) => {
+      const engine = createAutoEngine();
+      const error = new Error("Original post-login failure");
+      engine.requestSirpSignIn = jest.fn().mockResolvedValue({
+        status,
+        data: { authType: "hsa2" },
+        headers: { scnt: "scnt", "x-apple-id-session-id": "session" },
+      });
+      engine.handleTwoFactor = jest
+        .fn()
+        .mockResolvedValue({ scnt: "scnt", xAppleIdSessionId: "session" });
+      engine.establishAppAdsSession = jest.fn().mockResolvedValue(undefined);
+      engine[stage] = jest.fn(() => {
+        throw error;
+      });
+      engine.loginWithLegacy = jest.fn();
+      await expect(engine.ensureAuthenticated(credentials)).rejects.toBe(error);
+      expect(engine.loginWithLegacy).not.toHaveBeenCalled();
+    }
+  );
+
+  it.each([200, 409])(
+    "does not restart login after a real SRP exchange accepts status %s",
+    async (status) => {
+      const engine = createAutoEngine();
+      engine.client.request
+        .mockResolvedValueOnce({
+          status: 200,
+          data: {
+            iteration: 1,
+            salt: Buffer.from("salt").toString("base64"),
+            b: Buffer.alloc(256, 1).toString("base64"),
+            c: "challenge",
+            protocol: "s2k",
+          },
+          headers: {},
+        })
+        .mockResolvedValueOnce({
+          status,
+          data: {},
+          headers: { scnt: "scnt", "x-apple-id-session-id": "session" },
+        });
+      engine.fetchHashcash = jest.fn().mockResolvedValue(undefined);
+      const error = new Error("Original session failure");
+      engine.handleTwoFactor = jest.fn().mockRejectedValue(error);
+      engine.establishAppAdsSession = jest.fn().mockRejectedValue(error);
+      engine.loginWithLegacy = jest.fn();
+      await expect(engine.ensureAuthenticated(credentials)).rejects.toBe(error);
+      expect(engine.client.request).toHaveBeenCalledTimes(2);
+      expect(engine.client.request.mock.calls[1][0].url).toContain(
+        "/signin/complete"
+      );
+      expect(engine.loginWithLegacy).not.toHaveBeenCalled();
+    }
+  );
+
+  it.each([429, 503])(
+    "preserves an SRP init HTTP %s without attempting legacy",
+    async (status) => {
+      const engine = createAutoEngine();
+      engine.client.request.mockResolvedValueOnce({
+        status,
+        data: {},
+        headers: {},
+      });
+      engine.loginWithLegacy = jest.fn();
+      await expect(
+        engine.ensureAuthenticated(credentials)
+      ).rejects.toMatchObject({ status });
+      expect(engine.client.request).toHaveBeenCalledTimes(1);
+      expect(engine.loginWithLegacy).not.toHaveBeenCalled();
+    }
+  );
+
+  it("retains one legacy attempt for an unsupported SRP challenge shape", async () => {
+    const engine = createAutoEngine();
+    const reportContractSpy = jest.spyOn(appleHttpTrace, "reportAppleContractChange").mockImplementation(() => {});
+    engine.client.request.mockResolvedValueOnce({
+      status: 200,
+      data: { protocol: "changed" },
+      headers: {},
+    });
+    engine.loginWithLegacy = jest.fn().mockResolvedValue(undefined);
+    await expect(
+      engine.ensureAuthenticated(credentials)
+    ).resolves.toBeUndefined();
+    expect(engine.loginWithLegacy).toHaveBeenCalledWith(credentials, {
+      maxAttempts: 1,
+    });
+    expect(reportContractSpy).toHaveBeenCalledWith(expect.objectContaining({
+      endpoint: "https://idmsa.apple.com/appleauth/auth/signin/init",
+      recoveryOutcome: "recovered",
+    }));
     reportContractSpy.mockRestore();
   });
 
@@ -450,7 +575,7 @@ describe("aso-auth-service sirp fallback policy", () => {
     const reportContractSpy = jest
       .spyOn(appleHttpTrace, "reportAppleContractChange")
       .mockImplementation(() => {});
-    engine.loginWithSirp = jest.fn().mockRejectedValue(
+    engine.requestSirpSignIn = jest.fn().mockRejectedValue(
       new AppleAuthResponseError({
         message: "Unexpected SIRP response",
         status: 400,

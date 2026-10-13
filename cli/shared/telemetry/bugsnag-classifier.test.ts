@@ -4,6 +4,20 @@ import {
 } from "./bugsnag-classifier";
 
 describe("bugsnag-classifier", () => {
+  it("keeps unexpected upstream content reportable after recovery", () => {
+    expect(
+      classifyTelemetryError(new Error("Wrong App Store page"), {
+        telemetryHint: {
+          classification: "upstream_unexpected_content",
+          isTerminal: false,
+        },
+      })
+    ).toEqual({
+      report: true,
+      classification: "upstream_unexpected_content",
+      reason: "explicit_hint_classification",
+    });
+  });
   it("reports explicit actionable classifications", () => {
     const decision = classifyTelemetryError(new Error("boom"), {
       telemetryHint: { classification: "actionable_bug" },

@@ -27,6 +27,7 @@ import {
   type AsoPromptHandler,
 } from "../prompts/aso-prompt-handler";
 import { isRetryableTransientStatusCode } from "../../shared/aso-transient-error";
+import { getErrorBugsnagMetadata } from "../telemetry/bugsnag-metadata";
 
 const APPLE_APP_ADS_URL = "https://app-ads.apple.com/cm/app";
 const APPLE_SEARCH_ADS_URL = "https://app.searchads.apple.com/cm/app";
@@ -673,10 +674,16 @@ function reportSirpFallbackContractDrift(params: {
   recoveryOutcome: "recovered" | "unresolved";
 }): void {
   const recovered = params.recoveryOutcome === "recovered";
+  const appleApi = getErrorBugsnagMetadata(params.error)?.appleApi as
+    | { operation?: string }
+    | undefined;
+  const endpoint = appleApi?.operation === "sirp-init"
+    ? `${APPLE_IDMSA_BASE_URL}/signin/init`
+    : `${APPLE_IDMSA_BASE_URL}/signin/complete`;
   reportAppleContractChange({
     provider: "apple-auth",
     operation: "sirp-fallback",
-    endpoint: `${APPLE_IDMSA_BASE_URL}/signin/complete`,
+    endpoint,
     statusCode: params.error.status,
     expectedContract:
       "Apple sign-in response maps to a known authentication outcome",
@@ -885,17 +892,13 @@ export class AsoAuthEngine {
     });
   }
 
-  private shouldFallbackToLegacyFromSirp(error: unknown): boolean {
-    if (!(error instanceof AppleAuthResponseError)) return true;
-    return error.reason === "unknown";
-  }
-
   async ensureAuthenticated(credentials: AppleLoginCredentials): Promise<void> {
     this.widgetKey = await this.resolveWidgetKey();
     this.authRequestContext = await this.bootstrapAuthRequestContext();
 
     if (this.mode === "sirp") {
-      await this.loginWithSirp(credentials);
+      const response = await this.requestSirpSignIn(credentials);
+      await this.handlePostLoginResponse(response);
       return;
     }
     if (this.mode === "legacy") {
@@ -903,39 +906,40 @@ export class AsoAuthEngine {
       return;
     }
 
+    let response: AxiosResponse;
     try {
-      await this.loginWithSirp(credentials);
+      response = await this.requestSirpSignIn(credentials);
+      if (response.status !== 200 && response.status !== 409) {
+        await this.handlePostLoginResponse(response);
+      }
     } catch (error) {
-      if (!this.shouldFallbackToLegacyFromSirp(error)) {
+      if (!isUnknownAuthContractDrift(error)) {
         throw error;
       }
-      const contractDrift = isUnknownAuthContractDrift(error);
       logger.debug(
         `[aso-auth] SIRP failed, falling back to legacy: ${String(error)}`
       );
       try {
         await this.loginWithLegacy(credentials, { maxAttempts: 1 });
       } catch (fallbackError) {
-        if (contractDrift) {
-          reportSirpFallbackContractDrift({
-            error,
-            recoveryOutcome: "unresolved",
-          });
-        }
-        throw fallbackError;
-      }
-      if (contractDrift) {
         reportSirpFallbackContractDrift({
           error,
-          recoveryOutcome: "recovered",
+          recoveryOutcome: "unresolved",
         });
+        throw fallbackError;
       }
+      reportSirpFallbackContractDrift({
+        error,
+        recoveryOutcome: "recovered",
+      });
+      return;
     }
+    await this.handlePostLoginResponse(response);
   }
 
-  private async loginWithSirp(
+  private async requestSirpSignIn(
     credentials: AppleLoginCredentials
-  ): Promise<void> {
+  ): Promise<AxiosResponse> {
     logger.debug("[aso-auth] Starting SIRP login");
     const aBytes = randomBytes(256);
     const a = hexToBigInt(bytesToHex(aBytes));
@@ -960,7 +964,15 @@ export class AsoAuthEngine {
     });
     if (initResponse.status !== 200) {
       throw this.withAppleAuthTrace(
-        new Error(`SIRP init failed with status ${initResponse.status}`),
+        new AppleAuthResponseError({
+          message: `SIRP init failed with status ${initResponse.status}`,
+          status: initResponse.status,
+          payload: initResponse.data,
+          reason: inferAppleAuthFailureReason(
+            initResponse.status,
+            initResponse.data
+          ),
+        }),
         "sirp-init",
         {
           status: initResponse.status,
@@ -984,6 +996,29 @@ export class AsoAuthEngine {
         {
           status: initResponse.status,
         }
+      );
+    }
+
+    if (
+      !Number.isInteger(body.iteration) ||
+      body.iteration <= 0 ||
+      typeof body.salt !== "string" ||
+      !body.salt ||
+      typeof body.b !== "string" ||
+      !body.b ||
+      typeof body.c !== "string" ||
+      !body.c ||
+      (body.protocol !== "s2k" && body.protocol !== "s2k_fo")
+    ) {
+      throw this.withAppleAuthTrace(
+        new AppleAuthResponseError({
+          message: "SIRP init returned an unsupported challenge payload",
+          status: initResponse.status,
+          payload: body,
+          reason: "unknown",
+        }),
+        "sirp-init",
+        { status: initResponse.status }
       );
     }
 
@@ -1084,7 +1119,7 @@ export class AsoAuthEngine {
       );
     }
 
-    await this.handlePostLoginResponse(completeResponse);
+    return completeResponse;
   }
 
   private async loginWithLegacy(

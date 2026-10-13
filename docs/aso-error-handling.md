@@ -85,6 +85,8 @@ Define failure boundaries, retry rules, and recovery behavior across CLI, dashbo
 - Apple HTTP calls carry trace context.
 - Bugsnag Apple metadata includes the latest `3` redacted Apple HTTP calls plus up to `3` latest non-success calls when they have already rotated out of that `3`-call window.
 - Apple contract-drift reporting is centralized: every genuine Apple response-shape/flow change emits a Bugsnag event classified as `apple_contract_change`, including drift recovered by fallback. Events carry sanitized endpoint + expected-vs-actual metadata, `driftKind`, `recoveryOutcome`, `fallbackSource`, and operation-level terminality.
+- App Store search, localized app pages, and app lookup validate final and canonical page identity before mapping response data. Wrong resource, storefront, or search-term responses are reported as `upstream_unexpected_content`, independently of `apple_contract_change`; metadata includes sanitized requested/final/canonical URLs and a bounded structural summary. Missing final-URL evidence is recorded as null, and missing identity evidence leaves normal schema validation in place. Slug redirects and localized languages do not invalidate a matching app identity. Existing fallbacks and optional-localization behavior remain in effect.
+- Unexpected-content reporting uses the same 15-minute anomaly deduplication as contract drift, separated by classification and recovery outcome.
 - Contract-drift reporting covers all Apple API surfaces used by ASO runtime:
   - Apple auth/session bootstrap and 2FA flow
   - Search Ads popularity endpoint
@@ -111,13 +113,14 @@ Define failure boundaries, retry rules, and recovery behavior across CLI, dashbo
 - Dashboard server suppresses debug request/response logging for `GET` API routes to reduce dashboard poll noise; mutation (`POST`/`DELETE`) debug logging remains enabled.
 - Apple debug logging emphasizes compact derived-stage summaries (source mode + result counts for order/enrichment/app-lookup) instead of raw full response payload dumps.
 - Bugsnag reporting uses an actionability allowlist:
-  - reports internal bugs, all genuine Apple contract-change signals, and terminal upstream failures
+  - reports internal bugs, all genuine Apple contract-change signals, unexpected App Store content, and terminal upstream failures
   - suppresses expected flow/validation noise (`4xx`, validation issues)
   - suppresses known user-fault noise such as invalid credentials and malformed CLI input
 - CLI telemetry suppresses expected setup/auth outcomes (reauthentication required, missing/inaccessible Primary App ID, interactive-TTY requirements), all-keyword `4xx` failures, unsupported Node runtimes, and closed stdout/stderr pipes.
 - Transient Apple auth responses (`429`/`5xx`) are reported once as terminal upstream failures rather than both upstream failures and contract drift.
 - Apple auth `401` responses carrying Apple service code `-20101` are classified as `invalid_credentials` (`user_fault`) instead of contract drift.
 - Apple auth responses carrying the known `itctx` account-access condition are classified as `account_setup_required` (`expected_flow`), do not attempt legacy fallback, and are not reported as contract drift.
+- Automatic legacy auth fallback is limited to unknown, non-transient SRP exchange response/challenge failures before sign-in is accepted. HTTP 200/409 completion moves 2FA and session bootstrap outside the fallback boundary; their errors propagate unchanged. Transport/internal failures and HTTP 429/5xx do not restart login through legacy auth. Explicit legacy mode remains available.
 - Unknown auth responses that propagate are reported once by the outer CLI/server boundary. SIRP drift is reported manually only when legacy fallback recovers it or replaces it with a different failure.
 - Apple 2FA challenge payloads with service code `-28248` (verification code delivery unavailable) are classified as verification-delivery `user_fault` instead of contract drift.
 - Apple HTTP trace metadata attached to Bugsnag is size-bounded (string/array/object/depth truncation) so contract-drift events retain actionable metadata instead of being dropped for oversized payloads.

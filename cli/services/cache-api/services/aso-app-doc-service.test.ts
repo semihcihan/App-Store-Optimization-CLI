@@ -5,7 +5,10 @@ import {
 } from "./aso-app-doc-service";
 import { asoAppleGet } from "./aso-apple-client";
 import type { AsoCacheRepository } from "./aso-types";
-import { reportAppleContractChange } from "../../keywords/apple-http-trace";
+import {
+  reportAppleContractChange,
+  reportAppleUnexpectedContent,
+} from "../../keywords/apple-http-trace";
 import { logger } from "../../../utils/logger";
 
 jest.mock("./aso-apple-client", () => ({
@@ -17,6 +20,7 @@ jest.mock("./aso-keyword-utils", () => ({
 
 jest.mock("../../keywords/apple-http-trace", () => ({
   reportAppleContractChange: jest.fn(),
+  reportAppleUnexpectedContent: jest.fn(),
 }));
 jest.mock("../../../utils/logger", () => ({
   logger: {
@@ -29,6 +33,9 @@ jest.mock("../../../utils/logger", () => ({
 
 const mockedAsoAppleGet = jest.mocked(asoAppleGet);
 const mockedReportAppleContractChange = jest.mocked(reportAppleContractChange);
+const mockedReportAppleUnexpectedContent = jest.mocked(
+  reportAppleUnexpectedContent
+);
 const mockedLogger = jest.mocked(logger);
 
 function createRepository(
@@ -49,6 +56,60 @@ function createRepository(
 describe("aso-app-doc-service", () => {
   beforeEach(() => {
     jest.clearAllMocks();
+  });
+
+  it("rejects a redirected wrong app and retains iTunes fallback", async () => {
+    mockedAsoAppleGet
+      .mockResolvedValueOnce({
+        status: 200,
+        request: {
+          res: { responseUrl: "https://apps.apple.com/us/app/wrong/id999" },
+        },
+        data: {
+          storePlatformData: {
+            "product-dv": {
+              results: {
+                "123": {
+                  id: "123",
+                  name: "Wrong response",
+                  releaseDate: "2025-01-01",
+                },
+              },
+            },
+          },
+        },
+      } as never)
+      .mockResolvedValueOnce({
+        data: {
+          results: [
+            {
+              trackId: 123,
+              wrapperType: "software",
+              trackName: "Correct fallback",
+              releaseDate: "2024-01-01",
+              currentVersionReleaseDate: "2025-01-01",
+            },
+          ],
+        },
+      } as never);
+    await expect(
+      fetchAppStoreLookupAppDocs({ country: "US", appIds: ["123"] })
+    ).resolves.toEqual([
+      expect.objectContaining({ appId: "123", name: "Correct fallback" }),
+    ]);
+    expect(mockedReportAppleContractChange).not.toHaveBeenCalled();
+    expect(mockedReportAppleUnexpectedContent).toHaveBeenCalledTimes(1);
+    expect(mockedReportAppleUnexpectedContent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        recoveryOutcome: "recovered",
+        fallbackSource: "itunes.lookup",
+        context: expect.objectContaining({
+          requestedUrl: "https://apps.apple.com/app/id123",
+          finalUrl: "https://apps.apple.com/us/app/wrong/id999",
+          canonicalUrl: null,
+        }),
+      })
+    );
   });
 
   it("maps apps.apple.com payload into app docs and skips missing payloads", async () => {

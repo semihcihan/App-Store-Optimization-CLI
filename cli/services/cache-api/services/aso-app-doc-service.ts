@@ -3,7 +3,14 @@ import type { AsoCacheRepository, AsoAppDoc } from "./aso-types";
 import { normalizeCountryOnAppDocs } from "./aso-app-doc-utils";
 import { asoAppleGet } from "./aso-apple-client";
 import { logger } from "../../../utils/logger";
-import { reportAppleContractChange } from "../../keywords/apple-http-trace";
+import {
+  reportAppleContractChange,
+  reportAppleUnexpectedContent,
+} from "../../keywords/apple-http-trace";
+import {
+  inspectAppStorePageIdentity,
+  type AppStorePageMismatch,
+} from "./aso-app-store-page-identity";
 import { ASO_APPLE_WEB_USER_AGENT } from "../../../shared/aso-apple-http";
 import { isFreshAsoAppDoc } from "../../../shared/aso-app-doc-validity";
 import {
@@ -52,6 +59,7 @@ type AppLookupDrift = {
   actualSignal: string;
   driftKind: string;
   statusCode?: number;
+  pageIdentity?: AppStorePageMismatch;
 };
 
 type AppLookupResult =
@@ -362,6 +370,26 @@ async function fetchAppDocById(
     return { kind: "unavailable", doc: null };
   }
 
+  const pageIdentity = inspectAppStorePageIdentity(
+    response,
+    "https://apps.apple.com/app/id" + encodeURIComponent(appId),
+    country
+  );
+  if (pageIdentity) {
+    return {
+      kind: "drift",
+      doc: null,
+      drift: {
+        statusCode: response.status,
+        expectedContract:
+          "Requested App Store app identity matches the lookup response",
+        actualSignal: `unexpected_page ${pageIdentity.mismatchSource}`,
+        driftKind: "unexpected_appstore_page",
+        pageIdentity,
+      },
+    };
+  }
+
   const payload = parseAppStorePayload(response.data);
   if (isExpectedUnavailableAppLookupResponse(response.data, payload)) {
     return { kind: "unavailable", doc: null };
@@ -407,7 +435,10 @@ function reportAppLookupDrift(params: {
   drift: AppLookupDrift;
   recovered: boolean;
 }): void {
-  reportAppleContractChange({
+  const report = params.drift.pageIdentity
+    ? reportAppleUnexpectedContent
+    : reportAppleContractChange;
+  report({
     provider: "apple-appstore",
     operation: "appstore.app-lookup",
     endpoint: "https://apps.apple.com/app/id{appId}",
@@ -415,6 +446,7 @@ function reportAppLookupDrift(params: {
     context: {
       appId: params.appId,
       country: params.country,
+      ...params.drift.pageIdentity,
     },
     isTerminal: !params.recovered,
     recoveryOutcome: params.recovered ? "recovered" : "unresolved",

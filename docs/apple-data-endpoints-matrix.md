@@ -42,6 +42,8 @@ Apple upstream fetch surfaces used by ASO keyword enrichment and dashboard app h
 
 ## Important Contracts
 
+- Search pages, localized app pages, and app lookup check response page identity before parsing/mapping. A mismatched final/canonical URL is unexpected upstream content, not schema drift, and is excluded from cacheable data. Search/App Lookup keep their existing fallback chains; optional localization returns no data. Identity compares resource and storefront, permits matching app slug redirects, and does not infer storefront from HTML language.
+
 - Localized app page parsing must read `serialized-server-data` JSON; HTML selectors are intentionally not used.
 - `ratingAverage` and `totalNumberOfRatings` from localized JSON are the source of truth wherever that endpoint is used.
 - Keyword inclusion/difficulty matching evaluates each localization independently; terms are never mixed across different localizations.

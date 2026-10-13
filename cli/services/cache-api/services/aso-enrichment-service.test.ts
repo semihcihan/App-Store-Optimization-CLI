@@ -8,7 +8,10 @@ import { asoAppleGet } from "./aso-apple-client";
 import { fetchAppStoreLookupAppDocs } from "./aso-app-doc-service";
 import { fetchAppStoreAdditionalLocalizations } from "./aso-app-store-details";
 import { logger } from "../../../utils/logger";
-import { reportAppleContractChange } from "../../keywords/apple-http-trace";
+import {
+  reportAppleContractChange,
+  reportAppleUnexpectedContent,
+} from "../../keywords/apple-http-trace";
 
 jest.mock("./aso-apple-client", () => ({
   asoAppleGet: jest.fn(),
@@ -40,6 +43,7 @@ jest.mock("../../../utils/logger", () => ({
 }));
 jest.mock("../../keywords/apple-http-trace", () => ({
   reportAppleContractChange: jest.fn(),
+  reportAppleUnexpectedContent: jest.fn(),
 }));
 
 const mockedAsoAppleGet = jest.mocked(asoAppleGet);
@@ -51,10 +55,72 @@ const mockedFetchAppStoreAdditionalLocalizations = jest.mocked(
 );
 const mockedLogger = jest.mocked(logger);
 const mockedReportAppleContractChange = jest.mocked(reportAppleContractChange);
+const mockedReportAppleUnexpectedContent = jest.mocked(
+  reportAppleUnexpectedContent
+);
 
 function buildSearchHtml(): string {
   return buildSearchHtmlForIds(["1", "2", "3", "4", "5"]);
 }
+
+describe("unexpected App Store search content", () => {
+  beforeEach(() => jest.clearAllMocks());
+
+  it.each([true, false])(
+    "reports wrong-page identity with fallback recovered=%s",
+    async (recovered) => {
+      mockedAsoAppleGet.mockResolvedValueOnce({
+        status: 200,
+        request: {
+          res: {
+            responseUrl:
+              "https://apps.apple.com/us/iphone/search?term=ai+book+reader",
+          },
+        },
+        data: `<html lang="zh-Hans-CN"><title>Today</title>
+        <link rel="canonical" href="https://apps.apple.com/cn/iphone/today">${buildSearchHtml()}</html>`,
+      } as never);
+      if (recovered) {
+        mockedAsoAppleGet.mockResolvedValueOnce({
+          data: {
+            pageData: {
+              bubbles: [{ name: "software", results: [{ id: "42" }] }],
+            },
+          },
+        } as never);
+      } else {
+        mockedAsoAppleGet.mockRejectedValueOnce(
+          new Error("Fallback unavailable")
+        );
+      }
+      const result = await refreshKeywordOrder({
+        keyword: "ai book reader",
+        country: "US",
+      });
+      expect(result.appDocs).toEqual([]);
+      expect(result.orderedAppIds).toEqual(recovered ? ["42"] : null);
+      expect(mockedReportAppleContractChange).not.toHaveBeenCalled();
+      expect(mockedReportAppleUnexpectedContent).toHaveBeenCalledTimes(1);
+      expect(mockedReportAppleUnexpectedContent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          recoveryOutcome: recovered ? "recovered" : "unresolved",
+          isTerminal: !recovered,
+          context: expect.objectContaining({
+            requestedUrl:
+              "https://apps.apple.com/us/iphone/search?term=ai+book+reader",
+            finalUrl:
+              "https://apps.apple.com/us/iphone/search?term=ai+book+reader",
+            canonicalUrl: "https://apps.apple.com/cn/iphone/today",
+            payloadSummary: expect.objectContaining({
+              title: "Today",
+              htmlLanguage: "zh-Hans-CN",
+            }),
+          }),
+        })
+      );
+    }
+  );
+});
 
 function buildSearchHtmlForIds(
   ids: string[],
@@ -180,7 +246,10 @@ describe("aso-enrichment-service", () => {
       "19",
       "20",
     ];
-    const expectedIds = [...primaryIds, ...mzSearchIds.slice(primaryIds.length)];
+    const expectedIds = [
+      ...primaryIds,
+      ...mzSearchIds.slice(primaryIds.length),
+    ];
     mockedAsoAppleGet
       .mockResolvedValueOnce({
         data: buildSearchHtmlForIds(primaryIds, [], {
@@ -393,7 +462,10 @@ describe("aso-enrichment-service", () => {
         },
       ],
     })}</script>`;
-    mockedAsoAppleGet.mockResolvedValueOnce({ data: html, status: 200 } as never);
+    mockedAsoAppleGet.mockResolvedValueOnce({
+      data: html,
+      status: 200,
+    } as never);
 
     const result = await refreshKeywordOrder({
       keyword: "mixed result types",
@@ -500,11 +572,7 @@ describe("aso-enrichment-service", () => {
             bubbles: [
               {
                 name: "software",
-                results: [
-                  { id: "1" },
-                  { id: "2" },
-                  { id: "tail-3" },
-                ],
+                results: [{ id: "1" }, { id: "2" }, { id: "tail-3" }],
               },
             ],
           },
@@ -736,30 +804,31 @@ describe("aso-enrichment-service", () => {
       })}</script>`,
       "search_page_next_page_app_id_missing",
     ],
-  ])("reports %s while allowing MZSearch recovery", async (_name, html, driftKind) => {
-    mockedAsoAppleGet
-      .mockResolvedValueOnce({ data: html, status: 200 } as never)
-      .mockResolvedValueOnce({
-        data: {
-          pageData: {
-            bubbles: [
-              { name: "software", results: [{ id: "fallback-1" }] },
-            ],
+  ])(
+    "reports %s while allowing MZSearch recovery",
+    async (_name, html, driftKind) => {
+      mockedAsoAppleGet
+        .mockResolvedValueOnce({ data: html, status: 200 } as never)
+        .mockResolvedValueOnce({
+          data: {
+            pageData: {
+              bubbles: [{ name: "software", results: [{ id: "fallback-1" }] }],
+            },
           },
-        },
-        status: 200,
-      } as never);
+          status: 200,
+        } as never);
 
-    await refreshKeywordOrder({ keyword: "shape test", country: "US" });
+      await refreshKeywordOrder({ keyword: "shape test", country: "US" });
 
-    expect(mockedReportAppleContractChange).toHaveBeenCalledWith(
-      expect.objectContaining({
-        driftKind,
-        recoveryOutcome: "recovered",
-        isTerminal: false,
-      })
-    );
-  });
+      expect(mockedReportAppleContractChange).toHaveBeenCalledWith(
+        expect.objectContaining({
+          driftKind,
+          recoveryOutcome: "recovered",
+          isTerminal: false,
+        })
+      );
+    }
+  );
 
   it("reports malformed MZSearch as terminal drift when fallback is unresolved", async () => {
     mockedAsoAppleGet

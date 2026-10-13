@@ -13,7 +13,7 @@ export type AppleTraceProvider =
   | "apple-search-ads"
   | "apple-appstore";
 
-type AppleContractChangeParams = {
+type AppleResponseAnomalyParams = {
   provider: AppleTraceProvider;
   operation: string;
   endpoint: string;
@@ -406,7 +406,20 @@ export function withAppleHttpTraceContext(
 }
 
 export function reportAppleContractChange(
-  params: AppleContractChangeParams
+  params: AppleResponseAnomalyParams
+): void {
+  reportAppleResponseAnomaly(params, "apple_contract_change");
+}
+
+export function reportAppleUnexpectedContent(
+  params: AppleResponseAnomalyParams
+): void {
+  reportAppleResponseAnomaly(params, "upstream_unexpected_content");
+}
+
+function reportAppleResponseAnomaly(
+  params: AppleResponseAnomalyParams,
+  classification: "apple_contract_change" | "upstream_unexpected_content"
 ): void {
   const endpoint = sanitizeTelemetryUrl(params.endpoint, {
     isSensitiveKey,
@@ -425,10 +438,23 @@ export function reportAppleContractChange(
     })
   );
   const context = truncateTraceValue(
-    sanitizeTelemetryValue(params.context || {}, {
-      isSensitiveKey,
-      parseJsonStrings: true,
-    })
+    sanitizeTelemetryValue(
+      Object.fromEntries(
+        Object.entries(params.context || {}).map(([key, value]) => [
+          key,
+          key.endsWith("Url") && typeof value === "string"
+            ? sanitizeTelemetryUrl(value, {
+                isSensitiveKey,
+                baseUrl: "https://apple.local",
+              })
+            : value,
+        ])
+      ),
+      {
+        isSensitiveKey,
+        parseJsonStrings: true,
+      }
+    )
   ) as Record<string, unknown>;
 
   const now = Date.now();
@@ -444,14 +470,19 @@ export function reportAppleContractChange(
     recoveryOutcome: params.recoveryOutcome,
     isTerminal: params.isTerminal,
   });
-  if (!shouldReportContractChange(signature, now)) {
+  if (!shouldReportContractChange(`${classification}|${signature}`, now)) {
     return;
   }
 
-  const source = `apple.contract.${params.provider}.${params.operation}`;
+  const unexpectedContent = classification === "upstream_unexpected_content";
+  const source = `apple.${unexpectedContent ? "content" : "contract"}.${params.provider}.${params.operation}`;
   const surface = params.surface ?? "aso-apple-api";
   const wrapped = withAppleHttpTraceContext(
-    createContractChangeError(params.operation, params.error),
+    unexpectedContent
+      ? new Error(
+          `Apple returned unexpected upstream content: ${params.operation}`
+        )
+      : createContractChangeError(params.operation, params.error),
     {
       provider: params.provider,
       operation: params.operation,
@@ -480,7 +511,7 @@ export function reportAppleContractChange(
     driftKind: params.driftKind,
     recoveryOutcome: params.recoveryOutcome,
     fallbackSource: params.fallbackSource,
-    appleContractChange: {
+    [unexpectedContent ? "appleUnexpectedContent" : "appleContractChange"]: {
       provider: params.provider,
       operation: params.operation,
       endpoint,
@@ -495,14 +526,14 @@ export function reportAppleContractChange(
       dedupeWindowMs: APPLE_CONTRACT_CHANGE_DEDUPE_WINDOW_MS,
     },
     telemetryHint: {
-      classification: "apple_contract_change",
+      classification,
       upstreamProvider: params.provider,
       source,
       operation: params.operation,
       surface,
       statusCode: params.statusCode,
       isTerminal: params.isTerminal ?? false,
-      stage: "contract-change",
+      stage: unexpectedContent ? "unexpected-content" : "contract-change",
     },
   });
 }

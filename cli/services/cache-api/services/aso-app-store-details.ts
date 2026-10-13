@@ -1,5 +1,9 @@
 import { asoAppleGet } from "./aso-apple-client";
-import { reportAppleContractChange } from "../../keywords/apple-http-trace";
+import {
+  reportAppleContractChange,
+  reportAppleUnexpectedContent,
+} from "../../keywords/apple-http-trace";
+import { inspectAppStorePageIdentity } from "./aso-app-store-page-identity";
 import {
   getStorefrontAdditionalLanguages,
   getStorefrontDefaultLanguage,
@@ -144,6 +148,29 @@ export async function fetchAppStoreLocalizedAppData(
   });
 
   if (response.status !== 200) {
+    return null;
+  }
+
+  const pageIdentity = inspectAppStorePageIdentity(response, url);
+  if (pageIdentity) {
+    reportAppleUnexpectedContent({
+      provider: "apple-appstore",
+      operation: "appstore.localized-app-page",
+      endpoint: "https://apps.apple.com/{country}/app/id{appId}?l={language}",
+      statusCode: response.status,
+      expectedContract:
+        "Requested localized App Store app identity matches the response",
+      actualSignal: `unexpected_page ${pageIdentity.mismatchSource}`,
+      driftKind: "unexpected_appstore_page",
+      context: {
+        appId,
+        country: normalizedCountry,
+        language: resolvedLanguage,
+        ...pageIdentity,
+      },
+      isTerminal: false,
+      recoveryOutcome: "optional_localization_unavailable",
+    });
     return null;
   }
 

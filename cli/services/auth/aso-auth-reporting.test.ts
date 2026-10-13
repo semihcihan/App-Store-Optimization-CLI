@@ -29,7 +29,7 @@ describe("aso auth reporting ownership", () => {
 
   it("reports propagated explicit SIRP drift once at the outer boundary", async () => {
     const engine = createEngine("sirp");
-    engine.loginWithSirp = jest.fn(async () =>
+    engine.requestSirpSignIn = jest.fn(async () =>
       engine.handlePostLoginResponse({
         status: 400,
         data: {},
@@ -64,9 +64,18 @@ describe("aso auth reporting ownership", () => {
     );
   });
 
-  it("reports propagated unknown legacy fallback drift once at the outer boundary", async () => {
+  it("reports a post-SRP session failure once and preserves its original error", async () => {
     const engine = createEngine("auto");
-    engine.loginWithSirp = jest.fn().mockRejectedValue(new Error("SIRP failed"));
+    engine.requestSirpSignIn = jest
+      .fn()
+      .mockResolvedValue({ status: 200, data: {}, headers: {} });
+    const sessionError = new AppleAuthResponseError({
+      message: "Session bootstrap unavailable",
+      status: 503,
+      payload: {},
+      reason: "unknown",
+    });
+    engine.establishAppAdsSession = jest.fn().mockRejectedValue(sessionError);
     engine.loginWithLegacy = jest.fn().mockRejectedValue(
       new AppleAuthResponseError({
         message: "Unknown legacy response",
@@ -83,7 +92,8 @@ describe("aso auth reporting ownership", () => {
       propagatedError = error;
     }
 
-    expect(propagatedError).toBeInstanceOf(AppleAuthResponseError);
+    expect(propagatedError).toBe(sessionError);
+    expect(engine.loginWithLegacy).not.toHaveBeenCalled();
     expect(mockNotifyBugsnagError).not.toHaveBeenCalled();
 
     reportBugsnagError(propagatedError, {
@@ -96,8 +106,8 @@ describe("aso auth reporting ownership", () => {
     expect(mockNotifyBugsnagError).toHaveBeenCalledWith(
       propagatedError,
       expect.objectContaining({
-        telemetryClassification: "apple_contract_change",
-        telemetryDecisionReason: "apple_auth_unknown",
+        telemetryClassification: "upstream_terminal_failure",
+        telemetryDecisionReason: "apple_auth_transient_upstream",
       }),
       expect.any(Function)
     );

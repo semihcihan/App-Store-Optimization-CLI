@@ -12,7 +12,14 @@ import { normalizeCountryOnAppDocs } from "./aso-app-doc-utils";
 import { fetchAppStoreLookupAppDocs } from "./aso-app-doc-service";
 import type { AsoAppDoc, AsoAppDocIcon } from "./aso-types";
 import { asoAppleGet } from "./aso-apple-client";
-import { reportAppleContractChange } from "../../keywords/apple-http-trace";
+import {
+  reportAppleContractChange,
+  reportAppleUnexpectedContent,
+} from "../../keywords/apple-http-trace";
+import {
+  inspectAppStorePageIdentity,
+  type AppStorePageMismatch,
+} from "./aso-app-store-page-identity";
 import { getStorefrontDefaultLanguage } from "../../../shared/aso-storefront-localizations";
 import { ASO_APPLE_WEB_USER_AGENT } from "../../../shared/aso-apple-http";
 import type { KeywordMatchType } from "../../../shared/aso-keyword-match";
@@ -93,6 +100,7 @@ type SearchContractDrift = {
   driftKind: string;
   statusCode?: number;
   error?: unknown;
+  pageIdentity?: AppStorePageMismatch;
 };
 
 function isIncompleteTopDocLookupOnCooldown(
@@ -505,6 +513,28 @@ async function fetchSearchPageData(params: {
   });
 
   const html = `${response.data || ""}`;
+  const requestedUrl = `${APPSTORE_SEARCH_URL}?${new URLSearchParams({ term: params.keyword })}`;
+  const pageIdentity = inspectAppStorePageIdentity(response, requestedUrl);
+  if (pageIdentity) {
+    return {
+      orderedAppIds: [],
+      leadingOrderUsable: false,
+      appDocs: [],
+      appCount: null,
+      drifts: [
+        {
+          operation: "appstore.search-page",
+          endpoint: APPSTORE_SEARCH_URL,
+          statusCode: response.status,
+          expectedContract:
+            "Requested App Store search page identity matches the response",
+          actualSignal: `unexpected_page ${pageIdentity.mismatchSource}`,
+          driftKind: "unexpected_appstore_page",
+          pageIdentity,
+        },
+      ],
+    };
+  }
   const serializedDataMatch = html.match(
     /<script[^>]*id="serialized-server-data"[^>]*>([\s\S]*?)<\/script>/i
   );
@@ -728,12 +758,16 @@ function reportSearchContractDrifts(params: {
   fallbackSource?: "mzsearch";
 }): void {
   for (const drift of params.drifts) {
-    reportAppleContractChange({
+    const report = drift.pageIdentity
+      ? reportAppleUnexpectedContent
+      : reportAppleContractChange;
+    report({
       provider: "apple-appstore",
       ...drift,
       context: {
         keyword: params.keyword,
         country: params.country,
+        ...drift.pageIdentity,
       },
       isTerminal: params.recoveryOutcome === "unresolved",
       recoveryOutcome: params.recoveryOutcome,
@@ -862,7 +896,7 @@ async function resolveSearchData(params: {
     orderedAppIds != null && appCount != null ? "recovered" : "unresolved";
   const unresolvedSourceError =
     recoveryOutcome === "unresolved"
-      ? mzSearchSourceError ?? primarySourceError
+      ? (mzSearchSourceError ?? primarySourceError)
       : undefined;
   reportSearchContractDrifts({
     keyword: params.keyword,

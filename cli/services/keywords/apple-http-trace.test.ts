@@ -3,6 +3,7 @@ import AxiosMockAdapter from "axios-mock-adapter";
 import {
   attachAppleHttpTracing,
   reportAppleContractChange,
+  reportAppleUnexpectedContent,
   resetAppleHttpTracingForTests,
   withAppleHttpTraceContext,
 } from "./apple-http-trace";
@@ -19,6 +20,59 @@ describe("apple-http-trace", () => {
   beforeEach(() => {
     resetAppleHttpTracingForTests();
     jest.clearAllMocks();
+  });
+
+  it("reports unexpected content separately with sanitized identity and recovery-aware deduplication", () => {
+    const params = {
+      provider: "apple-appstore" as const,
+      operation: "appstore.search-page",
+      endpoint: "https://apps.apple.com/us/iphone/search",
+      expectedContract: "Search page identity matches the request",
+      actualSignal: "unexpected_page canonical_url",
+      driftKind: "unexpected_appstore_page",
+      statusCode: 200,
+      context: {
+        requestedUrl:
+          "https://apps.apple.com/us/iphone/search?term=reader&token=secret",
+        finalUrl: "https://apps.apple.com/cn/iphone/today?session=secret",
+        canonicalUrl: "https://apps.apple.com/cn/iphone/today?password=secret",
+        payloadSummary: { title: "Today", htmlLanguage: "zh-Hans-CN" },
+      },
+    };
+    reportAppleUnexpectedContent({
+      ...params,
+      recoveryOutcome: "recovered",
+      isTerminal: false,
+    });
+    reportAppleUnexpectedContent({
+      ...params,
+      recoveryOutcome: "recovered",
+      isTerminal: false,
+    });
+    reportAppleUnexpectedContent({
+      ...params,
+      recoveryOutcome: "unresolved",
+      isTerminal: true,
+    });
+    expect(mockReportBugsnagError).toHaveBeenCalledTimes(2);
+    const [error, metadata] = mockReportBugsnagError.mock.calls[0];
+    expect((error as Error).message).toContain("unexpected upstream content");
+    expect(metadata).toMatchObject({
+      telemetryHint: {
+        classification: "upstream_unexpected_content",
+        stage: "unexpected-content",
+      },
+      appleUnexpectedContent: { driftKind: "unexpected_appstore_page" },
+    });
+    expect(metadata).not.toHaveProperty("appleContractChange");
+    expect(getErrorBugsnagMetadata(error)?.appleApi).toMatchObject({
+      context: {
+        requestedUrl: expect.stringContaining("token=%5BREDACTED"),
+        finalUrl: expect.stringContaining("session=%5BREDACTED"),
+        canonicalUrl: expect.stringContaining("password=%5BREDACTED"),
+        payloadSummary: { title: "Today", htmlLanguage: "zh-Hans-CN" },
+      },
+    });
   });
 
   it("redacts SIRP proof fields in traced request and response payloads", async () => {

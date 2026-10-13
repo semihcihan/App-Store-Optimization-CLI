@@ -4,7 +4,10 @@ import {
   fetchAppStoreAdditionalLocalizations,
   fetchAppStoreLocalizedAppData,
 } from "./aso-app-store-details";
-import { reportAppleContractChange } from "../../keywords/apple-http-trace";
+import {
+  reportAppleContractChange,
+  reportAppleUnexpectedContent,
+} from "../../keywords/apple-http-trace";
 
 jest.mock("./aso-apple-client", () => ({
   asoAppleGet: jest.fn(),
@@ -12,10 +15,14 @@ jest.mock("./aso-apple-client", () => ({
 
 jest.mock("../../keywords/apple-http-trace", () => ({
   reportAppleContractChange: jest.fn(),
+  reportAppleUnexpectedContent: jest.fn(),
 }));
 
 const mockedAsoAppleGet = jest.mocked(asoAppleGet);
 const mockedReportAppleContractChange = jest.mocked(reportAppleContractChange);
+const mockedReportAppleUnexpectedContent = jest.mocked(
+  reportAppleUnexpectedContent
+);
 
 describe("aso-app-store-details", () => {
   beforeEach(() => {
@@ -93,6 +100,35 @@ describe("aso-app-store-details", () => {
     );
   });
 
+  it("rejects wrong app identity before a valid-looking payload can be mapped", async () => {
+    mockedAsoAppleGet.mockResolvedValue({
+      status: 200,
+      request: {
+        res: { responseUrl: "https://apps.apple.com/cn/iphone/today" },
+      },
+      data: `<html lang="zh-Hans-CN"><title>Today</title>
+        <link rel="canonical" href="https://apps.apple.com/cn/iphone/today">
+        <script id="serialized-server-data">${JSON.stringify({ data: [{ data: { lockup: { title: "Wrong app" } } }] })}</script></html>`,
+    } as never);
+    await expect(fetchAppStoreLocalizedAppData("123", "US")).resolves.toBeNull();
+    expect(mockedReportAppleContractChange).not.toHaveBeenCalled();
+    expect(mockedReportAppleUnexpectedContent).toHaveBeenCalledTimes(1);
+    expect(mockedReportAppleUnexpectedContent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        operation: "appstore.localized-app-page",
+        context: expect.objectContaining({
+          requestedUrl: "https://apps.apple.com/us/app/id123?l=en-US",
+          finalUrl: "https://apps.apple.com/cn/iphone/today",
+          canonicalUrl: "https://apps.apple.com/cn/iphone/today",
+          payloadSummary: expect.objectContaining({
+            title: "Today",
+            hasSerializedServerData: true,
+          }),
+        }),
+      })
+    );
+  });
+
   it("fetches additional localizations without locale fallback retries", async () => {
     mockedAsoAppleGet.mockImplementation(async (url: string) => {
       if (url.includes("?l=fr-FR")) {
@@ -135,7 +171,9 @@ describe("aso-app-store-details", () => {
       data: "<html><body><div>No expected payload</div></body></html>",
     } as never);
 
-    await expect(fetchAppStoreLocalizedAppData("123", "US")).resolves.toBeNull();
+    await expect(
+      fetchAppStoreLocalizedAppData("123", "US")
+    ).resolves.toBeNull();
 
     expect(mockedReportAppleContractChange).toHaveBeenCalledWith(
       expect.objectContaining({
