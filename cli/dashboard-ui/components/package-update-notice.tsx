@@ -95,6 +95,7 @@ export function PackageUpdateNotice() {
                 aria-modal="true"
                 aria-labelledby="package-update-title"
                 aria-describedby="package-update-instructions"
+                onCopy={(event) => event.stopPropagation()}
                 onKeyDown={(event) => {
                   if (event.key === "Escape") {
                     event.stopPropagation();

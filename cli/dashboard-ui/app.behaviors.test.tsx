@@ -1,9 +1,10 @@
 /** @jest-environment jsdom */
 
 import "@testing-library/jest-dom";
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { createEvent, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { App } from "./App";
 import { DEFAULT_RESEARCH_APP_ID } from "../shared/aso-research";
+import type { PackageUpdateStatus } from "../shared/package-update";
 
 type AppKind = "owned" | "research";
 type AppRow = {
@@ -258,12 +259,17 @@ function buildFetchMock(params: {
   topAppsByKeyword?: Record<string, { status: number; body: unknown }>;
   onAddKeywords?: (payload: any) => void;
   onSetFavorite?: (payload: any) => void;
+  packageUpdate?: PackageUpdateStatus;
 }) {
   let appsCallCount = 0;
   return jest.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
     const method = (init?.method ?? "GET").toUpperCase();
     const body = init?.body ? JSON.parse(String(init.body)) : undefined;
+
+    if (method === "GET" && url === "/api/dashboard/version" && params.packageUpdate) {
+      return jsonResponse(200, { success: true, data: params.packageUpdate });
+    }
 
     if (method === "GET" && url === "/api/apps") {
       appsCallCount += 1;
@@ -577,6 +583,66 @@ describe("dashboard app behaviors", () => {
       await screen.findByText("Copied 1 keyword as comma-separated text.")
     ).toBeInTheDocument();
   });
+
+  it.each([false, true])(
+    "preserves manual copying in update instructions with selected keywords (clipboard blocked: %s)",
+    async (clipboardBlocked) => {
+      localStorage.setItem("aso-dashboard:selected-app-id", "111");
+      const writeText = jest.fn(async () => {
+        if (clipboardBlocked) throw new Error("blocked");
+      });
+      Object.defineProperty(navigator, "clipboard", {
+        configurable: true,
+        value: { writeText },
+      });
+      const updateCommand = "npm install -g aso-cli@latest";
+      global.fetch = buildFetchMock({
+        apps: [{ id: "111", name: "Owned App" }],
+        keywordsByAppId: {
+          "111": [{ keyword: "selected-keyword", popularity: 30, difficultyScore: 20 }],
+        },
+        packageUpdate: {
+          currentVersion: "0.19.0",
+          latestVersion: "0.20.0",
+          updateAvailable: true,
+          updateCommand,
+        },
+      }) as typeof fetch;
+
+      render(<App />);
+      const row = (await screen.findByText("selected-keyword")).closest("tr") as HTMLElement;
+      fireEvent.click(row);
+      expect(row).toHaveClass("selected");
+      fireEvent.click(await screen.findByRole("button", { name: "How to update" }));
+      if (clipboardBlocked) {
+        fireEvent.click(screen.getByRole("button", { name: "Copy command" }));
+        expect(await screen.findByText(/Couldn’t copy/)).toBeVisible();
+        expect(writeText).toHaveBeenCalledWith(updateCommand);
+      }
+
+      const command = within(screen.getByRole("dialog")).getByText(updateCommand);
+      const selection = window.getSelection()!;
+      const range = document.createRange();
+      range.selectNodeContents(command);
+      selection.removeAllRanges();
+      selection.addRange(range);
+      try {
+        const setData = jest.fn();
+        const copyEvent = createEvent.copy(command, { clipboardData: { setData } });
+        fireEvent(command, copyEvent);
+        expect(copyEvent.defaultPrevented).toBe(false);
+        expect(setData).not.toHaveBeenCalled();
+        expect(selection.toString()).toBe(updateCommand);
+      } finally {
+        selection.removeAllRanges();
+      }
+
+      fireEvent.click(screen.getByRole("button", { name: "Close update instructions" }));
+      const setData = jest.fn();
+      fireEvent.copy(document, { clipboardData: { setData } });
+      expect(setData).toHaveBeenCalledWith("text/plain", "selected-keyword");
+    }
+  );
 
   it("pastes clipboard text into add-keywords input with Cmd/Ctrl+V outside text fields", async () => {
     localStorage.setItem("aso-dashboard:selected-app-id", "111");
