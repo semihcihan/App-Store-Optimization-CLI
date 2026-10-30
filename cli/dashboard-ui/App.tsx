@@ -3156,10 +3156,12 @@ export function App() {
           onClose={() => setNotesEditor(null)}
           onSaved={(notes) => {
             if (selectedAppIdRef.current === notesEditor.appId) {
-              keywordLoadRequestIdRef.current += 1;
               setKeywords((rows) => rows.map((row) =>
                 row.keyword === notesEditor.keyword ? { ...row, notes } : row
               ));
+              void loadKeywords(notesEditor.appId, keywordPage).catch((error) => {
+                setErrorText(toActionableErrorMessage(error, "Failed to reload keywords after saving notes"));
+              });
             }
             setNotesEditor(null);
           }}

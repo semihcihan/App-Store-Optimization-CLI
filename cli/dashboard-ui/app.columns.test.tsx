@@ -1,7 +1,7 @@
 /** @jest-environment jsdom */
 
 import "@testing-library/jest-dom";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { App } from "./App";
 import { DEFAULT_RESEARCH_APP_ID } from "../shared/aso-research";
 
@@ -490,6 +490,66 @@ describe("dashboard keyword columns", () => {
     await screen.findByRole("alert");
     expect(input).toHaveValue("Keep this draft");
     expect(screen.getByRole("button", { name: "Save notes" })).toBeEnabled();
+  });
+
+  it("preserves refreshed metrics and saved notes when a refresh read overlaps a note save", async () => {
+    const item = {
+      keyword: "note-term",
+      notes: "Original note",
+      popularity: 50,
+      difficultyScore: 20,
+      appCount: 10,
+    };
+    const baseFetch = buildFetchMock({
+      apps: [{ id: DEFAULT_RESEARCH_APP_ID, name: "Research" }],
+      keywordsByAppId: { [DEFAULT_RESEARCH_APP_ID]: [item] },
+    });
+    let releaseRefreshRead!: () => void;
+    const refreshReadGate = new Promise<void>((resolve) => {
+      releaseRefreshRead = resolve;
+    });
+    const refreshReadStarted = jest.fn();
+    let holdNextRead = false;
+    global.fetch = jest.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (init?.method === "POST" && url === "/api/aso/keywords/force-refresh") {
+        Object.assign(item, { popularity: 72, difficultyScore: 33, appCount: 120 });
+        holdNextRead = true;
+        return jsonResponse({
+          status: 200,
+          body: { success: true, data: { requestedCount: 1, succeededCount: 1, failedCount: 0 } },
+        });
+      }
+      if (url.startsWith("/api/aso/keywords?") && holdNextRead) {
+        holdNextRead = false;
+        const response = await baseFetch(input, init);
+        const snapshot = JSON.parse(JSON.stringify(await response.json()));
+        refreshReadStarted();
+        await refreshReadGate;
+        return jsonResponse({ status: 200, body: snapshot });
+      }
+      return baseFetch(input, init);
+    }) as typeof fetch;
+
+    render(<App />);
+    const row = (await screen.findByText("note-term")).closest("tr") as HTMLElement;
+    fireEvent.contextMenu(row, { clientX: 60, clientY: 60 });
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Force Refresh" }));
+    await waitFor(() => expect(refreshReadStarted).toHaveBeenCalledTimes(1));
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit notes for note-term" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Notes" }), {
+      target: { value: "Saved while metrics refresh" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save notes" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    await act(async () => releaseRefreshRead());
+    await screen.findByText("Force refreshed 1 keyword.");
+
+    expect(within(row).getByRole("cell", { name: "72" })).toBeInTheDocument();
+    expect(within(row).getByRole("cell", { name: "33" })).toBeInTheDocument();
+    expect(within(row).getByRole("cell", { name: "120" })).toBeInTheDocument();
+    expect(within(row).getByRole("button", { name: "Edit notes for note-term" })).toHaveTextContent("Saved while metrics refresh");
   });
 
   it("uses global persisted sort when dashboard opens", async () => {

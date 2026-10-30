@@ -125,6 +125,7 @@ Runtime flow contracts across CLI commands, local dashboard API, and ASO service
 - Stores text verbatim in `app_keywords.notes` for the exact app, normalized keyword, and country, including default and custom research apps.
 - App-scoped paginated keyword reads return the complete `notes` value for every association, including pending and failed keywords.
 - Keyword refresh and repeated association preserve notes; deleting the association removes them.
+- After a successful note save, the dashboard updates the note locally and reloads the current keyword page. This replacement read supersedes older in-flight reads while retaining refreshed metrics and the saved note.
 
 ## Flow B4: Dashboard Force Refresh Selected Keywords
 
