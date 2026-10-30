@@ -34,6 +34,7 @@ import { keywordPipelineService } from "../services/keywords/keyword-pipeline-se
 import { isAsoAuthReauthRequiredError } from "../services/keywords/aso-popularity-service";
 import { fetchOwnedAppSnapshotsFromApi } from "./owned-app-details";
 import { createServerRequestHandler } from "./server";
+import { getPackageUpdateStatus } from "../services/runtime/version-check-service";
 import { DEFAULT_RESEARCH_APP_ID } from "../shared/aso-research";
 import { logger } from "../utils/logger";
 import { fetchSensorTowerMetricsForApps } from "../services/sensortower/sensortower-app-service";
@@ -43,6 +44,10 @@ import {
 } from "../db/sensor-tower-app-metrics";
 
 let mockAsoConfig: Record<string, unknown> = {};
+
+jest.mock("../services/runtime/version-check-service", () => ({
+  getPackageUpdateStatus: jest.fn(),
+}));
 
 jest.mock("../db/owned-apps", () => ({
   deleteOwnedAppById: jest.fn(() => 0),
@@ -361,6 +366,19 @@ describe("dashboard server routes", () => {
 
     expect(response.statusCode).toBe(200);
     expect(response.json).toEqual({ success: true });
+  });
+
+  it("exposes shared package update status through the dashboard API", async () => {
+    const status = {
+      currentVersion: "0.19.0",
+      latestVersion: "0.20.0",
+      updateAvailable: true,
+      updateCommand: "npm install -g aso-cli@latest",
+    };
+    jest.mocked(getPackageUpdateStatus).mockResolvedValue(status);
+    const response = await request({ method: "GET", path: "/api/dashboard/version" });
+    expect(response.statusCode).toBe(200);
+    expect(response.json).toEqual({ success: true, data: status });
   });
 
   it("returns runtime config payload", async () => {

@@ -31,6 +31,7 @@ import { useAuthFlow } from "./hooks/use-auth-flow";
 import { usePrimaryAppSetupFlow } from "./hooks/use-primary-app-setup-flow";
 import { useAddAppSearch } from "./hooks/use-add-app-search";
 import { StatusBanners } from "./components/status-banners";
+import { PackageUpdateNotice } from "./components/package-update-notice";
 import { AsoPromptDialog } from "./components/aso-prompt-dialog";
 import { KeywordActionMenu } from "./components/keyword-action-menu";
 import { AddAppDialog } from "./components/add-app-dialog";
@@ -2703,6 +2704,7 @@ export function App() {
       </aside>
 
       <main className="main">
+        <PackageUpdateNotice />
         <Card className="add-card">
           <form id="add-form" className="add-form" onSubmit={onAddKeywords}>
             <div className="onboarding-target-slot add-keywords-slot">

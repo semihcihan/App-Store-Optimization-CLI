@@ -5,15 +5,17 @@ import os from "os";
 import packageJson from "../../../package.json";
 import { boxifyMessage } from "./format-helper";
 import { compareVersions } from "../../utils/version";
+import type { PackageUpdateStatus } from "../../shared/package-update";
 
 const NPM_REGISTRY_URL = "https://registry.npmjs.org";
 const CHECK_TIMEOUT = 3000;
-const CACHE_FILE = path.join(
-  os.homedir(),
-  ".aso",
-  "version-cache.json"
-);
+const CACHE_FILE = path.join(os.homedir(), ".aso", "version-cache.json");
 const ONE_DAY_MS = 24 * 60 * 60 * 1000; // during beta testing, we will check every day
+let pendingVersionCheck: Promise<string | null> | null = null;
+
+function isVersion(value: unknown): value is string {
+  return typeof value === "string" && /^\d+\.\d+\.\d+$/.test(value);
+}
 
 interface VersionCache {
   latestVersion: string;
@@ -31,7 +33,12 @@ function loadCache(): VersionCache | null {
     }
 
     const content = fs.readFileSync(CACHE_FILE, "utf8");
-    return JSON.parse(content) as VersionCache;
+    const cache = JSON.parse(content);
+    return cache &&
+      isVersion(cache.latestVersion) &&
+      typeof cache.lastCheckDate === "string"
+      ? (cache as VersionCache)
+      : null;
   } catch (error) {
     return null;
   }
@@ -60,7 +67,7 @@ function isCacheValid(cache: VersionCache | null): boolean {
     const now = new Date();
     const diffMs = now.getTime() - lastCheckDate.getTime();
 
-    return diffMs < ONE_DAY_MS;
+    return diffMs >= 0 && diffMs < ONE_DAY_MS;
   } catch (error) {
     return false;
   }
@@ -99,13 +106,15 @@ async function fetchLatestVersion(packageName: string): Promise<string | null> {
         timeout: CHECK_TIMEOUT,
       }
     );
-    return response.data.version || null;
+    return isVersion(response.data?.version) ? response.data.version : null;
   } catch (error) {
     return null;
   }
 }
 
-export function checkVersionUpdateSync(options: VersionCheckOptions = {}): void {
+export function checkVersionUpdateSync(
+  options: VersionCheckOptions = {}
+): void {
   const currentVersion = packageJson.version;
   const packageName = packageJson.name;
   const allowStdoutMessage = options.allowStdoutMessage !== false;
@@ -120,22 +129,23 @@ export function checkVersionUpdateSync(options: VersionCheckOptions = {}): void 
     displayUpdateMessage(packageName, currentVersion, cache.latestVersion);
   }
 
-  checkVersionUpdateAsync(cache);
+  void checkVersionUpdateAsync(cache);
 }
 
-async function checkVersionUpdateAsync(
+function checkVersionUpdateAsync(
   cache: VersionCache | null
-): Promise<void> {
+): Promise<string | null> {
+  if (pendingVersionCheck) return pendingVersionCheck;
   if (cache && isCacheValid(cache)) {
-    return;
+    return Promise.resolve(cache.latestVersion);
   }
 
-  try {
+  pendingVersionCheck = (async () => {
     const packageName = packageJson.name;
     const latestVersion = await fetchLatestVersion(packageName);
 
     if (!latestVersion) {
-      return;
+      return cache?.latestVersion ?? null;
     }
 
     const cacheToSave: VersionCache = {
@@ -144,7 +154,21 @@ async function checkVersionUpdateAsync(
     };
 
     saveCache(cacheToSave);
-  } catch (error) {
-    // Silently fail - don't interrupt the user's workflow
-  }
+    return latestVersion;
+  })().finally(() => {
+    pendingVersionCheck = null;
+  });
+  return pendingVersionCheck;
+}
+
+export async function getPackageUpdateStatus(): Promise<PackageUpdateStatus> {
+  const latestVersion = await checkVersionUpdateAsync(loadCache());
+  return {
+    currentVersion: packageJson.version,
+    latestVersion,
+    updateAvailable:
+      latestVersion != null &&
+      shouldShowUpdateMessage(packageJson.version, latestVersion),
+    updateCommand: `npm install -g ${packageJson.name}@latest`,
+  };
 }
