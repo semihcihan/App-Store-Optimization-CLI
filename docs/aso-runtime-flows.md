@@ -23,7 +23,7 @@ Runtime flow contracts across CLI commands, local dashboard API, and ASO service
 - `aso reset-credentials`: clear saved ASO keychain credentials and local cookies.
 - Any `aso` process start emits PostHog `cli_started` telemetry using a persisted user id at `~/.aso/config.json` (`userId`), then flushes telemetry on normal/error exits.
 - MCP `aso_evaluate_keywords`: accept explicit keywords (max 100), run `aso keywords "<comma-separated-keywords>" --stdout`, return evaluated keyword results.
-- Dashboard API mutations: app add (single-item POST; UI may batch multiple selections), app delete, keyword add/delete, keyword favorite toggle, auth start/respond, setup start/respond, refresh start/stop, dashboard settings update.
+- Dashboard API mutations: app add (single-item POST; UI may batch multiple selections), app delete, keyword add/delete, keyword favorite toggle, keyword notes update, auth start/respond, setup start/respond, refresh start/stop, dashboard settings update.
 
 ## Boundary Ownership
 - Domain policy (`cli/domain/keywords/*`, `cli/domain/errors/*`) is shared across CLI/server/UI for country guardrails, keyword normalization, limits, and dashboard-safe error/message mapping.
@@ -119,6 +119,12 @@ Runtime flow contracts across CLI commands, local dashboard API, and ASO service
 2. Client sends `{ appId, country, keyword, isFavorite }`.
 3. Server updates `app_keywords.is_favorite` for the exact `(appId, keyword, country)` association.
 4. Favorite state is app-scoped: the same keyword associated to a different app keeps its own favorite state.
+
+### Dashboard Keyword Notes (`PATCH /api/aso/keywords/notes`)
+- Accepts `{ appId, country, keyword, notes }`; `notes` must be a string, including empty text to clear it. Missing associations return `404`.
+- Stores text verbatim in `app_keywords.notes` for the exact app, normalized keyword, and country, including default and custom research apps.
+- App-scoped paginated keyword reads return the complete `notes` value for every association, including pending and failed keywords.
+- Keyword refresh and repeated association preserve notes; deleting the association removes them.
 
 ## Flow B4: Dashboard Force Refresh Selected Keywords
 

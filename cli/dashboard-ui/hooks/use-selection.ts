@@ -23,6 +23,7 @@ export function useSelection(params: UseSelectionParams) {
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null;
+      if (target instanceof Element && target.closest("dialog")) return;
       const tag = target?.tagName?.toLowerCase();
       if (tag === "input" || tag === "textarea" || tag === "select" || target?.isContentEditable) return;
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "a") {

@@ -69,6 +69,7 @@ erDiagram
     TEXT keyword PK
     TEXT country PK
     INTEGER is_favorite
+    TEXT notes
     INTEGER previous_position
     TEXT added_at
   }
@@ -207,6 +208,7 @@ Indexes:
 | `keyword` | `TEXT` | `string` | No | PK part; normalized keyword |
 | `country` | `TEXT` | `string` | No | PK part |
 | `is_favorite` | `INTEGER` | `boolean` | No | App-scoped favorite flag (`1` favorite / `0` non-favorite) |
+| `notes` | `TEXT` | `string` | No | Free text scoped to the app, keyword, and country; defaults to empty text |
 | `previous_position` | `INTEGER` | `number \| null` | Yes | Rank delta baseline |
 | `added_at` | `TEXT` | `string \| null` | Yes | Association timestamp |
 
@@ -264,5 +266,6 @@ Indexes:
 
 ## Notes
 - DB init applies `PRAGMA journal_mode = WAL` and `PRAGMA foreign_keys = ON`.
+- DB init adds `app_keywords.notes` to existing databases, preserving association state and defaulting existing notes to empty text.
 - `owned_app_country_ratings.app_id` has FK to `owned_apps.id` (`ON DELETE CASCADE`).
 - ASO keyword/app-doc tables keep logical links enforced at service layer.

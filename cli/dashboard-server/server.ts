@@ -684,6 +684,13 @@ export function createServerRequestHandler(): http.RequestListener {
         return;
       }
 
+      if (req.method === "PATCH" && pathname === "/api/aso/keywords/notes") {
+        await runAsForegroundMutation(() =>
+          asoRouteHandlers.handleApiAsoKeywordsNotesPatch(req, res)
+        );
+        return;
+      }
+
       if (req.method === "POST" && pathname === "/api/aso/keywords/favorite") {
         await runAsForegroundMutation(() =>
           asoRouteHandlers.handleApiAsoKeywordsFavoritePost(req, res)

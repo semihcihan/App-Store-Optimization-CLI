@@ -14,6 +14,7 @@ import {
   getAppLastKeywordAddedAtMap,
   listAllAppKeywords,
   setAppKeywordFavorite,
+  setAppKeywordNotes,
 } from "../db/app-keywords";
 import { listAppKeywordPositionHistory } from "../db/app-keyword-position-history";
 import { getKeyword, listKeywords } from "../db/aso-keywords";
@@ -61,6 +62,7 @@ jest.mock("../db/app-keywords", () => ({
   deleteAppKeywordsByAppId: jest.fn(() => 0),
   getAppLastKeywordAddedAtMap: jest.fn(() => new Map()),
   setAppKeywordFavorite: jest.fn(() => true),
+  setAppKeywordNotes: jest.fn(() => true),
 }));
 
 jest.mock("../db/app-keyword-position-history", () => ({
@@ -775,6 +777,7 @@ describe("dashboard server routes", () => {
             keyword_match: "titleExactPhrase",
             ordered_app_ids: JSON.stringify(["app-1", "app-2"]),
             is_favorite: 0,
+            notes: "Full app-specific notes\nincluding another line",
             created_at: "2026-03-12T00:00:00.000Z",
             added_at: "2026-03-11T00:00:00.000Z",
             updated_at: "2026-03-12T00:00:00.000Z",
@@ -818,6 +821,7 @@ describe("dashboard server routes", () => {
         items: [
           expect.objectContaining({
             keyword: "term",
+            notes: "Full app-specific notes\nincluding another line",
             addedAt: "2026-03-11T00:00:00.000Z",
             keywordStatus: "failed",
             positions: [
@@ -1692,6 +1696,40 @@ describe("dashboard server routes", () => {
       success: true,
       data: { removedCount: 2 },
     });
+  });
+
+  it.each(["app-1", "research", "research:ideas"])("updates and clears notes for %s", async (appId) => {
+    for (const notes of ["  Free text 📝\nSecond line  ", ""]) {
+      const response = await request({
+        method: "PATCH",
+        path: "/api/aso/keywords/notes",
+        body: { appId, keyword: " TERM ", country: "US", notes },
+      });
+      expect(response.statusCode).toBe(200);
+      expect(response.json).toEqual({ success: true, data: { appId, keyword: "term", notes } });
+      expect(setAppKeywordNotes).toHaveBeenLastCalledWith(appId, "term", notes, "US");
+    }
+  });
+
+  it.each([
+    { keyword: "term", notes: "text" },
+    { appId: "app-1", keyword: "", notes: "text" },
+    { appId: "app-1", keyword: "term" },
+    { appId: "app-1", keyword: "term", notes: 42 },
+    { appId: "app-1", keyword: "term", notes: null },
+  ])("rejects invalid notes payloads: %j", async (body) => {
+    const response = await request({ method: "PATCH", path: "/api/aso/keywords/notes", body });
+    expect(response.statusCode).toBe(400);
+    expect(setAppKeywordNotes).not.toHaveBeenCalled();
+  });
+
+  it("returns not found when saving notes for a missing association", async () => {
+    jest.mocked(setAppKeywordNotes).mockReturnValueOnce(false);
+    const response = await request({
+      method: "PATCH", path: "/api/aso/keywords/notes",
+      body: { appId: "app-1", keyword: "missing", notes: "text" },
+    });
+    expect(response.statusCode).toBe(404);
   });
 
   it("updates favorite status for a keyword association", async () => {

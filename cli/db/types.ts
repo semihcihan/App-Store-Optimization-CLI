@@ -80,6 +80,7 @@ export interface StoredAppKeyword {
   keyword: string;
   country: string;
   isFavorite: boolean;
+  notes: string;
   previousPosition: number | null;
   addedAt?: string;
 }

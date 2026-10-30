@@ -84,6 +84,7 @@ describe("keyword-write-repository", () => {
         keyword: "term",
         country: "US",
         isFavorite: false,
+        notes: "",
         previousPosition: null,
       },
     ]);
@@ -129,6 +130,7 @@ describe("keyword-write-repository", () => {
         keyword: "term",
         country: "US",
         isFavorite: false,
+        notes: "",
         previousPosition: null,
       },
     ]);
