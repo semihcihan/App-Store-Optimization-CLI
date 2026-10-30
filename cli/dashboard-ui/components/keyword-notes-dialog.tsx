@@ -104,17 +104,19 @@ export function KeywordNotesDialog({
           <strong>{target.keyword}</strong>
           <span>{target.appName}</span>
         </p>
-        <label htmlFor="keyword-notes-input">Notes</label>
-        <textarea
-          id="keyword-notes-input"
-          ref={textareaRef}
-          className="ui-input keyword-notes-input"
-          value={notes}
-          onChange={(event) => setNotes(event.target.value)}
-          placeholder="Write your notes about this keyword…"
-          readOnly={isSaving}
-          rows={12}
-        />
+        <div className="keyword-notes-field">
+          <label htmlFor="keyword-notes-input">Notes</label>
+          <textarea
+            id="keyword-notes-input"
+            ref={textareaRef}
+            className="ui-input keyword-notes-input"
+            value={notes}
+            onChange={(event) => setNotes(event.target.value)}
+            placeholder="Write your notes about this keyword…"
+            readOnly={isSaving}
+            rows={8}
+          />
+        </div>
         {error ? (
           <p className="dialog-message error" role="alert">
             {error}
