@@ -17,6 +17,15 @@ function ensureAppKeywordFavoriteColumn(database: Database.Database): void {
   }
 }
 
+function ensureAppKeywordNotesColumn(database: Database.Database): void {
+  const columns = database
+    .prepare(`PRAGMA table_info(app_keywords)`)
+    .all() as Array<{ name?: string }>;
+  if (!columns.some((column) => column.name === "notes")) {
+    database.exec(`ALTER TABLE app_keywords ADD COLUMN notes TEXT NOT NULL DEFAULT ''`);
+  }
+}
+
 function initializeDatabase(database: Database.Database): void {
   database.pragma("journal_mode = WAL");
   database.pragma("foreign_keys = ON");
@@ -103,6 +112,7 @@ function initializeDatabase(database: Database.Database): void {
       keyword TEXT NOT NULL,
       country TEXT NOT NULL,
       is_favorite INTEGER NOT NULL DEFAULT 0,
+      notes TEXT NOT NULL DEFAULT '',
       previous_position INTEGER,
       added_at TEXT,
       PRIMARY KEY (app_id, keyword, country)
@@ -147,6 +157,7 @@ function initializeDatabase(database: Database.Database): void {
       ON aso_keyword_failures(country, stage);
   `);
   ensureAppKeywordFavoriteColumn(database);
+  ensureAppKeywordNotesColumn(database);
   database.exec(`
     CREATE INDEX IF NOT EXISTS idx_app_keywords_country_app_favorite
       ON app_keywords(country, app_id, is_favorite);

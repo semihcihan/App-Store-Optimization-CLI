@@ -37,6 +37,7 @@ import { KeywordActionMenu } from "./components/keyword-action-menu";
 import { AddAppDialog } from "./components/add-app-dialog";
 import { AppActionMenu } from "./components/app-action-menu";
 import { ContextDeleteConfirm } from "./components/context-delete-confirm";
+import { KeywordNotesDialog, type KeywordNotesTarget } from "./components/keyword-notes-dialog";
 import {
   DASHBOARD_FILTER_DEFAULTS,
   DASHBOARD_FILTER_OPTIONS,
@@ -81,6 +82,7 @@ type KeywordItem = {
   difficultyScore: number | null;
   isBrandKeyword?: boolean | null;
   isFavorite?: boolean;
+  notes?: string;
   appCount: number | null;
   addedAt?: string | null;
   updatedAt?: string;
@@ -176,6 +178,7 @@ type Row = {
   difficultyScore: number | null;
   isBrandKeyword: boolean | null;
   isFavorite: boolean;
+  notes: string;
   appCount: number | null;
   addedAt?: string | null;
   updatedAt?: string;
@@ -410,6 +413,7 @@ export function App() {
     }
   });
   const [keywords, setKeywords] = useState<Row[]>([]);
+  const [notesEditor, setNotesEditor] = useState<KeywordNotesTarget | null>(null);
   const [keywordPage, setKeywordPage] = useState(1);
   const [keywordTotalCount, setKeywordTotalCount] = useState(0);
   const [keywordTotalPages, setKeywordTotalPages] = useState(1);
@@ -803,6 +807,7 @@ export function App() {
         difficultyScore: item.difficultyScore,
         isBrandKeyword: item.isBrandKeyword ?? null,
         isFavorite: item.isFavorite === true,
+        notes: item.notes ?? "",
         appCount: item.appCount,
         addedAt: item.addedAt,
         updatedAt: item.updatedAt,
@@ -1386,6 +1391,7 @@ export function App() {
   );
 
   useEffect(() => {
+    if (notesEditor) return;
     const isEditableTarget = (target: EventTarget | null): boolean => {
       if (!(target instanceof HTMLElement)) return false;
       const element = target;
@@ -1467,7 +1473,7 @@ export function App() {
       document.removeEventListener("paste", onPaste);
       window.removeEventListener("keydown", onKeyDown, true);
     };
-  }, [filteredRows, onContextCopy, onContextDelete, selectedKeywords]);
+  }, [filteredRows, notesEditor, onContextCopy, onContextDelete, selectedKeywords]);
 
   const getContextSelection = useCallback(
     (rowKeyword: string): string[] => {
@@ -3007,6 +3013,7 @@ export function App() {
                   >
                     {renderSortLabel("updatedAt")}
                   </th>
+                  <th className="notes-column" data-sort-key="notes">Notes</th>
                 </tr>
               </thead>
               <tbody id="keywords-tbody">
@@ -3113,6 +3120,25 @@ export function App() {
                       <td className="updated-value">
                         {formatDate(row.updatedAt, displayLocale)}
                       </td>
+                      <td className="notes-column">
+                        <button
+                          type="button"
+                          className={`keyword-notes-preview ${row.notes ? "" : "is-empty"}`}
+                          aria-label={`${row.notes ? "Edit" : "Add"} notes for ${row.keyword}`}
+                          aria-haspopup="dialog"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            setNotesEditor({
+                              appId: selectedAppId,
+                              appName: selectedApp?.name ?? selectedAppId,
+                              keyword: row.keyword,
+                              notes: row.notes,
+                            });
+                          }}
+                        >
+                          {row.notes || "Add notes…"}
+                        </button>
+                      </td>
                     </tr>
                   );
                 })}
@@ -3126,6 +3152,23 @@ export function App() {
           ) : null}
         </Card>
       </main>
+      {notesEditor ? (
+        <KeywordNotesDialog
+          target={notesEditor}
+          onClose={() => setNotesEditor(null)}
+          onSaved={(notes) => {
+            if (selectedAppIdRef.current === notesEditor.appId) {
+              setKeywords((rows) => rows.map((row) =>
+                row.keyword === notesEditor.keyword ? { ...row, notes } : row
+              ));
+              void loadKeywords(notesEditor.appId, keywordPage).catch((error) => {
+                setErrorText(toActionableErrorMessage(error, "Failed to reload keywords after saving notes"));
+              });
+            }
+            setNotesEditor(null);
+          }}
+        />
+      ) : null}
       {keywordActionMenu ? (
         <KeywordActionMenu
           x={keywordActionMenu.x}

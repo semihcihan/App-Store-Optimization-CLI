@@ -12,6 +12,7 @@ type AppKeywordRow = {
   keyword: string;
   country: string;
   isFavorite: number | null;
+  notes: string;
   previousPosition: number | null;
   addedAt?: string | null;
 };
@@ -22,6 +23,7 @@ function toStoredAppKeyword(row: AppKeywordRow): StoredAppKeyword {
     keyword: row.keyword,
     country: row.country,
     isFavorite: row.isFavorite === 1,
+    notes: row.notes,
     previousPosition: row.previousPosition,
     addedAt: row.addedAt ?? undefined,
   };
@@ -32,7 +34,7 @@ export function listByApp(appId: string, country: string = COUNTRY): StoredAppKe
   const rows = db
     .prepare(
       `SELECT app_id as appId, keyword, country, is_favorite as isFavorite, previous_position as previousPosition,
-              added_at as addedAt
+              added_at as addedAt, notes
        FROM app_keywords
        WHERE app_id = ? AND country = ?
        ORDER BY keyword COLLATE NOCASE ASC`
@@ -46,7 +48,7 @@ export function listAllAppKeywords(country: string = COUNTRY): StoredAppKeyword[
   const rows = db
     .prepare(
       `SELECT app_id as appId, keyword, country, is_favorite as isFavorite, previous_position as previousPosition,
-              added_at as addedAt
+              added_at as addedAt, notes
        FROM app_keywords
        WHERE country = ?`
     )
@@ -118,7 +120,7 @@ export function getAssociationsForKeyword(
   const rows = db
     .prepare(
       `SELECT app_id as appId, keyword, country, is_favorite as isFavorite, previous_position as previousPosition,
-              added_at as addedAt
+              added_at as addedAt, notes
        FROM app_keywords
        WHERE keyword = ? AND country = ?`
     )
@@ -142,6 +144,23 @@ export function setAppKeywordFavorite(
        WHERE app_id = ? AND keyword = ? AND country = ?`
     )
     .run(isFavorite ? 1 : 0, appId, norm, country);
+  return result.changes > 0;
+}
+
+export function setAppKeywordNotes(
+  appId: string,
+  keyword: string,
+  notes: string,
+  country: string = COUNTRY
+): boolean {
+  const norm = normalizeKeyword(keyword);
+  if (!norm) return false;
+  const result = getDb()
+    .prepare(
+      `UPDATE app_keywords SET notes = ?
+       WHERE app_id = ? AND keyword = ? AND country = ?`
+    )
+    .run(notes, appId, norm, country);
   return result.changes > 0;
 }
 

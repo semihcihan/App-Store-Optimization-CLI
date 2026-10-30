@@ -152,13 +152,13 @@ type FilterableRow = {
   keywordStatus: "ok" | "pending" | "failed";
 };
 
-type UseFiltersSortParams = {
-  keywords: FilterableRow[];
+type UseFiltersSortParams<T extends FilterableRow> = {
+  keywords: T[];
   showRankingColumns: boolean;
   mode?: "local" | "server";
 };
 
-export function useFiltersSort(params: UseFiltersSortParams) {
+export function useFiltersSort<T extends FilterableRow>(params: UseFiltersSortParams<T>) {
   const [initialFilterState] = useState(() => getStoredFilterState());
   const [keywordFilter, setKeywordFilter] = useState("");
   const [maxDifficulty, setMaxDifficulty] = useState(initialFilterState.maxDifficulty);

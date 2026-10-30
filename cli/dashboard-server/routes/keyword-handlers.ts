@@ -5,6 +5,7 @@ import {
   createAppKeywords,
   deleteAppKeywords,
   setAppKeywordFavorite,
+  setAppKeywordNotes,
 } from "../../db/app-keywords";
 import { listAppKeywordPositionHistory } from "../../db/app-keyword-position-history";
 import { getDb } from "../../db/store";
@@ -69,6 +70,7 @@ type KeywordPagedRow = {
   order_expires_at: string;
   popularity_expires_at: string;
   is_favorite: number;
+  notes: string;
   current_position: number | null;
   failure_stage: string | null;
   failure_reason_code: string | null;
@@ -735,6 +737,35 @@ export function createKeywordHandlers(deps: AsoRouteDeps) {
     }
   }
 
+  async function handleApiAsoKeywordsNotesPatch(
+    req: http.IncomingMessage,
+    res: http.ServerResponse
+  ): Promise<void> {
+    const body = await deps.parseJsonBody<{
+      appId?: unknown;
+      keyword?: unknown;
+      notes?: unknown;
+      country?: string;
+    }>(req, res);
+    if (!body) return;
+    const appId = typeof body.appId === "string" ? body.appId.trim() : "";
+    const keyword = typeof body.keyword === "string" ? normalizeKeyword(body.keyword) : "";
+    const country = normalizeCountry(body.country);
+    if (!appId || !keyword || typeof body.notes !== "string") {
+      deps.sendApiError(res, 400, "INVALID_REQUEST", "Please provide an appId, keyword, and text notes.");
+      return;
+    }
+    const updated = setAppKeywordNotes(appId, keyword, body.notes, country);
+    if (!updated) {
+      deps.sendApiError(res, 404, "NOT_FOUND", "Keyword association was not found for this app.");
+      return;
+    }
+    deps.sendJson(res, 200, {
+      success: true,
+      data: { appId, keyword, notes: body.notes },
+    });
+  }
+
   async function handleApiAsoKeywordsFavoritePost(
     req: http.IncomingMessage,
     res: http.ServerResponse
@@ -862,6 +893,7 @@ export function createKeywordHandlers(deps: AsoRouteDeps) {
           k.keyword_match AS keyword_match,
           COALESCE(k.ordered_app_ids, '[]') AS ordered_app_ids,
           COALESCE(ak.is_favorite, 0) AS is_favorite,
+          ak.notes AS notes,
           COALESCE(k.created_at, f.updated_at, ak.added_at, '') AS created_at,
           ak.added_at AS added_at,
           COALESCE(k.updated_at, f.updated_at, ak.added_at, '') AS updated_at,
@@ -936,6 +968,7 @@ export function createKeywordHandlers(deps: AsoRouteDeps) {
            keyword_match,
            ordered_app_ids,
            is_favorite,
+           notes,
            created_at,
            added_at,
            updated_at,
@@ -1026,6 +1059,7 @@ export function createKeywordHandlers(deps: AsoRouteDeps) {
         keywordMatch: row.keyword_match ?? "none",
         orderedAppIds,
         isFavorite: row.is_favorite === 1,
+        notes: row.notes,
         createdAt: row.created_at,
         addedAt: row.added_at,
         updatedAt: row.updated_at,
@@ -1081,6 +1115,7 @@ export function createKeywordHandlers(deps: AsoRouteDeps) {
     handleApiAsoKeywordsPost,
     handleApiAsoKeywordsDelete,
     handleApiAsoKeywordsFavoritePost,
+    handleApiAsoKeywordsNotesPatch,
     handleApiAsoKeywordsForceRefreshPost,
     handleApiAsoKeywordsRetryFailedPost,
     handleApiAsoKeywordHistoryGet,

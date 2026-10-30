@@ -1,6 +1,7 @@
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
+import Database from "better-sqlite3";
 import {
   listByApp,
   listAllAppKeywords,
@@ -11,6 +12,7 @@ import {
   deleteAppKeywords,
   getAppLastKeywordAddedAtMap,
   setAppKeywordFavorite,
+  setAppKeywordNotes,
 } from "./app-keywords";
 import { closeDbForTests } from "./store";
 
@@ -104,6 +106,46 @@ describe("app-keywords", () => {
     const app1Rows = listByApp("app1", "US").map((r) => r.keyword);
     expect(app1Rows).toEqual(["bar"]);
     expect(listByApp("app2", "US")).toHaveLength(1);
+  });
+
+  it("persists free text notes per app, keyword, and country across restarts and re-association", () => {
+    for (const appId of ["app1", "app2", "research", "research:ideas"]) {
+      createAppKeyword(appId, "shared", "US");
+    }
+    createAppKeyword("app1", "shared", "GB");
+    const notes = "  Try this idea 📝\nKeep punctuation, spacing & <text>.  ";
+    expect(setAppKeywordNotes("app1", " SHARED ", notes, "US")).toBe(true);
+    expect(setAppKeywordNotes("research:ideas", "shared", "Research note", "US")).toBe(true);
+    createAppKeywords("app1", ["shared"], "US");
+    closeDbForTests();
+    expect(listByApp("app1", "US")[0].notes).toBe(notes);
+    expect(listByApp("app1", "GB")[0].notes).toBe("");
+    expect(listByApp("app2", "US")[0].notes).toBe("");
+    expect(listByApp("research", "US")[0].notes).toBe("");
+    expect(listAllAppKeywords("US").find((row) => row.appId === "research:ideas")?.notes).toBe("Research note");
+    expect(getAssociationsForKeyword("shared").find((row) => row.appId === "app1")?.notes).toBe(notes);
+    expect(setAppKeywordNotes("app1", "shared", "", "US")).toBe(true);
+    expect(listByApp("app1", "US")[0].notes).toBe("");
+    expect(setAppKeywordNotes("missing", "shared", "note", "US")).toBe(false);
+  });
+
+  it("migrates existing app-keyword associations without losing their state", () => {
+    const legacyDb = new Database(TEST_DB_PATH);
+    legacyDb.exec(`
+      CREATE TABLE app_keywords (
+        app_id TEXT NOT NULL, keyword TEXT NOT NULL, country TEXT NOT NULL,
+        is_favorite INTEGER NOT NULL DEFAULT 0, previous_position INTEGER, added_at TEXT,
+        PRIMARY KEY (app_id, keyword, country)
+      );
+      INSERT INTO app_keywords VALUES ('app1', 'legacy', 'US', 1, 8, '2026-01-01');
+    `);
+    legacyDb.close();
+    expect(listByApp("app1")[0]).toMatchObject({
+      keyword: "legacy", isFavorite: true, previousPosition: 8, addedAt: "2026-01-01", notes: "",
+    });
+    expect(setAppKeywordNotes("app1", "legacy", "Migrated note")).toBe(true);
+    closeDbForTests();
+    expect(listByApp("app1")[0].notes).toBe("Migrated note");
   });
 
   it("returns latest addedAt per app", () => {

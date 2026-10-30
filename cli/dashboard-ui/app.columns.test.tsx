@@ -1,7 +1,7 @@
 /** @jest-environment jsdom */
 
 import "@testing-library/jest-dom";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { App } from "./App";
 import { DEFAULT_RESEARCH_APP_ID } from "../shared/aso-research";
 
@@ -292,6 +292,15 @@ function buildFetchMock(options: FetchMockOptions) {
       });
     }
 
+    if (method === "PATCH" && url === "/api/aso/keywords/notes") {
+      const body = JSON.parse(String(init?.body));
+      const item = options.keywordsByAppId[body.appId]?.find(
+        (value) => (value as { keyword: string }).keyword === body.keyword
+      ) as { notes: string } | undefined;
+      if (item) item.notes = body.notes;
+      return jsonResponse({ status: 200, body: { success: true, data: body } });
+    }
+
     if (method === "GET" && url === "/api/aso/refresh-status") {
       return jsonResponse({
         status: 200,
@@ -322,6 +331,8 @@ describe("dashboard keyword columns", () => {
   beforeEach(() => {
     setupMatchMediaMock();
     localStorage.clear();
+    HTMLDialogElement.prototype.showModal = function () { this.setAttribute("open", ""); };
+    HTMLDialogElement.prototype.close = function () { this.removeAttribute("open"); };
   });
 
   it("hides rank and change columns but shows updated column for research apps", async () => {
@@ -365,6 +376,7 @@ describe("dashboard keyword columns", () => {
       "favorite",
       "addedAt",
       "updatedAt",
+      "notes",
     ]);
   });
 
@@ -416,7 +428,128 @@ describe("dashboard keyword columns", () => {
       "favorite",
       "addedAt",
       "updatedAt",
+      "notes",
     ]);
+  });
+
+  it.each(["123456789", DEFAULT_RESEARCH_APP_ID, "research:ideas"])(
+    "opens, edits, and clears full keyword notes for %s", async (appId) => {
+      localStorage.setItem("aso-dashboard:selected-app-id", appId);
+      const originalNotes = "A long note with more than forty characters, which stays complete in the editor.\nSecond line 📝";
+      const fetchMock = buildFetchMock({
+        apps: [{ id: appId, name: "Notes workspace" }],
+        keywordsByAppId: { [appId]: [{ keyword: "note-term", notes: originalNotes, popularity: 50, difficultyScore: 20, appCount: 10 }] },
+      });
+      global.fetch = fetchMock as typeof fetch;
+      render(<App />);
+      const trigger = await screen.findByRole("button", { name: "Edit notes for note-term" });
+      expect(screen.getByRole("columnheader", { name: "Notes" })).toBeInTheDocument();
+      trigger.focus();
+      fireEvent.click(trigger);
+      expect(screen.getByRole("textbox", { name: "Notes" })).toHaveValue(originalNotes);
+      expect(document.querySelector("tr[data-keyword='note-term']")).not.toHaveClass("selected");
+      const editedNotes = "Updated idea\nPreserve all of this text.";
+      fireEvent.change(screen.getByRole("textbox", { name: "Notes" }), { target: { value: editedNotes } });
+      fireEvent.click(screen.getByRole("button", { name: "Save notes" }));
+      await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+      expect(trigger).toHaveFocus();
+      expect(fetchMock).toHaveBeenCalledWith("/api/aso/keywords/notes", expect.objectContaining({
+        method: "PATCH", body: JSON.stringify({ appId, country: "US", keyword: "note-term", notes: editedNotes }),
+      }));
+      fireEvent.click(screen.getByRole("button", { name: "Edit notes for note-term" }));
+      expect(screen.getByRole("textbox", { name: "Notes" })).toHaveValue(editedNotes);
+      fireEvent.change(screen.getByRole("textbox", { name: "Notes" }), { target: { value: "" } });
+      fireEvent.click(screen.getByRole("button", { name: "Save notes" }));
+      await screen.findByRole("button", { name: "Add notes for note-term" });
+      fireEvent.click(screen.getByRole("button", { name: "Add notes for note-term" }));
+      expect(screen.getByRole("textbox", { name: "Notes" })).toHaveValue("");
+      fireEvent.change(screen.getByRole("textbox", { name: "Notes" }), { target: { value: "Discard this draft" } });
+      fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+      fireEvent.click(screen.getByRole("button", { name: "Add notes for note-term" }));
+      expect(screen.getByRole("textbox", { name: "Notes" })).toHaveValue("");
+    }
+  );
+
+  it("retains a note draft after a save failure and protects selected rows while editing", async () => {
+    const baseFetch = buildFetchMock({
+      apps: [{ id: DEFAULT_RESEARCH_APP_ID, name: "Research" }],
+      keywordsByAppId: { [DEFAULT_RESEARCH_APP_ID]: [{ keyword: "note-term", popularity: 50, difficultyScore: 20, appCount: 10 }] },
+    });
+    global.fetch = jest.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (init?.method === "PATCH") return jsonResponse({ status: 500, body: { success: false, error: "Could not save notes" } });
+      return baseFetch(input, init);
+    }) as typeof fetch;
+    render(<App />);
+    fireEvent.click(await screen.findByText("note-term"));
+    fireEvent.click(screen.getByRole("button", { name: "Add notes for note-term" }));
+    const input = screen.getByRole("textbox", { name: "Notes" });
+    fireEvent.keyDown(input, { key: "Backspace", code: "Backspace" });
+    expect(screen.queryByRole("button", { name: "Delete" })).not.toBeInTheDocument();
+    fireEvent.change(input, { target: { value: "Keep this draft" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save notes" }));
+    await screen.findByRole("alert");
+    expect(input).toHaveValue("Keep this draft");
+    expect(screen.getByRole("button", { name: "Save notes" })).toBeEnabled();
+  });
+
+  it("preserves refreshed metrics and saved notes when a refresh read overlaps a note save", async () => {
+    const item = {
+      keyword: "note-term",
+      notes: "Original note",
+      popularity: 50,
+      difficultyScore: 20,
+      appCount: 10,
+    };
+    const baseFetch = buildFetchMock({
+      apps: [{ id: DEFAULT_RESEARCH_APP_ID, name: "Research" }],
+      keywordsByAppId: { [DEFAULT_RESEARCH_APP_ID]: [item] },
+    });
+    let releaseRefreshRead!: () => void;
+    const refreshReadGate = new Promise<void>((resolve) => {
+      releaseRefreshRead = resolve;
+    });
+    const refreshReadStarted = jest.fn();
+    let holdNextRead = false;
+    global.fetch = jest.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (init?.method === "POST" && url === "/api/aso/keywords/force-refresh") {
+        Object.assign(item, { popularity: 72, difficultyScore: 33, appCount: 120 });
+        holdNextRead = true;
+        return jsonResponse({
+          status: 200,
+          body: { success: true, data: { requestedCount: 1, succeededCount: 1, failedCount: 0 } },
+        });
+      }
+      if (url.startsWith("/api/aso/keywords?") && holdNextRead) {
+        holdNextRead = false;
+        const response = await baseFetch(input, init);
+        const snapshot = JSON.parse(JSON.stringify(await response.json()));
+        refreshReadStarted();
+        await refreshReadGate;
+        return jsonResponse({ status: 200, body: snapshot });
+      }
+      return baseFetch(input, init);
+    }) as typeof fetch;
+
+    render(<App />);
+    const row = (await screen.findByText("note-term")).closest("tr") as HTMLElement;
+    fireEvent.contextMenu(row, { clientX: 60, clientY: 60 });
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Force Refresh" }));
+    await waitFor(() => expect(refreshReadStarted).toHaveBeenCalledTimes(1));
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit notes for note-term" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Notes" }), {
+      target: { value: "Saved while metrics refresh" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save notes" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    await act(async () => releaseRefreshRead());
+    await screen.findByText("Force refreshed 1 keyword.");
+
+    expect(within(row).getByRole("cell", { name: "72" })).toBeInTheDocument();
+    expect(within(row).getByRole("cell", { name: "33" })).toBeInTheDocument();
+    expect(within(row).getByRole("cell", { name: "120" })).toBeInTheDocument();
+    expect(within(row).getByRole("button", { name: "Edit notes for note-term" })).toHaveTextContent("Saved while metrics refresh");
   });
 
   it("uses global persisted sort when dashboard opens", async () => {
