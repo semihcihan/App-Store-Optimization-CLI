@@ -63,6 +63,134 @@ function buildSearchHtml(): string {
   return buildSearchHtmlForIds(["1", "2", "3", "4", "5"]);
 }
 
+describe("Arcade search routing", () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockedAsoAppleGet.mockReset();
+    mockedFetchAppStoreLookupAppDocs.mockReset();
+    mockedFetchAppStoreAdditionalLocalizations.mockResolvedValue({});
+    __resetIncompleteTopDocLookupCooldownForTests();
+  });
+
+  it.each([
+    [{ offerDisplayProperties: { offerType: "arcadeApp" } }, true],
+    [{ buttonAction: { purchaseConfiguration: { isArcadeApp: true } } }, true],
+    [
+      {
+        buttonAction: {
+          defaultAction: { purchaseConfiguration: { isArcadeApp: true } },
+        },
+      },
+      true,
+    ],
+    [{ offerDisplayProperties: { offerType: "app" } }, false],
+    [
+      { buttonAction: { purchaseConfiguration: { isArcadeApp: false } } },
+      false,
+    ],
+    [{}, undefined],
+  ])(
+    "preserves Arcade classification from search lockup %j",
+    async (lockup, expected) => {
+      mockedAsoAppleGet.mockResolvedValueOnce({
+        data: buildSearchHtmlForIds(["1182476302"], [], {
+          lockupOverridesById: { "1182476302": lockup },
+        }),
+      } as never);
+      const result = await refreshKeywordOrder({
+        country: "US",
+        keyword: "skateboard simulator",
+      });
+      expect(result.appDocs[0].isArcade).toBe(expected);
+      expect(mockedFetchAppStoreLookupAppDocs).not.toHaveBeenCalled();
+    }
+  );
+
+  it("retains the search routing hint and subtitle through missing-date recovery", async () => {
+    const arcadeId = "1182476302";
+    const ids = ["1", "2", "3", arcadeId, "5"];
+    const searchHtml = buildSearchHtmlForIds(ids, [], {
+      lockupOverridesById: {
+        [arcadeId]: {
+          title: "Skate City",
+          subtitle: "Your perfect ride, worldwide.",
+          offerDisplayProperties: { offerType: "arcadeApp" },
+        },
+      },
+    });
+    const actualLookup = jest.requireActual<
+      typeof import("./aso-app-doc-service")
+    >("./aso-app-doc-service");
+    mockedFetchAppStoreLookupAppDocs.mockImplementation(
+      actualLookup.fetchAppStoreLookupAppDocs
+    );
+    let itunesRequests = 0;
+    mockedAsoAppleGet.mockImplementation(async (url) => {
+      if (url.includes("/iphone/search")) return { data: searchHtml } as never;
+      if (url === "https://itunes.apple.com/lookup") {
+        itunesRequests += 1;
+        return {
+          data: {
+            results:
+              itunesRequests === 1
+                ? []
+                : [
+                    {
+                      trackId: Number(arcadeId),
+                      kind: "software",
+                      trackName: "Skate City",
+                      averageUserRating: 4.83985,
+                      userRatingCount: 47854,
+                      releaseDate: "2019-09-19T07:00:00Z",
+                      currentVersionReleaseDate: "2026-10-29T00:30:05Z",
+                    },
+                  ],
+          },
+        } as never;
+      }
+      throw new Error(`Unexpected request: ${url}`);
+    });
+    const cached = buildCompleteCachedTopDocs(
+      ids.filter((id) => id !== arcadeId)
+    );
+    const result = await enrichKeyword(
+      {
+        country: "US",
+        keyword: "skateboard simulator",
+        popularity: 20,
+      },
+      {
+        getAppDocs: async (appIds) =>
+          cached.filter((doc) => appIds.includes(doc.appId)),
+      }
+    );
+
+    expect(mockedFetchAppStoreLookupAppDocs).toHaveBeenCalledTimes(2);
+    expect(mockedAsoAppleGet.mock.calls.map(([url]) => url)).toEqual([
+      expect.stringContaining("/iphone/search"),
+      "https://itunes.apple.com/lookup",
+      "https://itunes.apple.com/lookup",
+    ]);
+    for (const [params] of mockedFetchAppStoreLookupAppDocs.mock.calls) {
+      expect(params).toEqual({
+        country: "US",
+        appIds: [arcadeId],
+        arcadeAppIds: [arcadeId],
+      });
+    }
+    expect(result.appDocs.find((doc) => doc.appId === arcadeId)).toEqual(
+      expect.objectContaining({
+        isArcade: true,
+        subtitle: "Your perfect ride, worldwide.",
+        releaseDate: "2019-09-19T07:00:00Z",
+        currentVersionReleaseDate: "2026-10-29T00:30:05Z",
+        userRatingCount: 47854,
+      })
+    );
+    expect(result.difficultyScore).toBeGreaterThan(0);
+  });
+});
+
 describe("unexpected App Store search content", () => {
   beforeEach(() => jest.clearAllMocks());
 
@@ -132,6 +260,7 @@ function buildSearchHtmlForIds(
     resultTypesById?: Record<string, string>;
     includeNextPage?: boolean;
     shelfContentType?: string;
+    lockupOverridesById?: Record<string, Record<string, unknown>>;
   }
 ): string {
   const items = ids.map((id, index) => ({
@@ -148,6 +277,7 @@ function buildSearchHtmlForIds(
       ...(options?.developerNamesById?.[id]
         ? { developerName: options.developerNamesById[id] }
         : {}),
+      ...options?.lockupOverridesById?.[id],
     },
   }));
   return `<html><body><script id="serialized-server-data">${JSON.stringify({
@@ -692,10 +822,10 @@ describe("aso-enrichment-service", () => {
     }),
     Object.assign(new Error("Request timed out"), { code: "ETIMEDOUT" }),
     Object.assign(new Error("Network unavailable"), { code: "ECONNRESET" }),
-  ])("does not classify a primary transport failure as contract drift", async (error) => {
-    mockedAsoAppleGet
-      .mockRejectedValueOnce(error)
-      .mockResolvedValueOnce({
+  ])(
+    "does not classify a primary transport failure as contract drift",
+    async (error) => {
+      mockedAsoAppleGet.mockRejectedValueOnce(error).mockResolvedValueOnce({
         data: {
           pageData: {
             bubbles: [
@@ -708,13 +838,14 @@ describe("aso-enrichment-service", () => {
         },
       } as never);
 
-    await expect(
-      refreshKeywordOrder({ keyword: "rate limited", country: "US" })
-    ).resolves.toEqual(
-      expect.objectContaining({ orderedAppIds: ["1"], appCount: 1 })
-    );
-    expect(mockedReportAppleContractChange).not.toHaveBeenCalled();
-  });
+      await expect(
+        refreshKeywordOrder({ keyword: "rate limited", country: "US" })
+      ).resolves.toEqual(
+        expect.objectContaining({ orderedAppIds: ["1"], appCount: 1 })
+      );
+      expect(mockedReportAppleContractChange).not.toHaveBeenCalled();
+    }
+  );
 
   it("rethrows the final source error when both search sources fail during enrichment", async () => {
     const primaryError = Object.assign(

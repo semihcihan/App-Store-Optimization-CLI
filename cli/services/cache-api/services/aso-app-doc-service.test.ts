@@ -56,6 +56,133 @@ function createRepository(
 describe("aso-app-doc-service", () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockedAsoAppleGet.mockReset();
+  });
+
+  it("routes known Arcade apps directly to country-specific iTunes lookup", async () => {
+    mockedAsoAppleGet.mockResolvedValueOnce({
+      data: {
+        results: [
+          {
+            trackId: 1182476302,
+            kind: "software",
+            trackName: "Skate City",
+            sellerName: "Snowman",
+            averageUserRating: 4.83985,
+            userRatingCount: 47854,
+            releaseDate: "2019-09-19T07:00:00Z",
+            currentVersionReleaseDate: "2026-10-29T00:30:05Z",
+            artworkUrl512: "https://example.com/skate-city.png",
+          },
+        ],
+      },
+    } as never);
+
+    await expect(
+      fetchAppStoreLookupAppDocs({
+        country: "us",
+        appIds: ["1182476302", "1182476302"],
+        arcadeAppIds: ["1182476302"],
+      })
+    ).resolves.toEqual([
+      expect.objectContaining({
+        appId: "1182476302",
+        country: "US",
+        isArcade: true,
+        name: "Skate City",
+        publisherName: "Snowman",
+        averageUserRating: 4.83985,
+        userRatingCount: 47854,
+        releaseDate: "2019-09-19T07:00:00Z",
+        currentVersionReleaseDate: "2026-10-29T00:30:05Z",
+        iconArtwork: { url: "https://example.com/skate-city.png" },
+      }),
+    ]);
+    expect(mockedAsoAppleGet).toHaveBeenCalledTimes(1);
+    expect(mockedAsoAppleGet).toHaveBeenCalledWith(
+      "https://itunes.apple.com/lookup",
+      expect.objectContaining({
+        params: { id: "1182476302", country: "us", entity: "software" },
+      })
+    );
+    expect(mockedReportAppleContractChange).not.toHaveBeenCalled();
+  });
+
+  it.each(["empty", "error", "incomplete"])(
+    "never falls back to App Store lookup when Arcade iTunes lookup is %s",
+    async (outcome) => {
+      if (outcome === "error") {
+        mockedAsoAppleGet.mockRejectedValueOnce(
+          new Error("lookup unavailable")
+        );
+      } else {
+        mockedAsoAppleGet.mockResolvedValueOnce({
+          data: {
+            results:
+              outcome === "empty"
+                ? []
+                : [
+                    {
+                      trackId: 1182476302,
+                      kind: "software",
+                      trackName: "Skate City",
+                    },
+                  ],
+          },
+        } as never);
+      }
+      const result = await fetchAppStoreLookupAppDocs({
+        country: "US",
+        appIds: ["1182476302"],
+        arcadeAppIds: ["1182476302"],
+      });
+      expect(result).toHaveLength(outcome === "incomplete" ? 1 : 0);
+      expect(mockedAsoAppleGet).toHaveBeenCalledTimes(1);
+      expect(mockedAsoAppleGet.mock.calls[0][0]).toBe(
+        "https://itunes.apple.com/lookup"
+      );
+    }
+  );
+
+  it("keeps mixed-batch order and reports drift against the regular app", async () => {
+    mockedAsoAppleGet
+      .mockResolvedValueOnce({ status: 200, data: {} } as never)
+      .mockResolvedValueOnce({
+        data: {
+          results: [
+            {
+              trackId: 42,
+              kind: "software",
+              trackName: "Regular",
+              releaseDate: "2024-01-01",
+              currentVersionReleaseDate: "2025-01-01",
+            },
+            {
+              trackId: 1182476302,
+              kind: "software",
+              trackName: "Skate City",
+              releaseDate: "2019-09-19",
+              currentVersionReleaseDate: "2026-10-29",
+            },
+          ],
+        },
+      } as never);
+    const result = await fetchAppStoreLookupAppDocs({
+      country: "US",
+      appIds: ["1182476302", "42"],
+      arcadeAppIds: ["1182476302"],
+    });
+    expect(result.map((doc) => doc.appId)).toEqual(["1182476302", "42"]);
+    expect(mockedAsoAppleGet).toHaveBeenCalledTimes(2);
+    expect(mockedAsoAppleGet.mock.calls[0][0]).toBe(
+      "https://apps.apple.com/app/id42"
+    );
+    expect(mockedReportAppleContractChange).toHaveBeenCalledWith(
+      expect.objectContaining({
+        context: expect.objectContaining({ appId: "42" }),
+        recoveryOutcome: "recovered",
+      })
+    );
   });
 
   it("rejects a redirected wrong app and retains iTunes fallback", async () => {
@@ -262,16 +389,50 @@ describe("aso-app-doc-service", () => {
   ])(
     "treats %s as an expected unavailable app result",
     async (_name, data, status) => {
-      mockedAsoAppleGet.mockResolvedValueOnce({ data, status } as never);
+      mockedAsoAppleGet
+        .mockResolvedValueOnce({ data, status } as never)
+        .mockResolvedValueOnce({ data: { results: [] } } as never);
 
       await expect(
         fetchAppStoreLookupAppDocs({ country: "US", appIds: ["404"] })
       ).resolves.toEqual([]);
 
-      expect(mockedAsoAppleGet).toHaveBeenCalledTimes(1);
+      expect(mockedAsoAppleGet).toHaveBeenCalledTimes(2);
       expect(mockedReportAppleContractChange).not.toHaveBeenCalled();
     }
   );
+
+  it("recovers an unclassified Arcade app after an unavailable primary response", async () => {
+    mockedAsoAppleGet
+      .mockResolvedValueOnce({
+        status: 200,
+        data: "<plist><dict><key>dialogId</key><string>itemNotAvailable</string></dict></plist>",
+      } as never)
+      .mockResolvedValueOnce({
+        data: {
+          results: [
+            {
+              trackId: 1182476302,
+              kind: "software",
+              trackName: "Skate City",
+              releaseDate: "2019-09-19T07:00:00Z",
+              currentVersionReleaseDate: "2026-10-29T00:30:05Z",
+            },
+          ],
+        },
+      } as never);
+    await expect(
+      fetchAppStoreLookupAppDocs({ country: "US", appIds: ["1182476302"] })
+    ).resolves.toEqual([
+      expect.objectContaining({
+        appId: "1182476302",
+        releaseDate: "2019-09-19T07:00:00Z",
+        currentVersionReleaseDate: "2026-10-29T00:30:05Z",
+      }),
+    ]);
+    expect(mockedAsoAppleGet).toHaveBeenCalledTimes(2);
+    expect(mockedReportAppleContractChange).not.toHaveBeenCalled();
+  });
 
   it("reports malformed app lookup as recovered after iTunes fallback", async () => {
     mockedAsoAppleGet

@@ -48,6 +48,11 @@ interface AmpSearchLockup {
   title?: string;
   subtitle?: string | null;
   developerName?: string;
+  offerDisplayProperties?: { offerType?: string };
+  buttonAction?: {
+    purchaseConfiguration?: { isArcadeApp?: boolean };
+    defaultAction?: { purchaseConfiguration?: { isArcadeApp?: boolean } };
+  };
   icon?: {
     template?: string;
     width?: number;
@@ -415,6 +420,19 @@ async function fetchPopularityOrderedIds(params: {
   return { ids: [], drifts: [] };
 }
 
+function readArcadeClassification(
+  lockup: AmpSearchLockup
+): boolean | undefined {
+  const offerType = lockup.offerDisplayProperties?.offerType;
+  const flags = [
+    lockup.buttonAction?.purchaseConfiguration?.isArcadeApp,
+    lockup.buttonAction?.defaultAction?.purchaseConfiguration?.isArcadeApp,
+  ];
+  if (offerType === "arcadeApp" || flags.includes(true)) return true;
+  if (offerType === "app" || flags.includes(false)) return false;
+  return undefined;
+}
+
 function lockupToAppDoc(
   lockup: AmpSearchLockup,
   country: string
@@ -424,6 +442,7 @@ function lockupToAppDoc(
   const name = (lockup?.title ?? "").trim() || "Unknown";
   const subtitle = lockup?.subtitle?.trim() || undefined;
   const publisherName = lockup?.developerName?.trim() || undefined;
+  const isArcade = readArcadeClassification(lockup);
   const rating = lockup?.rating;
   const averageUserRating =
     typeof rating === "number" && !Number.isNaN(rating) ? rating : 0;
@@ -443,6 +462,7 @@ function lockupToAppDoc(
     name,
     subtitle,
     publisherName,
+    ...(isArcade == null ? {} : { isArcade }),
     averageUserRating,
     userRatingCount,
     icon,
@@ -971,6 +991,7 @@ type LookupDetails = {
 async function lookupDetailsForAppIds(params: {
   appIds: string[];
   country: string;
+  arcadeAppIds?: string[];
 }): Promise<Map<string, LookupDetails>> {
   const map = new Map<string, LookupDetails>();
   if (params.appIds.length === 0) return map;
@@ -978,6 +999,9 @@ async function lookupDetailsForAppIds(params: {
     const docs = await fetchAppStoreLookupAppDocs({
       country: params.country,
       appIds: params.appIds,
+      ...(params.arcadeAppIds?.length
+        ? { arcadeAppIds: params.arcadeAppIds }
+        : {}),
     });
     for (const doc of docs) {
       map.set(doc.appId, {
@@ -1012,6 +1036,7 @@ async function lookupDetailsForAppIds(params: {
 async function buildAppDocsFromLookup(params: {
   appIds: string[];
   country: string;
+  arcadeAppIds?: string[];
 }): Promise<AsoAppDoc[]> {
   const defaultLanguage = getStorefrontDefaultLanguage(params.country);
   let lookupDocs: AsoAppDoc[] = [];
@@ -1019,6 +1044,9 @@ async function buildAppDocsFromLookup(params: {
     lookupDocs = await fetchAppStoreLookupAppDocs({
       country: params.country,
       appIds: params.appIds,
+      ...(params.arcadeAppIds?.length
+        ? { arcadeAppIds: params.arcadeAppIds }
+        : {}),
     });
   } catch {
     lookupDocs = [];
@@ -1072,6 +1100,7 @@ function mergeSearchFieldsIntoAppDoc(
     name: searchDoc.name,
     subtitle: searchDoc.subtitle,
     publisherName: searchDoc.publisherName ?? cached.publisherName,
+    ...(searchDoc.isArcade == null ? {} : { isArcade: searchDoc.isArcade }),
     averageUserRating: searchDoc.averageUserRating,
     userRatingCount: searchDoc.userRatingCount,
     icon: searchDoc.icon,
@@ -1131,7 +1160,13 @@ function mergeAppDocsById(
       merged.push(doc);
       continue;
     }
-    merged[existingIndex] = doc;
+    const existing = merged[existingIndex];
+    merged[existingIndex] = {
+      ...existing,
+      ...doc,
+      subtitle: doc.subtitle ?? existing.subtitle,
+      ...(existing.isArcade == null ? {} : { isArcade: existing.isArcade }),
+    };
   }
   return merged;
 }
@@ -1187,6 +1222,7 @@ async function backfillMissingTopDifficultyDocs(params: {
   orderedAppIds: string[];
   appDocs: AsoAppDoc[];
   country: string;
+  arcadeAppIds?: string[];
   cachedTopDocs?: AsoAppDoc[];
   getAppDocs?: (appIds: string[]) => Promise<AsoAppDoc[]>;
 }): Promise<AsoAppDoc[]> {
@@ -1241,6 +1277,7 @@ async function backfillMissingTopDifficultyDocs(params: {
         await buildAppDocsFromLookup({
           appIds: lookupEligibleMissingTopIds,
           country: params.country,
+          arcadeAppIds: params.arcadeAppIds,
         })
       );
       mergedDocs = mergeAppDocsById(mergedDocs, lookedUpDocs);
@@ -1313,6 +1350,9 @@ export async function enrichKeyword(
 
   const orderedAppIds = resolved.orderedAppIds;
   let appDocs = resolved.appDocs;
+  const arcadeAppIds = appDocs
+    .filter((doc) => doc.isArcade === true)
+    .map((doc) => doc.appId);
   const appCount = resolved.appCount;
   let cachedTopDocs: AsoAppDoc[] = [];
   const usedSearchPageDocs = appDocs.length > 0;
@@ -1367,6 +1407,7 @@ export async function enrichKeyword(
         ? await lookupDetailsForAppIds({
             appIds: idsThatNeedLookup,
             country: params.country,
+            arcadeAppIds,
           })
         : new Map<
             string,
@@ -1452,6 +1493,7 @@ export async function enrichKeyword(
       appDocs,
       country,
       cachedTopDocs,
+      arcadeAppIds,
       getAppDocs: options?.getAppDocs,
     });
     missingTopIds = listIncompleteTopDifficultyDocIds({
@@ -1472,6 +1514,7 @@ export async function enrichKeyword(
         orderedAppIds,
         appDocs,
         country,
+        arcadeAppIds,
         getAppDocs: options?.getAppDocs,
       });
       missingTopIds = listIncompleteTopDifficultyDocIds({

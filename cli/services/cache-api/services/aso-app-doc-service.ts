@@ -463,6 +463,7 @@ function reportAppLookupDrift(params: {
 export async function fetchAppStoreLookupAppDocs(params: {
   country: string;
   appIds: string[];
+  arcadeAppIds?: string[];
 }): Promise<AsoAppDoc[]> {
   const country = normalizeCountry(params.country);
   assertSupportedCountry(country);
@@ -470,8 +471,10 @@ export async function fetchAppStoreLookupAppDocs(params: {
   const uniqueIds = Array.from(
     new Set(params.appIds.map((id) => id.trim()).filter(Boolean))
   );
+  const arcadeAppIds = new Set(params.arcadeAppIds);
+  const primaryIds = uniqueIds.filter((id) => !arcadeAppIds.has(id));
   const lookupResults = await Promise.all(
-    uniqueIds.map((appId) => fetchAppDocById(country, appId))
+    primaryIds.map((appId) => fetchAppDocById(country, appId))
   );
   const byId = new Map(
     lookupResults
@@ -479,13 +482,7 @@ export async function fetchAppStoreLookupAppDocs(params: {
       .filter((doc): doc is AsoAppDoc => doc != null)
       .map((doc) => [doc.appId, doc])
   );
-  const expectedUnavailableIds = new Set(
-    uniqueIds.filter(
-      (_id, index) => lookupResults[index]?.kind === "unavailable"
-    )
-  );
   const unresolvedIds = uniqueIds.filter((id) => {
-    if (expectedUnavailableIds.has(id)) return false;
     const doc = byId.get(id);
     if (!doc) return true;
     return !doc.releaseDate || !doc.currentVersionReleaseDate;
@@ -498,11 +495,11 @@ export async function fetchAppStoreLookupAppDocs(params: {
     const fallback = fallbackById.get(id);
     if (!fallback) continue;
     const merged = mergeFallbackDoc(byId.get(id), fallback);
-    byId.set(id, merged);
+    byId.set(id, arcadeAppIds.has(id) ? { ...merged, isArcade: true } : merged);
   }
   lookupResults.forEach((result, index) => {
     if (result.kind !== "drift") return;
-    const appId = uniqueIds[index];
+    const appId = primaryIds[index];
     reportAppLookupDrift({
       appId,
       country,

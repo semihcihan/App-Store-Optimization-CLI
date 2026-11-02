@@ -26,6 +26,7 @@ export interface AsoAppDoc {
   name: string;
   subtitle?: string;
   publisherName?: string;
+  isArcade?: boolean;
   averageUserRating: number;
   userRatingCount: number;
   releaseDate?: string | null;
