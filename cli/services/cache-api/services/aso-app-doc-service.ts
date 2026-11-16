@@ -2,6 +2,7 @@ import { computeAppExpiryIsoForApp } from "./aso-keyword-utils";
 import type { AsoCacheRepository, AsoAppDoc } from "./aso-types";
 import { normalizeCountryOnAppDocs } from "./aso-app-doc-utils";
 import { asoAppleGet } from "./aso-apple-client";
+import { AppleRetryCooldownError } from "../../runtime/apple-retry-cooldown";
 import { logger } from "../../../utils/logger";
 import {
   reportAppleContractChange,
@@ -258,13 +259,14 @@ function parseItunesLookupResult(
 async function fetchItunesLookupAppDocs(params: {
   country: string;
   appIds: string[];
+  onCooldown: (appId: string, error: AppleRetryCooldownError) => void;
 }): Promise<Map<string, AsoAppDoc>> {
   const byId = new Map<string, AsoAppDoc>();
   if (params.appIds.length === 0) return byId;
 
   const country = params.country.toUpperCase();
   const chunks = splitIntoChunks(params.appIds, 50);
-  for (const chunk of chunks) {
+  for (const [index, chunk] of chunks.entries()) {
     let response;
     try {
       response = await asoAppleGet<ItunesLookupResponse>(
@@ -284,6 +286,10 @@ async function fetchItunesLookupAppDocs(params: {
         }
       );
     } catch (error) {
+      if (error instanceof AppleRetryCooldownError) {
+        for (const id of chunks.slice(index).flat()) params.onCooldown(id, error);
+        break;
+      }
       logger.debug("[aso-app-lookup] itunes lookup request failed", {
         country,
         requestedCount: chunk.length,
@@ -464,6 +470,7 @@ export async function fetchAppStoreLookupAppDocs(params: {
   country: string;
   appIds: string[];
   arcadeAppIds?: string[];
+  onCooldown?: (appId: string, error: AppleRetryCooldownError) => void;
 }): Promise<AsoAppDoc[]> {
   const country = normalizeCountry(params.country);
   assertSupportedCountry(country);
@@ -473,8 +480,24 @@ export async function fetchAppStoreLookupAppDocs(params: {
   );
   const arcadeAppIds = new Set(params.arcadeAppIds);
   const primaryIds = uniqueIds.filter((id) => !arcadeAppIds.has(id));
+  const cooldowns = new Map<string, AppleRetryCooldownError>();
+  const recordCooldown = (appId: string, error: AppleRetryCooldownError) => {
+    if (error.retryAt > (cooldowns.get(appId)?.retryAt ?? 0)) {
+      cooldowns.set(appId, error);
+    }
+  };
   const lookupResults = await Promise.all(
-    primaryIds.map((appId) => fetchAppDocById(country, appId))
+    primaryIds.map(async (appId): Promise<AppLookupResult> => {
+      try {
+        return await fetchAppDocById(country, appId);
+      } catch (error) {
+        if (!(error instanceof AppleRetryCooldownError) || !params.onCooldown) {
+          throw error;
+        }
+        recordCooldown(appId, error);
+        return { kind: "unavailable", doc: null };
+      }
+    })
   );
   const byId = new Map(
     lookupResults
@@ -490,12 +513,19 @@ export async function fetchAppStoreLookupAppDocs(params: {
   const fallbackById = await fetchItunesLookupAppDocs({
     country,
     appIds: unresolvedIds,
+    onCooldown: recordCooldown,
   });
   for (const id of unresolvedIds) {
     const fallback = fallbackById.get(id);
-    if (!fallback) continue;
-    const merged = mergeFallbackDoc(byId.get(id), fallback);
-    byId.set(id, arcadeAppIds.has(id) ? { ...merged, isArcade: true } : merged);
+    if (fallback) {
+      const merged = mergeFallbackDoc(byId.get(id), fallback);
+      byId.set(id, arcadeAppIds.has(id) ? { ...merged, isArcade: true } : merged);
+    }
+    const doc = byId.get(id);
+    const cooldown = cooldowns.get(id);
+    if (cooldown && (!doc?.releaseDate || !doc.currentVersionReleaseDate)) {
+      params.onCooldown?.(id, cooldown);
+    }
   }
   lookupResults.forEach((result, index) => {
     if (result.kind !== "drift") return;

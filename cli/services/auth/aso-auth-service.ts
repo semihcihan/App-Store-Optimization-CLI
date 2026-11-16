@@ -21,6 +21,7 @@ import { ASO_ENV } from "../../shared/aso-env";
 import { getAppleRetryAfterMs } from "../../shared/aso-retry-delay";
 import { getAsoResilienceConfig } from "../../shared/aso-resilience";
 import {
+  type AppleRetryCooldown,
   AppleRetryCooldownError,
   getAppleRetryCooldown,
   recordAppleRetryAfter,
@@ -64,25 +65,18 @@ export class AppleAuthResponseError extends Error {
   readonly status: number;
   readonly payload: unknown;
   readonly reason: AppleAuthFailureReason;
-  readonly retryAt?: number;
 
   constructor(params: {
     message: string;
     status: number;
     payload: unknown;
     reason: AppleAuthFailureReason;
-    retryAt?: number;
   }) {
-    super(
-      params.retryAt == null
-        ? params.message
-        : `${params.message}. Retry after ${new Date(params.retryAt).toISOString()}.`
-    );
+    super(params.message);
     this.name = "AppleAuthResponseError";
     this.status = params.status;
     this.payload = params.payload;
     this.reason = params.reason;
-    this.retryAt = params.retryAt;
   }
 }
 export type ReauthUserActionReason =
@@ -831,8 +825,10 @@ class AsoAuthHttpClient {
   async request<T = unknown>(
     config: AxiosRequestConfig & {
       cookieHeaderMutator?: (cookieHeader: string) => string;
+      allowRetryAfterResponse?: boolean;
     }
-  ): Promise<AxiosResponse<T>> {
+  ): Promise<AxiosResponse<T> & { retryCooldown?: AppleRetryCooldown }> {
+    const { allowRetryAfterResponse, ...axiosConfig } = config;
     const headers = { ...(config.headers || {}) } as Record<string, string>;
     const rawCookieHeader = config.url
       ? this.jar.toCookieHeaderFor(config.url)
@@ -841,34 +837,51 @@ class AsoAuthHttpClient {
       ? config.cookieHeaderMutator(rawCookieHeader)
       : rawCookieHeader;
     if (cookieHeader) headers.Cookie = cookieHeader;
+    let requestUrl = config.url ? new URL(config.url, config.baseURL) : null;
+    let blockedRedirect: AppleRetryCooldownError | undefined;
     const requestConfig: AxiosRequestConfig = {
-      ...config,
+      ...axiosConfig,
       headers,
       timeout: config.timeout ?? 30000,
       validateStatus: () => true,
+      beforeRedirect: (options, responseDetails, requestDetails) => {
+        config.beforeRedirect?.(options, responseDetails, requestDetails);
+        if (typeof options.href !== "string") return;
+        requestUrl = new URL(options.href);
+        const active = getAppleRetryCooldown(`auth:${requestUrl.host}`);
+        if (active) {
+          blockedRedirect = new AppleRetryCooldownError(active.statusCode, active.retryAt);
+          throw blockedRedirect;
+        }
+      },
     };
-    const cooldownScope = config.url
-      ? `auth:${new URL(config.url, config.baseURL).host}`
-      : null;
 
     try {
-      const active = cooldownScope && getAppleRetryCooldown(cooldownScope);
+      const active = requestUrl && getAppleRetryCooldown(`auth:${requestUrl.host}`);
       if (active) throw new AppleRetryCooldownError(active.statusCode, active.retryAt);
       const response = await appleAuthHttpClient.request<T>(requestConfig);
-      if (cooldownScope) {
-        recordAppleRetryAfter(
-          cooldownScope,
+      const finalUrl = response.request?.res?.responseUrl;
+      const responseUrl = typeof finalUrl === "string" && finalUrl
+        ? new URL(finalUrl, requestUrl ?? undefined)
+        : requestUrl;
+      const cooldown = responseUrl
+        ? recordAppleRetryAfter(
+          `auth:${responseUrl.host}`,
           response.status,
           response.headers as Record<string, unknown>
-        );
+        )
+        : null;
+      if (cooldown && !allowRetryAfterResponse) {
+        throw new AppleRetryCooldownError(cooldown.statusCode, cooldown.retryAt);
       }
       if (config.url) this.jar.updateFromResponse(config.url, response);
-      return response;
+      return cooldown ? Object.assign(response, { retryCooldown: cooldown }) : response;
     } catch (error) {
-      throw withAppleHttpTraceContext(error, {
+      const failure = blockedRedirect ?? error;
+      throw withAppleHttpTraceContext(failure, {
         provider: "apple-auth",
         operation: "request",
-        ...(error instanceof AppleRetryCooldownError && { isTerminal: true }),
+        ...(failure instanceof AppleRetryCooldownError && { isTerminal: true }),
         context: {
           method: String(requestConfig.method || "get").toUpperCase(),
           url: requestConfig.url || "",
@@ -1179,6 +1192,7 @@ export class AsoAuthEngine {
           ...(hashcash ? { "X-Apple-HC": hashcash } : {}),
         },
         cookieHeaderMutator: quoteDesCookieValue,
+        allowRetryAfterResponse: true,
         data: {
           accountName: credentials.appleId,
           password: credentials.password,
@@ -1200,15 +1214,25 @@ export class AsoAuthEngine {
           response.status === 502 ||
           response.status === 503 ||
           response.status === 504);
-      const retryAfterMs = getAppleRetryAfterMs(
-        response.status,
-        response.headers as Record<string, unknown>
-      );
+      const cooldown = response.retryCooldown;
+      const retryAfterMs = cooldown
+        ? Math.max(0, cooldown.retryAt - Date.now())
+        : getAppleRetryAfterMs(
+            response.status,
+            response.headers as Record<string, unknown>
+          );
       if (
         !shouldRetry ||
         attempt === maxAttempts ||
         (retryAfterMs != null && retryAfterMs > getAsoResilienceConfig().maxDelayMs)
       ) {
+        if (cooldown) {
+          throw this.withAppleAuthTrace(
+            new AppleRetryCooldownError(cooldown.statusCode, cooldown.retryAt),
+            "signin-legacy",
+            { status: cooldown.statusCode }
+          );
+        }
         if (response.status >= 400) {
           logger.debug(
             `[aso-auth] Legacy login error payload: ${summarizeAppleErrorPayload(
@@ -1308,19 +1332,12 @@ export class AsoAuthEngine {
 
     const reason = inferAppleAuthFailureReason(response.status, response.data);
     const bodyType = typeof response.data;
-    const now = Date.now();
-    const retryAfterMs = getAppleRetryAfterMs(
-      response.status,
-      response.headers as Record<string, unknown>,
-      now
-    );
     throw this.withAppleAuthTrace(
       new AppleAuthResponseError({
         message: `Apple login failed with status ${response.status} (responseType=${bodyType})`,
         status: response.status,
         payload: response.data,
         reason,
-        ...(retryAfterMs && { retryAt: now + retryAfterMs }),
       }),
       "signin-complete",
       {
@@ -2106,6 +2123,7 @@ export class AsoAuthService {
           spinner.succeed("Apple authentication successful.");
           return jar.toCookieHeaderFor(APPLE_SEARCH_ADS_URL);
         } catch (error) {
+          if (error instanceof AppleRetryCooldownError) throw error;
           logger.debug(
             `[aso-auth] Existing session reuse failed; continuing with credential login. error=${String(error)}`
           );

@@ -10,6 +10,7 @@ import {
 } from "./aso-app-store-details";
 import { normalizeCountryOnAppDocs } from "./aso-app-doc-utils";
 import { fetchAppStoreLookupAppDocs } from "./aso-app-doc-service";
+import { AppleRetryCooldownError } from "../../runtime/apple-retry-cooldown";
 import type { AsoAppDoc, AsoAppDocIcon } from "./aso-types";
 import { asoAppleGet } from "./aso-apple-client";
 import {
@@ -914,9 +915,13 @@ async function resolveSearchData(params: {
 
   const recoveryOutcome =
     orderedAppIds != null && appCount != null ? "recovered" : "unresolved";
+  const now = Date.now();
+  const activeCooldown = [mzSearchSourceError, primarySourceError].find(
+    (error) => error instanceof AppleRetryCooldownError && error.retryAt > now
+  );
   const unresolvedSourceError =
     recoveryOutcome === "unresolved"
-      ? (mzSearchSourceError ?? primarySourceError)
+      ? (activeCooldown ?? mzSearchSourceError ?? primarySourceError)
       : undefined;
   reportSearchContractDrifts({
     keyword: params.keyword,
@@ -992,6 +997,7 @@ async function lookupDetailsForAppIds(params: {
   appIds: string[];
   country: string;
   arcadeAppIds?: string[];
+  onCooldown: (appId: string, error: AppleRetryCooldownError) => void;
 }): Promise<Map<string, LookupDetails>> {
   const map = new Map<string, LookupDetails>();
   if (params.appIds.length === 0) return map;
@@ -999,6 +1005,7 @@ async function lookupDetailsForAppIds(params: {
     const docs = await fetchAppStoreLookupAppDocs({
       country: params.country,
       appIds: params.appIds,
+      onCooldown: params.onCooldown,
       ...(params.arcadeAppIds?.length
         ? { arcadeAppIds: params.arcadeAppIds }
         : {}),
@@ -1037,6 +1044,7 @@ async function buildAppDocsFromLookup(params: {
   appIds: string[];
   country: string;
   arcadeAppIds?: string[];
+  onCooldown: (appId: string, error: AppleRetryCooldownError) => void;
 }): Promise<AsoAppDoc[]> {
   const defaultLanguage = getStorefrontDefaultLanguage(params.country);
   let lookupDocs: AsoAppDoc[] = [];
@@ -1044,6 +1052,7 @@ async function buildAppDocsFromLookup(params: {
     lookupDocs = await fetchAppStoreLookupAppDocs({
       country: params.country,
       appIds: params.appIds,
+      onCooldown: params.onCooldown,
       ...(params.arcadeAppIds?.length
         ? { arcadeAppIds: params.arcadeAppIds }
         : {}),
@@ -1225,6 +1234,7 @@ async function backfillMissingTopDifficultyDocs(params: {
   arcadeAppIds?: string[];
   cachedTopDocs?: AsoAppDoc[];
   getAppDocs?: (appIds: string[]) => Promise<AsoAppDoc[]>;
+  lookupCooldowns: Map<string, AppleRetryCooldownError>;
 }): Promise<AsoAppDoc[]> {
   let mergedDocs = params.appDocs;
   let missingTopIds = listIncompleteTopDifficultyDocIds({
@@ -1269,7 +1279,9 @@ async function backfillMissingTopDifficultyDocs(params: {
   if (missingTopIds.length > 0) {
     const nowMs = Date.now();
     const lookupEligibleMissingTopIds = missingTopIds.filter(
-      (appId) => !isIncompleteTopDocLookupOnCooldown(appId, nowMs)
+      (appId) =>
+        !isIncompleteTopDocLookupOnCooldown(appId, nowMs) &&
+        (params.lookupCooldowns.get(appId)?.retryAt ?? 0) <= nowMs
     );
     if (lookupEligibleMissingTopIds.length > 0) {
       const lookedUpDocs = normalizeCountryOnAppDocs(
@@ -1278,6 +1290,7 @@ async function backfillMissingTopDifficultyDocs(params: {
           appIds: lookupEligibleMissingTopIds,
           country: params.country,
           arcadeAppIds: params.arcadeAppIds,
+          onCooldown: (appId, error) => params.lookupCooldowns.set(appId, error),
         })
       );
       mergedDocs = mergeAppDocsById(mergedDocs, lookedUpDocs);
@@ -1286,7 +1299,7 @@ async function backfillMissingTopDifficultyDocs(params: {
         appDocs: mergedDocs,
       });
       const unresolvedLookups = lookupEligibleMissingTopIds.filter((appId) =>
-        missingTopIds.includes(appId)
+        missingTopIds.includes(appId) && !params.lookupCooldowns.has(appId)
       );
       markIncompleteTopDocLookupCooldown(unresolvedLookups, nowMs);
     }
@@ -1358,11 +1371,16 @@ export async function enrichKeyword(
   const usedSearchPageDocs = appDocs.length > 0;
   const sourceMode = resolved.sourceMode;
   const firstFiveIds = orderedAppIds.slice(0, TOP_DIFFICULTY_DOC_LIMIT);
+  const lookupCooldowns = new Map<string, AppleRetryCooldownError>();
+  const onCooldown = (appId: string, error: AppleRetryCooldownError) => {
+    lookupCooldowns.set(appId, error);
+  };
 
   if (!usedSearchPageDocs) {
     appDocs = await buildAppDocsFromLookup({
       appIds: firstFiveIds,
       country: params.country,
+      onCooldown,
     });
   }
 
@@ -1408,6 +1426,7 @@ export async function enrichKeyword(
             appIds: idsThatNeedLookup,
             country: params.country,
             arcadeAppIds,
+            onCooldown,
           })
         : new Map<
             string,
@@ -1495,6 +1514,7 @@ export async function enrichKeyword(
       cachedTopDocs,
       arcadeAppIds,
       getAppDocs: options?.getAppDocs,
+      lookupCooldowns,
     });
     missingTopIds = listIncompleteTopDifficultyDocIds({
       orderedAppIds,
@@ -1516,6 +1536,7 @@ export async function enrichKeyword(
         country,
         arcadeAppIds,
         getAppDocs: options?.getAppDocs,
+        lookupCooldowns,
       });
       missingTopIds = listIncompleteTopDifficultyDocIds({
         orderedAppIds,
@@ -1587,6 +1608,12 @@ export async function enrichKeyword(
       docsForDifficultyCount,
     })
   ) {
+    const now = Date.now();
+    const cooldown = missingTopIds
+      .map((appId) => lookupCooldowns.get(appId))
+      .filter((error): error is AppleRetryCooldownError => error != null && error.retryAt > now)
+      .sort((a, b) => b.retryAt - a.retryAt)[0];
+    if (cooldown) throw cooldown;
     logger.debug(
       "[aso-enrichment] insufficient top docs for difficulty scoring",
       {

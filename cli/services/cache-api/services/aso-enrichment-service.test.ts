@@ -7,6 +7,7 @@ import {
 import { asoAppleGet } from "./aso-apple-client";
 import { fetchAppStoreLookupAppDocs } from "./aso-app-doc-service";
 import { fetchAppStoreAdditionalLocalizations } from "./aso-app-store-details";
+import { AppleRetryCooldownError } from "../../runtime/apple-retry-cooldown";
 import { logger } from "../../../utils/logger";
 import {
   reportAppleContractChange,
@@ -172,7 +173,7 @@ describe("Arcade search routing", () => {
       "https://itunes.apple.com/lookup",
     ]);
     for (const [params] of mockedFetchAppStoreLookupAppDocs.mock.calls) {
-      expect(params).toEqual({
+      expect(params).toMatchObject({
         country: "US",
         appIds: [arcadeId],
         arcadeAppIds: [arcadeId],
@@ -814,6 +815,7 @@ describe("aso-enrichment-service", () => {
   });
 
   it.each([
+    new AppleRetryCooldownError(429, Date.now() + 120_000),
     Object.assign(new Error("Request failed with status code 429"), {
       response: { status: 429 },
     }),
@@ -873,6 +875,23 @@ describe("aso-enrichment-service", () => {
         popularity: 50,
       })
     ).rejects.toBe(fallbackError);
+    expect(mockedReportAppleContractChange).not.toHaveBeenCalled();
+  });
+
+  it("preserves the App Store retry deadline when MZSearch times out", async () => {
+    const retryAt = Date.now() + 120_000;
+    const primaryError = new AppleRetryCooldownError(429, retryAt);
+    const fallbackError = Object.assign(new Error("Request timed out"), {
+      code: "ETIMEDOUT",
+    });
+    mockedAsoAppleGet
+      .mockRejectedValueOnce(primaryError)
+      .mockRejectedValueOnce(fallbackError);
+
+    await expect(
+      enrichKeyword({ keyword: "rate limited", country: "US", popularity: 50 })
+    ).rejects.toBe(primaryError);
+    expect(mockedAsoAppleGet).toHaveBeenCalledTimes(2);
     expect(mockedReportAppleContractChange).not.toHaveBeenCalled();
   });
 
@@ -1634,6 +1653,62 @@ describe("aso-enrichment-service", () => {
       })
     );
   });
+
+  it.each(["app-store", "itunes", "recovered"] as const)(
+    "preserves required lookup cooldowns after fallback (%s)",
+    async (outcome) => {
+      const actualLookup = jest.requireActual<
+        typeof import("./aso-app-doc-service")
+      >("./aso-app-doc-service");
+      mockedFetchAppStoreLookupAppDocs.mockImplementation(
+        actualLookup.fetchAppStoreLookupAppDocs
+      );
+      const cooldown = new AppleRetryCooldownError(503, Date.now() + 120_000);
+      mockedAsoAppleGet.mockImplementation(async (url) => {
+        if (url.includes("/iphone/search")) {
+          return { data: buildSearchHtml() } as never;
+        }
+        if (url === "https://apps.apple.com/app/id5") {
+          if (outcome === "itunes") return { status: 404 } as never;
+          throw cooldown;
+        }
+        if (url === "https://itunes.apple.com/lookup") {
+          if (outcome === "itunes") throw cooldown;
+          const results =
+            outcome === "recovered"
+              ? [{
+                  trackId: 5,
+                  kind: "software",
+                  trackName: "App 5",
+                  releaseDate: "2024-01-01T00:00:00Z",
+                  currentVersionReleaseDate: "2025-01-01T00:00:00Z",
+                  userRatingCount: 1000,
+                }]
+              : [];
+          return { data: { results } } as never;
+        }
+        throw new Error(`Unexpected request: ${url}`);
+      });
+      const result = enrichKeyword(
+        { keyword: "word game", country: "US", popularity: 66 },
+        {
+          getAppDocs: async (appIds) =>
+            buildCompleteCachedTopDocs(appIds.filter((id) => id !== "5")),
+        }
+      );
+
+      if (outcome === "recovered") {
+        await expect(result).resolves.toMatchObject({ appCount: 5 });
+      } else {
+        await expect(result).rejects.toBe(cooldown);
+      }
+      expect(mockedAsoAppleGet.mock.calls.map(([url]) => url)).toEqual([
+        expect.stringContaining("/iphone/search"),
+        "https://apps.apple.com/app/id5",
+        "https://itunes.apple.com/lookup",
+      ]);
+    }
+  );
 
   it("fails with INSUFFICIENT_DOCS when top docs remain missing for competitive keywords", async () => {
     mockedAsoAppleGet.mockResolvedValue({

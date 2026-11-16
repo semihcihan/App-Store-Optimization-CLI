@@ -309,7 +309,12 @@ describe("aso-auth-service legacy parity edge handling", () => {
     jest.useFakeTimers();
     try {
       const request = jest.fn()
-        .mockResolvedValueOnce({ status: 503, data: {}, headers: { "retry-after": "2" } })
+        .mockResolvedValueOnce({
+          status: 503,
+          data: {},
+          headers: { "retry-after": "2" },
+          retryCooldown: { statusCode: 503, retryAt: Date.now() + 2_000 },
+        })
         .mockResolvedValueOnce({ status: 200, data: {}, headers: {} });
       const engine = new AsoAuthEngine({ request } as any, "legacy") as any;
       engine.fetchHashcash = jest.fn().mockResolvedValue(undefined);
@@ -333,13 +338,14 @@ describe("aso-auth-service legacy parity edge handling", () => {
       status: 429,
       data: {},
       headers: { "retry-after": new Date(retryAt).toUTCString() },
+      retryCooldown: { statusCode: 429, retryAt },
     });
     const engine = new AsoAuthEngine({ request } as any, "legacy") as any;
     engine.fetchHashcash = jest.fn().mockResolvedValue(undefined);
 
     await expect(
       engine.loginWithLegacy({ appleId: "user@example.com", password: "pw" })
-    ).rejects.toMatchObject({ status: 429, retryAt });
+    ).rejects.toMatchObject({ statusCode: 429, retryAt });
     expect(request).toHaveBeenCalledTimes(1);
   });
 });
