@@ -1,5 +1,7 @@
 import { jest } from "@jest/globals";
 import { execFileSync } from "child_process";
+import fs from "fs";
+import os from "os";
 import { AsoKeychainService } from "./aso-keychain-service";
 
 jest.mock("child_process", () => ({
@@ -11,7 +13,31 @@ describe("AsoKeychainService", () => {
   const service = new AsoKeychainService();
 
   beforeEach(() => {
-    jest.clearAllMocks();
+    mockExecFileSync.mockReset();
+    jest.spyOn(os, "platform").mockReturnValue("darwin");
+    jest.spyOn(fs, "existsSync").mockReturnValue(true);
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  it.each([
+    { platform: "win32", hasSecurity: true },
+    { platform: "linux", hasSecurity: true },
+    { platform: "darwin", hasSecurity: false },
+  ] as const)("skips Keychain on $platform with security present=$hasSecurity", ({
+    platform,
+    hasSecurity,
+  }) => {
+    jest.mocked(os.platform).mockReturnValue(platform);
+    jest.mocked(fs.existsSync).mockReturnValue(hasSecurity);
+
+    expect(service.isAvailable()).toBe(false);
+    expect(service.loadCredentials()).toBeNull();
+    service.saveCredentials({ appleId: "user@example.com", password: "pw" });
+    service.clearCredentials();
+    expect(mockExecFileSync).not.toHaveBeenCalled();
   });
 
   it("loads credentials from keychain when payload is valid", () => {
@@ -26,7 +52,7 @@ describe("AsoKeychainService", () => {
       password: "pw",
     });
     expect(mockExecFileSync).toHaveBeenCalledWith(
-      "security",
+      "/usr/bin/security",
       [
         "find-generic-password",
         "-s",
@@ -67,7 +93,7 @@ describe("AsoKeychainService", () => {
     });
 
     expect(mockExecFileSync).toHaveBeenCalledWith(
-      "security",
+      "/usr/bin/security",
       [
         "add-generic-password",
         "-U",
@@ -92,7 +118,7 @@ describe("AsoKeychainService", () => {
 
     expect(() => service.clearCredentials()).not.toThrow();
     expect(mockExecFileSync).toHaveBeenCalledWith(
-      "security",
+      "/usr/bin/security",
       [
         "delete-generic-password",
         "-s",

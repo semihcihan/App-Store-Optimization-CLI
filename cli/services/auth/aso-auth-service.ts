@@ -2131,6 +2131,14 @@ export class AsoAuthService {
         if (promptedCredentials.kind !== "apple_credentials") {
           throw new Error("Unexpected Apple credentials prompt response.");
         }
+        const credentials = {
+          appleId: promptedCredentials.appleId.trim(),
+          password: promptedCredentials.password,
+        };
+        if (!asoKeychainService.isAvailable()) {
+          return { credentials, shouldRememberCredentials: false };
+        }
+
         options?.onUserActionRequired?.("remember_credentials");
         const rememberCredentialsResponse = await promptUser({
           kind: "remember_credentials",
@@ -2142,10 +2150,7 @@ export class AsoAuthService {
           throw new Error("Unexpected remember credentials prompt response.");
         }
         return {
-          credentials: {
-            appleId: promptedCredentials.appleId.trim(),
-            password: promptedCredentials.password,
-          },
+          credentials,
           shouldRememberCredentials: rememberCredentialsResponse.remember,
         };
       };

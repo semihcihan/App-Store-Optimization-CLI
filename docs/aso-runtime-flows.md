@@ -260,8 +260,8 @@ Accepted row fields:
 1. Try reusing cached Apple session cookies first (non-interactive validation).
 2. If cached session is valid, refresh and save cookie/auth state, then exit.
 3. If cached session is invalid:
-   - Use saved macOS Keychain credentials first when available.
-   - Prompt for credentials only when missing/invalid keychain credentials.
+   - Use saved credentials when macOS Keychain is available.
+   - Prompt for credentials when they are missing or invalid. Offer to remember them only when macOS Keychain is available.
 4. Complete Apple login + 2FA as needed, save refreshed cookie/auth state, then exit.
 5. Exit without dashboard startup, keyword fetch, or Primary App ID resolution.
 6. This uses the same auth service that powers dashboard browser prompts; only the prompt transport differs.
@@ -272,7 +272,7 @@ Accepted row fields:
 - Otherwise, default to trusted-device flow with optional SMS/phone selection.
 
 ## Flow H: Credential Reset (`aso reset-credentials`)
-1. Clear saved ASO keychain credentials.
+1. Clear saved ASO credentials if macOS Keychain is available.
 2. Clear saved ASO cookies.
 3. Exit without dashboard startup, keyword fetch, or reauthentication.
 

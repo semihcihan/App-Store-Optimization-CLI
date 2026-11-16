@@ -6,11 +6,14 @@ import {
   isInvalidAppleCredentialsError,
   isRetryableTwoFactorCodeError,
 } from "./aso-auth-service";
+import childProcess from "child_process";
 import fs from "fs";
 import inquirer from "inquirer";
+import os from "os";
 import path from "path";
 import { asoCookieStoreService } from "./aso-cookie-store-service";
 import { asoKeychainService } from "./aso-keychain-service";
+import { logger } from "../../utils/logger";
 import * as appleHttpTrace from "../keywords/apple-http-trace";
 
 function loadFixture(name: string): unknown {
@@ -701,6 +704,7 @@ describe("aso-auth-service session reuse and keychain flow", () => {
 
   it("clears invalid keychain credentials and retries with prompted credentials", async () => {
     const service = new AsoAuthService();
+    jest.spyOn(asoKeychainService, "isAvailable").mockReturnValue(true);
     const ensureSpy = jest
       .spyOn(AsoAuthEngine.prototype, "ensureAuthenticated")
       .mockRejectedValueOnce(
@@ -746,6 +750,79 @@ describe("aso-auth-service session reuse and keychain flow", () => {
       appleId: "new@example.com",
       password: "new-pw",
     });
+  });
+
+  it("signs in on Windows without offering to remember credentials", async () => {
+    const service = new AsoAuthService();
+    jest.spyOn(os, "platform").mockReturnValue("win32");
+    const ensureSpy = jest
+      .spyOn(AsoAuthEngine.prototype, "ensureAuthenticated")
+      .mockResolvedValue(undefined);
+    jest.spyOn(asoCookieStoreService, "loadCookies").mockReturnValue([]);
+    const saveCookiesSpy = jest
+      .spyOn(asoCookieStoreService, "saveCookies")
+      .mockImplementation(() => {});
+    const promptSpy = jest.spyOn(inquirer, "prompt").mockResolvedValueOnce({
+      appleId: "user@example.com",
+      password: "pw",
+    } as any);
+    const onUserActionRequired = jest.fn();
+
+    await service.reAuthenticate({ onUserActionRequired });
+
+    expect(promptSpy).toHaveBeenCalledTimes(1);
+    expect(onUserActionRequired.mock.calls).toEqual([["credentials"]]);
+    expect(ensureSpy).toHaveBeenCalledWith({
+      appleId: "user@example.com",
+      password: "pw",
+    });
+    expect(saveCookiesSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns the refreshed session when saving credentials to Keychain fails", async () => {
+    const service = new AsoAuthService();
+    jest.spyOn(asoKeychainService, "isAvailable").mockReturnValue(true);
+    const execSpy = jest
+      .spyOn(childProcess, "execFileSync")
+      .mockImplementation(() => {
+        throw new Error("Keychain write failed");
+      });
+    const warnSpy = jest.spyOn(logger, "warn").mockImplementation(() => {});
+    const cookies = [
+      {
+        name: "appads",
+        value: "1",
+        domain: "app.searchads.apple.com",
+        path: "/",
+        expires: -1,
+        httpOnly: true,
+        secure: true,
+      },
+    ];
+    jest.spyOn(asoCookieStoreService, "loadCookies").mockReturnValue(cookies);
+    const saveCookiesSpy = jest
+      .spyOn(asoCookieStoreService, "saveCookies")
+      .mockImplementation(() => {});
+    jest
+      .spyOn(AsoAuthEngine.prototype, "ensureAuthenticated")
+      .mockResolvedValue(undefined);
+    jest
+      .spyOn(inquirer, "prompt")
+      .mockResolvedValueOnce({
+        appleId: "user@example.com",
+        password: "pw",
+      } as any)
+      .mockResolvedValueOnce({ remember: true } as any);
+
+    await expect(
+      service.reAuthenticate({ forcePromptCredentials: true })
+    ).resolves.toBe("appads=1");
+
+    expect(saveCookiesSpy).toHaveBeenCalledWith(cookies);
+    expect(execSpy).toHaveBeenCalledTimes(1);
+    expect(warnSpy.mock.calls).toEqual([
+      ["Could not save Apple credentials to macOS Keychain."],
+    ]);
   });
 
   it("fails with actionable message when prompt auth is required without TTY", async () => {

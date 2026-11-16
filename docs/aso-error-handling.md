@@ -74,8 +74,8 @@ Define failure boundaries, retry rules, and recovery behavior across CLI, dashbo
 - `aso reset-credentials` clears local auth state explicitly.
 - `aso auth`:
   - Attempts cached-session reuse before full credential login.
-  - Reuses keychain credentials first when full login is required.
-  - Clears invalid keychain credentials and reprompts when Apple rejects stored creds.
+  - Reuses saved credentials when macOS Keychain is available and clears them when Apple rejects them.
+  - Keychain write failures are logged as warnings. A successful sign-in still saves the refreshed session.
 - Plain `aso`:
   - Starts dashboard even when Primary App ID is missing.
   - Recovers missing Primary App ID through dashboard setup state instead of requiring an immediate terminal prompt.
