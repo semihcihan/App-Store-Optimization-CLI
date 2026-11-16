@@ -1,6 +1,10 @@
 import { jest } from "@jest/globals";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { closeDbForTests } from "../../db/store";
 
-const mockPost = jest.fn();
+const mockPost = jest.fn<() => Promise<unknown>>();
 
 jest.mock("axios", () => ({
   __esModule: true,
@@ -15,8 +19,13 @@ jest.mock("axios", () => ({
 import { requestPopularitiesWithKwsRetry } from "./aso-apple-popularity-client";
 
 describe("aso-apple-popularity-client", () => {
+  const originalDbPath = process.env.ASO_DB_PATH;
+  let dbDir: string;
+
   beforeEach(() => {
-    jest.clearAllMocks();
+    dbDir = mkdtempSync(join(tmpdir(), "aso-popularity-retry-test-"));
+    process.env.ASO_DB_PATH = join(dbDir, "test.sqlite");
+    mockPost.mockReset();
     jest.useFakeTimers();
     jest.spyOn(Math, "random").mockReturnValue(0);
     process.env.ASO_RETRY_MAX_ATTEMPTS = "2";
@@ -26,6 +35,10 @@ describe("aso-apple-popularity-client", () => {
   });
 
   afterEach(() => {
+    closeDbForTests();
+    rmSync(dbDir, { recursive: true, force: true });
+    if (originalDbPath == null) delete process.env.ASO_DB_PATH;
+    else process.env.ASO_DB_PATH = originalDbPath;
     jest.useRealTimers();
     jest.restoreAllMocks();
     delete process.env.ASO_RETRY_MAX_ATTEMPTS;
@@ -97,10 +110,10 @@ describe("aso-apple-popularity-client", () => {
     );
   });
 
-  it("retries 429 using retry-after header", async () => {
+  it.each([429, 503])("retries %i using Retry-After", async (status) => {
     (mockPost as any)
       .mockResolvedValueOnce({
-        status: 429,
+        status,
         headers: {
           "retry-after": "2",
         },
@@ -115,11 +128,85 @@ describe("aso-apple-popularity-client", () => {
       });
 
     const promise = requestPopularitiesWithKwsRetry(["z"], "cookie=value", "adam");
-    await jest.advanceTimersByTimeAsync(2000);
+    await jest.advanceTimersByTimeAsync(1999);
+    expect(mockPost).toHaveBeenCalledTimes(1);
+    await jest.advanceTimersByTimeAsync(1);
     const result = await promise;
 
     expect(mockPost).toHaveBeenCalledTimes(2);
     expect(result.statusCode).toBe(200);
+  });
+
+  it("defers a long 503 and blocks later popularity calls until the stored deadline", async () => {
+    const retryAt = Date.now() + 120_000;
+    mockPost
+      .mockResolvedValueOnce({
+        status: 503,
+        headers: { "retry-after": "120" },
+        data: {},
+      })
+      .mockResolvedValueOnce({ status: 200, data: { status: "success" } });
+
+    await expect(
+      requestPopularitiesWithKwsRetry(["a"], "cookie=value", "adam")
+    ).resolves.toMatchObject({ statusCode: 503, attempts: 1, retryAt });
+    closeDbForTests();
+    await jest.advanceTimersByTimeAsync(119_999);
+    await expect(
+      requestPopularitiesWithKwsRetry(["b"], "cookie=value", "adam")
+    ).resolves.toMatchObject({ statusCode: 503, attempts: 0, retryAt });
+    expect(mockPost).toHaveBeenCalledTimes(1);
+    await jest.advanceTimersByTimeAsync(1);
+    await expect(
+      requestPopularitiesWithKwsRetry(["b"], "cookie=value", "adam")
+    ).resolves.toMatchObject({ statusCode: 200, attempts: 1 });
+    expect(mockPost).toHaveBeenCalledTimes(2);
+  });
+
+  it("retains the Retry-After deadline from the final 429", async () => {
+    const retryAt = Math.ceil(Date.now() / 1000) * 1000 + 120_000;
+    mockPost
+      .mockResolvedValueOnce({
+        status: 429,
+        headers: { "retry-after": "1" },
+        data: {},
+      })
+      .mockResolvedValueOnce({
+        status: 429,
+        headers: { "retry-after": new Date(retryAt).toUTCString() },
+        data: { requestID: "final-request" },
+      });
+
+    const pending = requestPopularitiesWithKwsRetry(["a"], "cookie=value", "adam");
+    await jest.advanceTimersByTimeAsync(1000);
+    await expect(pending).resolves.toMatchObject({
+      statusCode: 429,
+      attempts: 2,
+      retryAt,
+      data: { requestID: "final-request" },
+    });
+    await expect(
+      requestPopularitiesWithKwsRetry(["b"], "cookie=value", "adam")
+    ).resolves.toMatchObject({ statusCode: 429, attempts: 0, retryAt });
+    expect(mockPost).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps the longer deadline when overlapping requests are throttled", async () => {
+    const retryAt = Date.now() + 120_000;
+    mockPost
+      .mockResolvedValueOnce({ status: 503, headers: { "retry-after": "120" } })
+      .mockResolvedValueOnce({ status: 429, headers: { "retry-after": "2" } });
+    const options = { maxAttempts: 1 };
+    const results = await Promise.all([
+      requestPopularitiesWithKwsRetry(["a"], "cookie=value", "adam", options),
+      requestPopularitiesWithKwsRetry(["b"], "cookie=value", "adam", options),
+    ]);
+
+    expect(results.map((result) => result.retryAt)).toEqual([retryAt, retryAt]);
+    await expect(
+      requestPopularitiesWithKwsRetry(["c"], "cookie=value", "adam")
+    ).resolves.toMatchObject({ attempts: 0, retryAt });
+    expect(mockPost).toHaveBeenCalledTimes(2);
   });
 
   it("retries transient network errors up to max attempts", async () => {

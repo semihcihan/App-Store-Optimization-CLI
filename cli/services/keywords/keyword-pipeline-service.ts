@@ -31,6 +31,7 @@ import {
 } from "../../shared/aso-keyword-limits";
 import { normalizeAppleUpstreamError } from "../../shared/apple-upstream-error";
 import { getAsoResilienceConfig } from "../../shared/aso-resilience";
+import { withBugsnagMetadata } from "../telemetry/bugsnag-metadata";
 import { keywordWriteRepository } from "./keyword-write-repository";
 
 export type PendingKeywordPopularityItem = {
@@ -110,10 +111,12 @@ export class AllKeywordsFailedError extends Error {
   readonly keywordFailureRetryable: boolean[];
 
   constructor(failures: FailedKeyword[]) {
+    const retryAt = Math.max(0, ...failures.map((failure) => failure.retryAt ?? 0));
+    const retryMessage = retryAt ? ` Retry after ${new Date(retryAt).toISOString()}.` : "";
     super(
       `All keywords failed (${failures.length}): ${summarizeFailedKeywords(
         failures
-      )}`
+      )}${retryMessage}`
     );
     this.name = "AllKeywordsFailedError";
     this.keywordFailureStatusCodes = failures.map(
@@ -122,6 +125,11 @@ export class AllKeywordsFailedError extends Error {
     this.keywordFailureRetryable = failures.map(
       (failure) => failure.retryable
     );
+    const keywordFailureStageCounts = { popularity: 0, enrichment: 0 };
+    for (const { stage } of failures) {
+      keywordFailureStageCounts[stage] += 1;
+    }
+    withBugsnagMetadata(this, { keywordFailureStageCounts });
   }
 }
 
@@ -182,6 +190,7 @@ function toEnrichmentFailureFromError(
     retryable: normalized.retryable,
     attempts: normalized.attempts,
     requestId: normalized.requestId,
+    ...(normalized.retryAt != null && { retryAt: normalized.retryAt }),
   };
 }
 

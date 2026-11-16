@@ -240,9 +240,10 @@ Indexes:
 | `value` | `TEXT` | `string` | No | Metadata value |
 | `updated_at` | `TEXT` | `string` | No | ISO datetime |
 
-Known runtime key:
+Known runtime keys:
 - `aso-popularity-adam-id`
 - `app-keyword-position-history-pruned-at` (daily prune watermark for 90-day history retention)
+- `apple-retry-until:<scope>` (JSON with HTTP status and Unix-millisecond deadline for Search Ads popularity or an App Store/auth host)
 
 ### `aso_keyword_failures`
 | Column | SQLite Type | TS Type | Nullable | Notes |

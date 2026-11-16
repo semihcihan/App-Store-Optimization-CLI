@@ -28,6 +28,13 @@ describe("aso-retry-delay", () => {
     expect(parseRetryAfterMs({ "retry-after": "2" })).toBe(2000);
   });
 
+  it.each(["1.5", "2 seconds", "-5", "999999999999999999999"])(
+    "ignores invalid Retry-After value %s",
+    (value) => {
+      expect(parseRetryAfterMs({ "retry-after": value })).toBeNull();
+    }
+  );
+
   it("parses retry-after dates", () => {
     jest.spyOn(Date, "now").mockReturnValue(1_000);
     expect(parseRetryAfterMs({ "retry-after": "Thu, 01 Jan 1970 00:00:03 GMT" })).toBe(
@@ -51,7 +58,19 @@ describe("aso-retry-delay", () => {
     expect(delay).toBe(2000);
   });
 
-  it("uses exponential fallback for non-429", () => {
+  it.each([429, 503])("does not cap Retry-After on HTTP %i", (statusCode) => {
+    expect(
+      getRetryDelayMs({
+        statusCode,
+        headers: { "retry-after": "120" },
+        attempt: 1,
+        defaultBaseDelayMs: 1000,
+        rateLimitBaseDelayMs: 3000,
+      })
+    ).toBe(120_000);
+  });
+
+  it("uses exponential fallback without a Retry-After", () => {
     const delay = getRetryDelayMs({
       statusCode: 503,
       attempt: 2,

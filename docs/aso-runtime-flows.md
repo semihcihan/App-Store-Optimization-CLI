@@ -45,7 +45,7 @@ Runtime flow contracts across CLI commands, local dashboard API, and ASO service
 2. Cache lookup (`/aso/cache-lookup`).
 3. Classify misses:
    - popularity missing/expired -> fetch popularity from Search Ads, then full enrich.
-   - popularity request retries are request-scoped and bounded (default: 2 total attempts); keyword-level isolation requests after terminal batch failure are single-attempt to avoid retry fan-out.
+   - popularity requests use bounded batch retries (default: 2 total attempts). Search Ads deadlines from `Retry-After` on `429` or `503` are shared by CLI and dashboard processes using the same SQLite database. A terminal `429` or active retry deadline ends keyword isolation and persists retryable failures for unfinished keywords.
    - popularity fresh + difficulty/order incomplete -> full enrich with cached popularity.
    - popularity fresh + difficulty complete + order expired -> order-only refresh.
    - when `--min-popularity` is set, rows below threshold are marked `filteredOut(low_popularity)` and skip enrich/difficulty calculation.

@@ -318,6 +318,38 @@ describe("AsoPopularityService", () => {
       expect(mockRequestPopularitiesWithKwsRetry).toHaveBeenCalledTimes(1);
     });
 
+    it("does not fan out a rate-limited batch after retries are exhausted", async () => {
+      mockRequestPopularitiesWithKwsRetry.mockResolvedValue({
+        statusCode: 429,
+        attempts: 2,
+        data: { status: "error", requestID: "req-batch" },
+      });
+      const keywords = Array.from({ length: 100 }, (_, i) => `term${i}`);
+      const result =
+        await asoPopularityService.fetchKeywordPopularitiesWithFailures(keywords);
+
+      expect(mockRequestPopularitiesWithKwsRetry).toHaveBeenCalledTimes(1);
+      expect(mockRequestPopularitiesWithKwsRetry).toHaveBeenCalledWith(
+        keywords,
+        "cookie=value",
+        expect.any(String),
+        undefined
+      );
+      expect(result.popularities).toEqual({});
+      expect(result.failedKeywords).toEqual(
+        keywords.map((keyword) =>
+          expect.objectContaining({
+            keyword,
+            stage: "popularity",
+            statusCode: 429,
+            retryable: true,
+            attempts: 2,
+            requestId: "req-batch",
+          })
+        )
+      );
+    });
+
     it("isolates failed keywords after terminal batch failure", async () => {
       mockRequestPopularitiesWithKwsRetry
         .mockResolvedValueOnce({
@@ -363,6 +395,57 @@ describe("AsoPopularityService", () => {
         { maxAttempts: 1 }
       );
     });
+
+    it.each([
+      { statusCode: 429, withDeadline: false },
+      { statusCode: 429, withDeadline: true },
+      { statusCode: 503, withDeadline: true },
+    ])(
+      "stops isolation on HTTP $statusCode (deadline: $withDeadline) and keeps earlier successes",
+      async ({ statusCode, withDeadline }) => {
+        const retryAt = withDeadline ? Date.now() + 120_000 : undefined;
+        mockRequestPopularitiesWithKwsRetry
+          .mockResolvedValueOnce({
+            statusCode: 500,
+            attempts: 2,
+            data: { status: "error" },
+          })
+          .mockResolvedValueOnce({
+            statusCode: 200,
+            attempts: 1,
+            data: { status: "success", data: [{ name: "good", popularity: 25 }] },
+          })
+          .mockResolvedValueOnce({
+            statusCode,
+            attempts: 1,
+            retryAt,
+            data: { status: "error" },
+          });
+
+        const result = await asoPopularityService.fetchKeywordPopularitiesWithFailures([
+          "good",
+          "limited",
+          "untouched",
+        ]);
+
+        expect(mockRequestPopularitiesWithKwsRetry).toHaveBeenCalledTimes(3);
+        expect(result.popularities).toEqual({ good: 25 });
+        expect(result.failedKeywords).toEqual(
+          ["limited", "untouched"].map((keyword, index) =>
+            expect.objectContaining({
+              keyword,
+              statusCode,
+              retryable: true,
+              attempts: index === 0 ? 1 : 0,
+              ...(retryAt != null && {
+                retryAt,
+                message: expect.stringContaining(new Date(retryAt).toISOString()),
+              }),
+            })
+          )
+        );
+      }
+    );
 
     it("reports malformed success data and fails every unresolved keyword", async () => {
       mockRequestPopularitiesWithKwsRetry.mockResolvedValue({

@@ -143,7 +143,7 @@ export function upsertKeywordFailures(
         statusCode:
           typeof failure.statusCode === "number" ? failure.statusCode : null,
         retryable: failure.retryable ? 1 : 0,
-        attempts: Math.max(1, Math.floor(failure.attempts)),
+        attempts: Math.max(0, Math.floor(failure.attempts)),
         requestId: failure.requestId ?? null,
         updatedAt: now,
       });

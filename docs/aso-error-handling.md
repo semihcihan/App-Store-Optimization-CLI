@@ -30,9 +30,9 @@ Define failure boundaries, retry rules, and recovery behavior across CLI, dashbo
 ## Retry Policy
 
 - Shared resilience config lives in `cli/shared/aso-resilience.ts` (env defaults/parsing centralized in `cli/shared/aso-env.ts`).
-- Popularity fetch retries transient responses (`429`, `5xx`, `KWS_NO_ORG_CONTENT_PROVIDERS`) and transient network errors with bounded request attempts (default: 2 total attempts, i.e. one retry).
-- App Store web fetches retry `429`, `5xx`, and transient network errors with jittered exponential backoff using the same bounded request-attempt policy (default: 2 total attempts).
-- Popularity batch isolation requests (`one keyword per request` after a terminal batch failure) run single-attempt (`maxAttempts=1`) to avoid retry multiplication.
+- Popularity and App Store fetches use bounded retries for transient responses and network errors (default: 2 total attempts). Popularity also retries `KWS_NO_ORG_CONTENT_PROVIDERS`.
+- Search Ads popularity, App Store requests, and Apple auth honor valid `Retry-After` on `429` and `503`. The deadline is shared through SQLite for the popularity endpoint and separately per App Store or auth host. A deadline beyond the configured in-request wait budget returns a retryable failure with a retry time. The local backoff cap applies to calculated delays.
+- An exhausted popularity batch returning `429` or a response with an active retry deadline records retryable failures without individual requests. Otherwise individual isolation requests run once each. A `429` or active retry deadline during isolation keeps completed successes and defers the remaining keywords with zero attempts.
 - Enrichment applies one bounded retry/backoff cycle for competitive keywords when top-5 difficulty docs are incomplete (`reasonCode=INSUFFICIENT_DOCS` when still unresolved).
 - Enrichment applies a short in-process cooldown for top-app IDs that still return incomplete lookup docs, so nearby keywords do not repeat the same expensive lookup loop immediately.
 - App-doc hydration falls back to country-specific iTunes Lookup for unavailable, malformed, or incomplete App Store lookup results. Search-identified Arcade apps use iTunes directly and never fall back to primary App Store lookup.
@@ -124,7 +124,7 @@ Define failure boundaries, retry rules, and recovery behavior across CLI, dashbo
 - Unknown auth responses that propagate are reported once by the outer CLI/server boundary. SIRP drift is reported manually only when legacy fallback recovers it or replaces it with a different failure.
 - Apple 2FA challenge payloads with service code `-28248` (verification code delivery unavailable) are classified as verification-delivery `user_fault` instead of contract drift.
 - Apple HTTP trace metadata attached to Bugsnag is size-bounded (string/array/object/depth truncation) so contract-drift events retain actionable metadata instead of being dropped for oversized payloads.
-- All-keyword failure telemetry preserves every status code separately from the five-item message preview. Suppression applies only when every failure is confirmed `4xx`; mixed or unknown statuses remain reportable.
+- All-keyword failure telemetry preserves every status code separately from the five-item message preview and includes aggregate counts for popularity and enrichment failures. Status-based suppression applies only when every failure is a confirmed non-retryable `4xx`.
 - MCP parse-json shape drift (`MCP expected JSON output from aso keywords`) is classified as `user_fault` and suppressed.
 - Unsupported-country requests use a typed validation error and are suppressed as user input rather than reported as bugs.
 - MCP reports runtime/transport/parse-contract failures; non-zero child CLI exits are suppressed by default.

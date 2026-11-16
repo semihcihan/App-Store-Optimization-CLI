@@ -17,22 +17,34 @@ export function getHeaderValue(
 }
 
 export function parseRetryAfterMs(
-  headers: Record<string, unknown> | undefined
+  headers: Record<string, unknown> | undefined,
+  now = Date.now()
 ): number | null {
-  const retryAfterRaw = getHeaderValue(headers, "retry-after");
+  const retryAfterRaw = getHeaderValue(headers, "retry-after")?.trim();
   if (!retryAfterRaw) return null;
 
-  const retryAfterSeconds = Number.parseInt(retryAfterRaw, 10);
-  if (Number.isFinite(retryAfterSeconds)) {
-    return Math.max(0, retryAfterSeconds * 1000);
+  if (/^\d+$/.test(retryAfterRaw)) {
+    const delay = Number(retryAfterRaw) * 1000;
+    return Number.isFinite(new Date(now + delay).getTime()) ? delay : null;
   }
 
+  if (!/^[a-z]{3}/i.test(retryAfterRaw)) return null;
   const retryAfterDateMs = Date.parse(retryAfterRaw);
   if (Number.isFinite(retryAfterDateMs)) {
-    return Math.max(0, retryAfterDateMs - Date.now());
+    return Math.max(0, retryAfterDateMs - now);
   }
 
   return null;
+}
+
+export function getAppleRetryAfterMs(
+  statusCode: number | undefined,
+  headers: Record<string, unknown> | undefined,
+  now = Date.now()
+): number | null {
+  return statusCode === 429 || statusCode === 503
+    ? parseRetryAfterMs(headers, now)
+    : null;
 }
 
 export function calculateJitteredDelay(baseDelayMs: number): number {
@@ -48,11 +60,8 @@ export function getRetryDelayMs(params: {
   defaultBaseDelayMs: number;
   rateLimitBaseDelayMs: number;
 }): number {
-  const retryAfterMs =
-    params.statusCode === 429 ? parseRetryAfterMs(params.headers) : null;
-  if (retryAfterMs != null) {
-    return calculateJitteredDelay(retryAfterMs);
-  }
+  const retryAfterMs = getAppleRetryAfterMs(params.statusCode, params.headers);
+  if (retryAfterMs != null) return retryAfterMs;
 
   const { maxDelayMs } = getAsoResilienceConfig();
   const fallbackBaseDelayMs =

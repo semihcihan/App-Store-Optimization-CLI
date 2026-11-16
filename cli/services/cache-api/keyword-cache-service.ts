@@ -150,6 +150,7 @@ export async function enrichAsoKeywords(
         retryable: normalized.retryable,
         attempts: normalized.attempts,
         requestId: normalized.requestId,
+        ...(normalized.retryAt != null && { retryAt: normalized.retryAt }),
       },
     ];
   });

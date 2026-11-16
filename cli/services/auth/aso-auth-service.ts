@@ -18,6 +18,13 @@ import {
   withAppleHttpTraceContext,
 } from "../keywords/apple-http-trace";
 import { ASO_ENV } from "../../shared/aso-env";
+import { getAppleRetryAfterMs } from "../../shared/aso-retry-delay";
+import { getAsoResilienceConfig } from "../../shared/aso-resilience";
+import {
+  AppleRetryCooldownError,
+  getAppleRetryCooldown,
+  recordAppleRetryAfter,
+} from "../runtime/apple-retry-cooldown";
 import type {
   AsoInteractivePrompt,
   AsoInteractivePromptResponse,
@@ -57,18 +64,25 @@ export class AppleAuthResponseError extends Error {
   readonly status: number;
   readonly payload: unknown;
   readonly reason: AppleAuthFailureReason;
+  readonly retryAt?: number;
 
   constructor(params: {
     message: string;
     status: number;
     payload: unknown;
     reason: AppleAuthFailureReason;
+    retryAt?: number;
   }) {
-    super(params.message);
+    super(
+      params.retryAt == null
+        ? params.message
+        : `${params.message}. Retry after ${new Date(params.retryAt).toISOString()}.`
+    );
     this.name = "AppleAuthResponseError";
     this.status = params.status;
     this.payload = params.payload;
     this.reason = params.reason;
+    this.retryAt = params.retryAt;
   }
 }
 export type ReauthUserActionReason =
@@ -833,15 +847,28 @@ class AsoAuthHttpClient {
       timeout: config.timeout ?? 30000,
       validateStatus: () => true,
     };
+    const cooldownScope = config.url
+      ? `auth:${new URL(config.url, config.baseURL).host}`
+      : null;
 
     try {
+      const active = cooldownScope && getAppleRetryCooldown(cooldownScope);
+      if (active) throw new AppleRetryCooldownError(active.statusCode, active.retryAt);
       const response = await appleAuthHttpClient.request<T>(requestConfig);
+      if (cooldownScope) {
+        recordAppleRetryAfter(
+          cooldownScope,
+          response.status,
+          response.headers as Record<string, unknown>
+        );
+      }
       if (config.url) this.jar.updateFromResponse(config.url, response);
       return response;
     } catch (error) {
       throw withAppleHttpTraceContext(error, {
         provider: "apple-auth",
         operation: "request",
+        ...(error instanceof AppleRetryCooldownError && { isTerminal: true }),
         context: {
           method: String(requestConfig.method || "get").toUpperCase(),
           url: requestConfig.url || "",
@@ -1173,7 +1200,15 @@ export class AsoAuthEngine {
           response.status === 502 ||
           response.status === 503 ||
           response.status === 504);
-      if (!shouldRetry || attempt === maxAttempts) {
+      const retryAfterMs = getAppleRetryAfterMs(
+        response.status,
+        response.headers as Record<string, unknown>
+      );
+      if (
+        !shouldRetry ||
+        attempt === maxAttempts ||
+        (retryAfterMs != null && retryAfterMs > getAsoResilienceConfig().maxDelayMs)
+      ) {
         if (response.status >= 400) {
           logger.debug(
             `[aso-auth] Legacy login error payload: ${summarizeAppleErrorPayload(
@@ -1184,7 +1219,7 @@ export class AsoAuthEngine {
         return response;
       }
 
-      const backoffMs = 1000 * 2 ** (attempt - 1);
+      const backoffMs = retryAfterMs ?? 1000 * 2 ** (attempt - 1);
       logger.debug(
         `[aso-auth] Legacy login transient status=${response.status}; retrying in ${backoffMs}ms (attempt ${attempt}/${maxAttempts})`
       );
@@ -1273,12 +1308,19 @@ export class AsoAuthEngine {
 
     const reason = inferAppleAuthFailureReason(response.status, response.data);
     const bodyType = typeof response.data;
+    const now = Date.now();
+    const retryAfterMs = getAppleRetryAfterMs(
+      response.status,
+      response.headers as Record<string, unknown>,
+      now
+    );
     throw this.withAppleAuthTrace(
       new AppleAuthResponseError({
         message: `Apple login failed with status ${response.status} (responseType=${bodyType})`,
         status: response.status,
         payload: response.data,
         reason,
+        ...(retryAfterMs && { retryAt: now + retryAfterMs }),
       }),
       "signin-complete",
       {

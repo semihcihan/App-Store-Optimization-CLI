@@ -8,6 +8,11 @@ import {
   isTransientTransportFailure,
 } from "../../../shared/aso-transient-error";
 import { attachAppleHttpTracing } from "../../keywords/apple-http-trace";
+import {
+  AppleRetryCooldownError,
+  getAppleRetryCooldown,
+  recordAppleRetryAfter,
+} from "../../runtime/apple-retry-cooldown";
 
 const SENSITIVE_HEADER_KEYS = ["authorization", "cookie", "set-cookie", "x-api-key"];
 const asoAppleHttpClient = axios.create();
@@ -53,34 +58,20 @@ function shouldRetry(error: AxiosError): boolean {
   });
 }
 
-async function waitBeforeRetry(
-  error: AxiosError,
-  attempt: number,
-  delayMs: number
-): Promise<number> {
-  const waitedMs = getRetryDelayMs({
-    statusCode: error.response?.status,
-    headers: error.response?.headers as Record<string, unknown> | undefined,
-    attempt,
-    defaultBaseDelayMs: delayMs,
-    rateLimitBaseDelayMs: getAsoResilienceConfig().rateLimitBaseDelayMs,
-  });
-  await new Promise((resolve) => setTimeout(resolve, waitedMs));
-  return waitedMs;
-}
-
 export async function asoAppleGet<T = unknown>(
   url: string,
   config: AsoAppleGetConfig<T>
 ): Promise<AxiosResponse<T>> {
+  const resilience = getAsoResilienceConfig();
   const {
     operation,
-    maxAttempts = getAsoResilienceConfig().maxAttempts,
-    delayMs = getAsoResilienceConfig().baseDelayMs,
+    maxAttempts = resilience.maxAttempts,
+    delayMs = resilience.baseDelayMs,
     ...requestConfig
   } = config;
   const requestId = generateRequestId();
   const startedAt = Date.now();
+  const cooldownScope = `app-store:${new URL(url, requestConfig.baseURL).host}`;
 
   logger.debug(`[${requestId}] ASO APPLE REQ GET ${operation}`, {
     requestId,
@@ -95,6 +86,8 @@ export async function asoAppleGet<T = unknown>(
   });
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    const active = getAppleRetryCooldown(cooldownScope);
+    if (active) throw new AppleRetryCooldownError(active.statusCode, active.retryAt);
     try {
       const response = await asoAppleHttpClient.get<T>(url, requestConfig);
       logger.debug(`[${requestId}] ASO APPLE RES GET ${operation}`, {
@@ -115,8 +108,20 @@ export async function asoAppleGet<T = unknown>(
     } catch (error) {
       const axiosError = error as AxiosError;
       const retryable = shouldRetry(axiosError);
+      const statusCode = axiosError.response?.status;
+      const headers = axiosError.response?.headers as Record<string, unknown> | undefined;
+      const cooldown = recordAppleRetryAfter(cooldownScope, statusCode, headers);
+      const waitedMs = cooldown
+        ? Math.max(0, cooldown.retryAt - Date.now())
+        : getRetryDelayMs({
+            statusCode,
+            headers,
+            attempt,
+            defaultBaseDelayMs: delayMs,
+            rateLimitBaseDelayMs: resilience.rateLimitBaseDelayMs,
+          });
 
-      if (!retryable || attempt >= maxAttempts) {
+      if (!retryable || attempt >= maxAttempts || waitedMs > resilience.maxDelayMs) {
         logger.error(`[${requestId}] ASO APPLE ERR GET ${operation}`, {
           requestId,
           operation,
@@ -135,14 +140,13 @@ export async function asoAppleGet<T = unknown>(
           ),
           timestamp: new Date().toISOString(),
         });
+        if (cooldown) {
+          throw new AppleRetryCooldownError(statusCode ?? cooldown.statusCode, cooldown.retryAt);
+        }
         throw error;
       }
 
-      const waitedMs = await waitBeforeRetry(
-        axiosError,
-        attempt,
-        delayMs
-      );
+      await new Promise((resolve) => setTimeout(resolve, waitedMs));
 
       logger.debug(`[${requestId}] ASO APPLE RETRY GET ${operation}`, {
         requestId,

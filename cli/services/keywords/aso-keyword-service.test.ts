@@ -5,6 +5,7 @@ import { jest } from "@jest/globals";
 import { getKeyword, upsertKeywords } from "../../db/aso-keywords";
 import {
   listKeywordFailures,
+  listKeywordFailuresForApp,
   upsertKeywordFailures,
 } from "../../db/aso-keyword-failures";
 import {
@@ -14,6 +15,7 @@ import {
 } from "../../db/app-keywords";
 import { listAppKeywordPositionHistory } from "../../db/app-keyword-position-history";
 import { closeDbForTests } from "../../db/store";
+import { getErrorBugsnagMetadata } from "../telemetry/bugsnag-metadata";
 import {
   refreshAsoKeywordOrderLocal,
   lookupAsoCacheLocal,
@@ -601,7 +603,7 @@ describe("keyword-pipeline-service", () => {
     ]);
   });
 
-  it("clears failed keyword status when retry succeeds", async () => {
+  it("clears a rate-limited keyword when the app retries successfully", async () => {
     mockLookupAsoCacheLocal.mockResolvedValue({
       hits: [],
       misses: ["bad"],
@@ -613,11 +615,11 @@ describe("keyword-pipeline-service", () => {
           {
             keyword: "bad",
             stage: "popularity",
-            reasonCode: "UPSTREAM_ERROR",
-            message: "error",
-            statusCode: 500,
+            reasonCode: "RATE_LIMITED",
+            message: "Popularity API request failed with status 429",
+            statusCode: 429,
             retryable: true,
-            attempts: 3,
+            attempts: 2,
           },
         ],
       })
@@ -648,14 +650,46 @@ describe("keyword-pipeline-service", () => {
     await expect(keywordPipelineService.run("US", ["bad"])).rejects.toMatchObject({
       name: AllKeywordsFailedError.name,
       message: expect.stringContaining("All keywords failed"),
-      keywordFailureStatusCodes: [500],
+      keywordFailureStatusCodes: [429],
       keywordFailureRetryable: [true],
     });
-    expect(listKeywordFailures("US")).toHaveLength(1);
+    createAppKeyword("research-rate-limit-test", "bad", "US");
+    expect(listKeywordFailuresForApp("research-rate-limit-test", "US")).toEqual([
+      expect.objectContaining({
+        keyword: "bad",
+        stage: "popularity",
+        statusCode: 429,
+        retryable: true,
+      }),
+    ]);
 
-    const retryResult = await keywordPipelineService.run("US", ["bad"]);
-    expect(retryResult.failedKeywords).toHaveLength(0);
+    const retryResult = await keywordPipelineService.retryFailed(
+      "research-rate-limit-test",
+      "US"
+    );
+    expect(retryResult).toEqual({
+      retriedCount: 1,
+      succeededCount: 1,
+      failedCount: 0,
+    });
     expect(listKeywordFailures("US")).toHaveLength(0);
+  });
+
+  it("attaches telemetry counts for every failure stage, including failures beyond the preview", () => {
+    const failures = Array.from({ length: 6 }, (_, index) => ({
+      keyword: `term${index}`,
+      stage: index < 5 ? ("popularity" as const) : ("enrichment" as const),
+      reasonCode: "UPSTREAM_ERROR",
+      message: "Service unavailable",
+      statusCode: 503,
+      retryable: true,
+      attempts: 2,
+    }));
+    const error = new AllKeywordsFailedError(failures);
+
+    expect(getErrorBugsnagMetadata(error)).toEqual({
+      keywordFailureStageCounts: { popularity: 5, enrichment: 1 },
+    });
   });
 
   it("retries app failures in max-size batches", async () => {

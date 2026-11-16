@@ -301,6 +301,44 @@ describe("aso-auth-service legacy parity edge handling", () => {
     ).resolves.toMatchObject({ status: 500 });
     expect(request).toHaveBeenCalledTimes(1);
   });
+
+  it("waits for Retry-After before retrying legacy login", async () => {
+    jest.useFakeTimers();
+    try {
+      const request = jest.fn()
+        .mockResolvedValueOnce({ status: 503, data: {}, headers: { "retry-after": "2" } })
+        .mockResolvedValueOnce({ status: 200, data: {}, headers: {} });
+      const engine = new AsoAuthEngine({ request } as any, "legacy") as any;
+      engine.fetchHashcash = jest.fn().mockResolvedValue(undefined);
+      const result = engine.requestLegacyWithRetry(
+        { appleId: "user@example.com", password: "pw" },
+        3
+      );
+      await jest.advanceTimersByTimeAsync(1999);
+      expect(request).toHaveBeenCalledTimes(1);
+      await jest.advanceTimersByTimeAsync(1);
+      await expect(result).resolves.toMatchObject({ status: 200 });
+      expect(request).toHaveBeenCalledTimes(2);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it("returns the retry time for a legacy login cooldown beyond the wait budget", async () => {
+    const retryAt = Math.ceil(Date.now() / 1000) * 1000 + 120_000;
+    const request = jest.fn().mockResolvedValue({
+      status: 429,
+      data: {},
+      headers: { "retry-after": new Date(retryAt).toUTCString() },
+    });
+    const engine = new AsoAuthEngine({ request } as any, "legacy") as any;
+    engine.fetchHashcash = jest.fn().mockResolvedValue(undefined);
+
+    await expect(
+      engine.loginWithLegacy({ appleId: "user@example.com", password: "pw" })
+    ).rejects.toMatchObject({ status: 429, retryAt });
+    expect(request).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("aso-auth-service sirp fallback policy", () => {

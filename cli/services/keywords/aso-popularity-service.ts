@@ -1,9 +1,11 @@
 import { ContextualError } from "../../utils/error-handling-helpers";
 import { logger } from "../../utils/logger";
 import { asoAuthService } from "../auth/aso-auth-service";
+import { AppleRetryCooldownError } from "../runtime/apple-retry-cooldown";
 import { getConfiguredAsoAdamId } from "./aso-adam-id-service";
 import {
   requestPopularitiesWithKwsRetry,
+  type PopularityAttemptResult,
   type PopularityResponse,
 } from "./aso-apple-popularity-client";
 import {
@@ -179,11 +181,7 @@ export class AsoPopularityService {
       terms: string[],
       stageLabel: string,
       options?: { maxAttempts?: number }
-    ): Promise<{
-      statusCode: number;
-      data: PopularityResponse;
-      attempts: number;
-    }> => {
+    ): Promise<PopularityAttemptResult> => {
       logger.debug(
         `[aso-popularity] sending ${stageLabel} request cookieHeaderLength=${cookieHeader.length} terms=${terms.length}`
       );
@@ -233,6 +231,7 @@ export class AsoPopularityService {
       retryable: normalized.retryable,
       attempts: normalized.attempts,
       requestId: normalized.requestId,
+      ...(normalized.retryAt != null && { retryAt: normalized.retryAt }),
     });
 
     const toContractFailure = (
@@ -359,14 +358,12 @@ export class AsoPopularityService {
 
     const toFailureFromResponse = (
       keyword: string,
-      response: {
-        statusCode: number;
-        data: PopularityResponse;
-        attempts: number;
-      }
+      response: PopularityAttemptResult
     ): FailedKeyword => {
       const messageCode = firstMessageCode(response.data);
-      const message = firstMessage(response.data);
+      const message =
+        firstMessage(response.data) ||
+        `Popularity API request failed with status ${response.statusCode}.`;
       logger.debug(
         `[aso-popularity] final failure status=${response.statusCode} requestID=${
           response.data.requestID || "none"
@@ -374,10 +371,9 @@ export class AsoPopularityService {
       );
       const normalized = normalizeAppleUpstreamError({
         error: Object.assign(
-          new Error(
-            message ||
-              `Popularity API request failed with status ${response.statusCode}`
-          ),
+          response.retryAt != null
+            ? new AppleRetryCooldownError(response.statusCode, response.retryAt, message)
+            : new Error(message),
           {
             statusCode: response.statusCode,
             code: messageCode || response.data.internalErrorCode,
@@ -438,19 +434,27 @@ export class AsoPopularityService {
           }; attempting keyword-level isolation`
         );
       }
-      if (sanitizedKeywords.length === 1) {
-        const keyword =
-          sanitizedToOriginal.get(sanitizedKeywords[0]) ?? sanitizedKeywords[0];
+      if (
+        sanitizedKeywords.length === 1 ||
+        response.statusCode === 429 ||
+        response.retryAt != null
+      ) {
         return {
           popularities: {},
-          failedKeywords: [toFailureFromResponse(keyword, response)],
+          failedKeywords: sanitizedKeywords.map((term) =>
+            toFailureFromResponse(
+              sanitizedToOriginal.get(term) ?? term,
+              response
+            )
+          ),
         };
       }
 
       const popularities: Record<string, number> = {};
       const failedKeywords: FailedKeyword[] = [];
-      for (const term of sanitizedKeywords) {
+      for (const [index, term] of sanitizedKeywords.entries()) {
         const keyword = sanitizedToOriginal.get(term) ?? term;
+        let failure: FailedKeyword;
         try {
           const singleResponse = await requestWithAuthRecovery(
             [term],
@@ -470,12 +474,23 @@ export class AsoPopularityService {
             ) {
               popularities[keyword] = 1;
             }
-          } else {
-            failedKeywords.push(toFailureFromResponse(keyword, singleResponse));
+            continue;
           }
+          failure = toFailureFromResponse(keyword, singleResponse);
         } catch (error) {
-          failedKeywords.push(toFailureFromError(keyword, error));
+          failure = toFailureFromError(keyword, error);
         }
+        failedKeywords.push(failure);
+        if (failure.statusCode !== 429 && failure.retryAt == null) continue;
+        failedKeywords.push(
+          ...sanitizedKeywords.slice(index + 1).map((remainingTerm) => ({
+            ...failure,
+            keyword: sanitizedToOriginal.get(remainingTerm) ?? remainingTerm,
+            attempts: 0,
+            requestId: undefined,
+          }))
+        );
+        break;
       }
       return {
         popularities,

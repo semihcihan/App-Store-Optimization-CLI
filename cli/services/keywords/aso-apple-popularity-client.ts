@@ -3,6 +3,10 @@ import { logger } from "../../utils/logger";
 import { getAsoResilienceConfig } from "../../shared/aso-resilience";
 import { getRetryDelayMs as getSharedRetryDelayMs } from "../../shared/aso-retry-delay";
 import {
+  getAppleRetryCooldown,
+  recordAppleRetryAfter,
+} from "../runtime/apple-retry-cooldown";
+import {
   isKnownTransientStatusCode,
   isRetryableTransientStatusCode,
   isTransientTransportFailure,
@@ -14,6 +18,7 @@ import {
 
 const APPLE_POPULARITY_URL =
   "https://app-ads.apple.com/cm/api/v2/keywords/popularities";
+const POPULARITY_COOLDOWN_SCOPE = "search-ads-popularity";
 const KWS_NO_ORG_CONTENT_PROVIDERS = "KWS_NO_ORG_CONTENT_PROVIDERS";
 
 export interface PopularityItem {
@@ -34,6 +39,13 @@ export interface PopularityResponse {
     }>;
   };
 }
+
+export type PopularityAttemptResult = {
+  statusCode: number;
+  data: PopularityResponse;
+  attempts: number;
+  retryAt?: number;
+};
 
 const applePopularityClient = axios.create({
   timeout: 30000,
@@ -89,6 +101,16 @@ async function requestPopularitiesOnce(
       headers: response.headers as Record<string, unknown> | undefined,
     };
   } catch (error) {
+    if (axios.isAxiosError<PopularityResponse>(error)) {
+      const response = error.response;
+      if (response?.status === 429 || response?.status === 503) {
+        return {
+          statusCode: response.status,
+          data: response.data || {},
+          headers: response.headers as Record<string, unknown>,
+        };
+      }
+    }
     throw withAppleHttpTraceContext(error, {
       provider: "apple-search-ads",
       operation: "keywords-popularities-request",
@@ -135,27 +157,37 @@ export async function requestPopularitiesWithKwsRetry(
   cookieHeader: string,
   adamId: string,
   options?: { maxAttempts?: number }
-): Promise<{ statusCode: number; data: PopularityResponse; attempts: number }> {
-  const maxAttempts = Math.max(
-    1,
-    options?.maxAttempts ?? getAsoResilienceConfig().maxAttempts
-  );
+): Promise<PopularityAttemptResult> {
+  const resilience = getAsoResilienceConfig();
+  const maxAttempts = Math.max(1, options?.maxAttempts ?? resilience.maxAttempts);
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    const active = getAppleRetryCooldown(POPULARITY_COOLDOWN_SCOPE);
+    if (active) {
+      return { ...active, data: {}, attempts: attempt - 1 };
+    }
     try {
       const response = await requestPopularitiesOnce(terms, cookieHeader, adamId);
+      const cooldown = recordAppleRetryAfter(
+        POPULARITY_COOLDOWN_SCOPE,
+        response.statusCode,
+        response.headers
+      );
       const retryable = isTransientStatus(response.statusCode, response.data);
-      if (!retryable || attempt >= maxAttempts) {
+      const delayMs = cooldown
+        ? Math.max(0, cooldown.retryAt - Date.now())
+        : getRetryDelayMs({
+            statusCode: response.statusCode,
+            headers: response.headers,
+            attempt,
+          });
+      if (!retryable || attempt >= maxAttempts || delayMs > resilience.maxDelayMs) {
         return {
           statusCode: response.statusCode,
           data: response.data,
           attempts: attempt,
+          ...(cooldown && { retryAt: cooldown.retryAt }),
         };
       }
-      const delayMs = getRetryDelayMs({
-        statusCode: response.statusCode,
-        headers: response.headers,
-        attempt,
-      });
       const cause = isNoOrgContentProvidersError(response.statusCode, response.data)
         ? "kws_no_org_content_providers"
         : response.statusCode === 429

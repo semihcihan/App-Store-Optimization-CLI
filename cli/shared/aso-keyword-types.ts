@@ -9,4 +9,5 @@ export interface FailedKeyword {
   retryable: boolean;
   attempts: number;
   requestId?: string;
+  retryAt?: number;
 }

@@ -18,6 +18,7 @@ export type NormalizedAppleUpstreamError = {
   attempts: number;
   operation: string;
   requestId?: string;
+  retryAt?: number;
 };
 
 type NormalizeParams = {
@@ -166,6 +167,7 @@ export function normalizeAppleUpstreamError(
 
   const normalizedReasonCode = normalizeReasonCode(reasonCode, defaultReasonCode);
   const retryable = inferRetryable(statusCode, message, errorCode);
+  const retryAt = (params.error as { retryAt?: unknown } | null)?.retryAt;
 
   return {
     reasonCode: normalizedReasonCode,
@@ -175,5 +177,7 @@ export function normalizeAppleUpstreamError(
     attempts,
     operation: params.operation,
     requestId,
+    ...(typeof retryAt === "number" &&
+      Number.isFinite(new Date(retryAt).getTime()) && { retryAt }),
   };
 }
