@@ -6,7 +6,7 @@ export function GET() {
     "Allow: /",
     "",
     `Sitemap: ${resolveSiteUrl("/sitemap.xml")}`,
-    `LLM: ${resolveSiteUrl("/llms.txt")}`,
+    "",
   ].join("\n");
 
   return new Response(body, {

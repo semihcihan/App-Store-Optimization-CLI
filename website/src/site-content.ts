@@ -2,13 +2,21 @@ export const projectName = "ASO CLI";
 export const repoUrl = "https://github.com/semihcihan/App-Store-Optimization-CLI";
 export const npmUrl = "https://www.npmjs.com/package/aso-cli";
 export const installCommand = "npm install -g aso-cli";
-export const siteTitle = "ASO CLI | App Store Optimization Research and Automation";
+export const setupUrl = `${repoUrl}#apple-search-ads-setup`;
+export const siteTitle = "App Store Keyword Research Tool | ASO CLI";
 export const siteDescription =
-  "ASO CLI is a local-first App Store Optimization tool for keyword research, keyword evaluation, and automation. Run ASO workflows from the terminal, inspect results in a local dashboard, and automate the same pipeline with MCP.";
-export const socialDescription =
-  "Local-first App Store Optimization with CLI, a local dashboard, and MCP automation.";
-export const keywordMeta =
-  "app store optimization, aso, aso tool, aso cli, keyword research, keyword difficulty, app store keywords, mcp, aso mcp, automation";
+  "Research US App Store keywords with ASO CLI. Check popularity, ranking difficulty, and brand terms in a local dashboard or through MCP.";
+
+export const mcpTitle = "App Store Optimization MCP Server | ASO CLI";
+export const mcpDescription =
+  "Set up ASO MCP to evaluate US App Store keyword candidates from an agent. Get the local server config, tool inputs, and example call.";
+export const mcpToolName = "aso_evaluate_keywords";
+export const mcpConfig = { mcpServers: { aso: { command: "aso-mcp" } } };
+export const mcpExample = {
+  keywords: ["meditation", "sleep sounds", "white noise"],
+  minPopularity: 6,
+  maxDifficulty: 70,
+};
 
 export const featureList = [
   "App Store keyword research from the command line",
@@ -19,14 +27,13 @@ export const featureList = [
 
 export const faqEntries = [
   {
-    question: "Is this a hosted ASO dashboard?",
-    answer:
-      "No. The dashboard runs locally via CLI, keeping your workflow local-first.",
+    question: "Which App Store storefronts does ASO CLI support?",
+    answer: "Keyword research currently supports the US App Store storefront.",
   },
   {
-    question: "What is required before running ASO commands?",
+    question: "What do I need to get started?",
     answer:
-      "You need Apple Search Ads setup and linked App Store Connect access for keyword popularity and enrichment.",
+      "Install Node.js 18.14.1 or later. Set up Apple Search Ads, link your App Store Connect account, and have the App ID of a published app you can access. You can get started without creating an ad campaign.",
   },
   {
     question: "Is ASO CLI free and open source?",
@@ -35,6 +42,6 @@ export const faqEntries = [
   {
     question: "Can I automate workflows beyond MCP?",
     answer:
-      "Yes. You can use MCP via aso-mcp or build your own automation using aso keywords output modes inside custom apps and scripts.",
+      "Run aso keywords with --stdout to get JSON for your own scripts. Use aso-mcp to evaluate candidate keywords from an MCP client.",
   },
 ];
