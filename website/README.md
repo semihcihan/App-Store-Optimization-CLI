@@ -1,6 +1,6 @@
 # ASO CLI Website
 
-Single-page static website for SEO/discoverability.
+Static product homepage and MCP setup guide for ASO CLI.
 
 ## Requirements
 - Node.js `20.x`

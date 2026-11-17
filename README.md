@@ -11,7 +11,7 @@
   <a href="https://github.com/semihcihan/App-Store-Optimization-CLI/actions/workflows/ci.yml"><img src="https://github.com/semihcihan/App-Store-Optimization-CLI/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI" /></a>
 </p>
 
-Research ASO keywords, inspect competition, and manage results from one local-first CLI.
+Research ASO keywords, inspect competition, and manage results from one local-first CLI. [Visit the ASO CLI website](https://asocli.com/).
 
 ## What Is It?
 
