@@ -31,8 +31,3 @@ export function resolveSiteUrl(pathname = "/") {
   const normalizedPath = pathname === "/" ? "" : pathname.replace(/^\/+/, "");
   return new URL(normalizedPath, siteRootUrl).toString();
 }
-
-export function resolveSitePath(pathname) {
-  const url = new URL(resolveSiteUrl(pathname));
-  return url.pathname + url.hash;
-}

@@ -1,7 +1,7 @@
 # Website Architecture
 
 ## Scope
-- Static marketing/discovery site for `aso-cli` with a product homepage and a dedicated MCP setup guide.
+- Static marketing/discovery site for `aso-cli` with a single page.
 - Purpose: SEO and discoverability, not product runtime.
 
 ## Stack
@@ -24,15 +24,15 @@
   - `PUBLIC_SITE_ORIGIN`
   - `PUBLIC_SITE_BASE_PATH`
 - Generated SEO artifacts:
-  - per-page canonical URL and social metadata from the shared `SiteHead` component
-  - `robots.txt` allows public crawling and advertises the sitemap
-  - `sitemap.xml` lists the homepage and MCP guide
-  - `llms.txt` links to setup and reference sources. Both pages advertise it with `rel="describedby"`.
-  - homepage JSON-LD connects the site, landing page, creator, and software application
+  - canonical URL + Open Graph/Twitter tags in `src/pages/index.astro`
+  - `robots.txt`
+  - `sitemap.xml` lists the canonical homepage URL
+  - `llms.txt`
+  - JSON-LD graph linking the website, landing page, creator, and software application
 
 ## Analytics Contract
-- Firebase Analytics is enabled for both pages to capture default GA4 web events, including page views.
-- Initialization is client-side only from the shared page head via `website/src/firebase-analytics.ts`.
+- Firebase Analytics is enabled for the website to capture default GA4 web events, including page views.
+- Initialization is client-side only from `website/src/pages/index.astro` via `website/src/firebase-analytics.ts`.
 - No custom click/CTA event tracking is implemented; behavior is intentionally limited to default analytics signals.
 
 ## Deploy Contract
@@ -52,7 +52,6 @@
   - `assets/app-icon/aso-icon-readme.png`
   - `cli/dashboard-ui/public/dashboard.jpg`
   - `cli/dashboard-ui/public/mcp.jpg`
-- Astro generates responsive WebP screenshots for the pages. Social metadata uses the original JPEGs.
 - No duplicate tracked copies under `website/`; README and website stay visually in sync.
 
 ## Typography Policy
