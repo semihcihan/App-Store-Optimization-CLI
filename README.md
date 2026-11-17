@@ -13,6 +13,8 @@
 
 Research ASO keywords, inspect competition, and manage results from one local-first CLI.
 
+[Visit the ASO CLI website](https://asocli.com/).
+
 ## What Is It?
 
 - Fast, free keyword research and visibility tracking
@@ -192,4 +194,3 @@ Example MCP config:
 ## Project Docs
 
 - Contribution guide: [CONTRIBUTING.md](CONTRIBUTING.md)
-- Website architecture: [docs/website-architecture.md](docs/website-architecture.md)
